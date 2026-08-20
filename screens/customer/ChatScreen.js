@@ -157,11 +157,30 @@ export default function ChatScreen({ route, navigation }) {
     }
   }
 
-  async function confirmCard(messageId, currentConfirmedBy) {
+  async function confirmCard(messageId, currentConfirmedBy, cardData) {
     if (currentConfirmedBy?.includes(currentUserId)) return; // already confirmed
     const updated = [...(currentConfirmedBy || []), currentUserId];
     await supabase.from('messages').update({ confirmed_by: updated }).eq('id', messageId);
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, confirmed_by: updated } : m));
+
+    // Once BOTH sides have tapped confirm on a real price (not every
+    // service_confirmation card sets one — price is optional), sync it
+    // into the linked booking. Only meaningful for an inquiry — a real,
+    // already-paid booking's total_amount must never be silently rewritten
+    // from a chat card. commission_amount recomputed at this app's
+    // documented 10% rate (CLAUDE.md), same as CreateBookingScreen.js's own
+    // computation. status stays 'inquiry' (the host still has to actually
+    // pay) — CreateBookingScreen.js reads the now-accurate total_amount
+    // when the host taps back in to complete payment-term selection.
+    if (updated.length >= 2 && cardData?.price != null && booking.status === 'inquiry') {
+      const commissionAmount = Math.round(cardData.price * 0.10);
+      const { error } = await supabase
+        .from('bookings')
+        .update({ total_amount: cardData.price, commission_amount: commissionAmount })
+        .eq('id', booking.id)
+        .eq('status', 'inquiry'); // belt-and-suspenders: never touch a booking that moved on since this screen opened
+      if (error) console.log('Sync confirmed price to booking error:', error.message);
+    }
   }
 
   function formatTime(dateStr) {
@@ -195,6 +214,16 @@ export default function ChatScreen({ route, navigation }) {
     'Thank you!',
   ];
 
+  // Computed live from the messages list, not the route param `booking`
+  // snapshot (which never updates after this screen opens) — true once any
+  // service_confirmation card with a real price has been tapped by both
+  // sides. Only the customer sees the CTA to proceed (the provider side of
+  // this screen has nothing to pay).
+  const confirmedPriceMessage = messages.find(m =>
+    m.message_type === 'service_confirmation' && m.card_data?.price != null && (m.confirmed_by?.length || 0) >= 2
+  );
+  const showProceedToPayment = booking.status === 'inquiry' && !!confirmedPriceMessage && currentUserId === booking.customer_id;
+
   return (
     <SafeAreaView style={s.container}>
       {/* Header */}
@@ -217,6 +246,14 @@ export default function ChatScreen({ route, navigation }) {
         </View>
         <View style={{ width: 32 }} />
       </View>
+
+      {showProceedToPayment && (
+        <TouchableOpacity style={s.proceedToPaymentBanner} onPress={() => navigation.navigate('Booking', { bookingId: booking.id })}>
+          <Text style={s.proceedToPaymentText}>
+            ✓ Price confirmed: ₹{confirmedPriceMessage.card_data.price.toLocaleString()} — tap to proceed to payment →
+          </Text>
+        </TouchableOpacity>
+      )}
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -308,7 +345,7 @@ export default function ChatScreen({ route, navigation }) {
                             s.confirmTapBtn,
                             item.confirmed_by?.includes(currentUserId) && s.confirmTapBtnDone
                           ]}
-                          onPress={() => confirmCard(item.id, item.confirmed_by)}
+                          onPress={() => confirmCard(item.id, item.confirmed_by, item.card_data)}
                           disabled={item.confirmed_by?.includes(currentUserId)}
                         >
                           <Text style={s.confirmTapBtnText}>
@@ -457,6 +494,9 @@ function makeStyles(theme) {
     headerAvatarText: { fontSize: 14, color: '#FFF', fontWeight: '700' },
     headerName: { fontSize: 14.5, fontWeight: '700', color: theme.text },
     headerSub: { fontSize: 11, color: theme.textSecondary },
+
+    proceedToPaymentBanner: { backgroundColor: '#E8F5E9', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: '#C8E6C9' },
+    proceedToPaymentText: { fontSize: 12.5, fontWeight: '700', color: '#2E7D32', textAlign: 'center' },
 
     centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
     loadingText: { fontSize: 13, color: theme.textSecondary },

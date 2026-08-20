@@ -16,7 +16,7 @@ import AppHeader from '../../components/AppHeader';
 
 // Cancellable from the customer's side — a completed/declined/cancelled/
 // reviewed booking is a closed record, nothing left to cancel.
-const CANCELLABLE_STATUSES = ['pending', 'confirmed', 'payment_pending'];
+const CANCELLABLE_STATUSES = ['pending', 'confirmed', 'payment_pending', 'inquiry'];
 // Deletable (archived, not row-deleted) from the customer's side — only once
 // it's closed. Same archived_by_customer flag InboxScreen.js already uses to
 // hide a booking's chat thread; the provider's own copy (archived_by_provider)
@@ -273,9 +273,14 @@ export default function BookingsScreen({ navigation, route }) {
     navigation.navigate('Booking', { bookingId: booking.id });
   }
 
+  // inquiry rows have no event_date requirement the way real bookings do
+  // (event_date can still be null/tentative pre-confirmation) — included in
+  // upcoming unconditionally rather than gated on the date check the other
+  // statuses use, since "still talking to the vendor" is always current,
+  // never meaningfully "in the past."
   const upcoming = bookings.filter(b =>
-    ['pending', 'confirmed', 'payment_pending'].includes(b.status) &&
-    new Date(b.event_date) >= new Date()
+    b.status === 'inquiry' ||
+    (['pending', 'confirmed', 'payment_pending'].includes(b.status) && new Date(b.event_date) >= new Date())
   );
 
   const past = bookings.filter(b =>
@@ -286,12 +291,22 @@ export default function BookingsScreen({ navigation, route }) {
   const displayed = activeTab === 'upcoming' ? upcoming : past;
 
   const STATUS = {
+    // Real bookings.status values, confirmed against the live payment
+    // flow (verify-razorpay-payment/index.ts sets 'pending' immediately
+    // after a verified payment, before the provider has accepted) — this
+    // entry's label previously described 'pending' as a pre-payment,
+    // negotiate-in-chat state, apparently left over from an earlier,
+    // unfinished attempt at the inquiry feature below and never corrected;
+    // fixed here since it actively misrepresented a real paid booking's
+    // status to the host.
+    pending: { label: 'Awaiting provider confirmation', bg: '#FFF3E0', color: '#E65100', icon: '⏳' },
+    payment_pending: { label: 'Payment pending', bg: '#FFF3E0', color: '#E65100', icon: '💳' },
     // A booking created via "Confirm with vendor first" (CreateBookingScreen.js)
     // — a real bookings row with no payment yet, meant for negotiating terms
-    // in chat before committing. Label distinguishes it from payment_pending
-    // (terms already settled, payment is the only thing left).
-    pending: { label: 'Confirm terms with vendor', bg: theme.statusPending, color: theme.statusPendingText, icon: '💬' },
-    payment_pending: { label: 'Payment pending', bg: '#FFF3E0', color: '#E65100', icon: '💳' },
+    // in chat before committing to anything. This is the actual "still
+    // talking to the vendor" state the 'pending' label above used to
+    // (incorrectly) describe.
+    inquiry: { label: 'Awaiting vendor response', bg: theme.statusPending, color: theme.statusPendingText, icon: '💬' },
     confirmed: { label: 'Confirmed', bg: theme.statusConfirmed, color: theme.statusConfirmedText, icon: '✓' },
     completed: { label: 'Completed', bg: theme.statusConfirmed, color: theme.statusConfirmedText, icon: '✓' },
     reviewed: { label: 'Reviewed', bg: '#E8F5E9', color: '#2E7D32', icon: '⭐' },

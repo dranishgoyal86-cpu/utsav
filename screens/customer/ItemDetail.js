@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import { showAlert } from '../../helpers';
-import { resolveVendorCategorySlug } from '../../lib/vendorCategoryBridge';
+import { resolveMatchKey } from '../../vendorTaxonomy';
 import { eventTypeName } from '../../lib/eventTypeNames';
 import { getAvoidProviderIds } from '../../customerMemory';
 import AppHeader from '../../components/AppHeader';
@@ -42,11 +42,11 @@ export default function ItemDetail({ route, navigation }) {
       setSavedPlanId(linkedPlan?.id || null);
 
       // services has no category_slug — and no city — of its own. category
-      // is bridged via the same helper the plan engine itself uses
-      // (lib/vendorCategoryBridge.js); city lives on the provider, not the
-      // service (confirmed against the live schema — services has no city
-      // column at all), so the city filter has to happen on the providers
-      // query below, not here.
+      // is qualified via the same helper the plan engine itself uses
+      // (vendorTaxonomy.js's resolveMatchKey); city lives on the provider,
+      // not the service (confirmed against the live schema — services has
+      // no city column at all), so the city filter has to happen on the
+      // providers query below, not here.
       const { data: activeServices, error: servicesError } = await supabase
         .from('services')
         .select('id, provider_id, category')
@@ -64,7 +64,7 @@ export default function ItemDetail({ route, navigation }) {
 
       const matchingProviderIds = [...new Set(
         (activeServices || [])
-          .filter(sv => resolveVendorCategorySlug(sv.category) === categorySlug)
+          .filter(sv => resolveMatchKey(sv.category) === categorySlug)
           .map(sv => sv.provider_id)
           .filter(Boolean)
       )].filter(id => !avoidProviderIds.includes(id));

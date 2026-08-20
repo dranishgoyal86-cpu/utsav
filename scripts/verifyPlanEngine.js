@@ -23,6 +23,8 @@ const { billableGuests, volumeMultiplier, estimateItem, estimateVenue, allocateB
   loadEsmAsCjs(path.resolve(__dirname, '..', 'lib', 'priceEngine.js'));
 const { buildChecklistContext } =
   loadEsmAsCjs(path.resolve(__dirname, '..', 'lib', 'checklistContext.js'));
+const { resolveMatchKey, VENDOR_TAXONOMY } =
+  loadEsmAsCjs(path.resolve(__dirname, '..', 'vendorTaxonomy.js'));
 
 let passCount = 0;
 let failCount = 0;
@@ -34,6 +36,7 @@ function assert(label, cond) {
 function req(overrides) {
   return {
     event_type_slug: null, sub_event_slug: null, item_name: null, category_slug: null,
+    legacy_category_slug: null,
     priority: 'P1', contextual_label: null, min_guest_count: null, max_guest_count: null,
     min_age: null, max_age: null, condition_flag: null, suppressed_when_dry: false,
     suppressed_when_veg: false, sort_order: 0,
@@ -42,40 +45,51 @@ function req(overrides) {
 }
 
 // ── event_requirements fixture ──
+// category_slug is now a real "Parent > Subcategory" key (or the 'Venues'/
+// 'Event Planning' bare prefix-match markers), per
+// supabase/migrations/retire_vendor_categories_bridge.sql. legacy_category_slug
+// preserves the pre-migration coarse slug ONLY on rows this fixture's own
+// venue/in-house-catering tests (#2-#4) actually compare against — those
+// two checks read legacy_category_slug specifically (see
+// lib/eventResolver.js), since venues.provided_items is real, unmigrated
+// live data still in the old format.
 const REQUIREMENTS = [
   // hindu-wedding, event level
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Venue', category_slug: 'venues', priority: 'P1', sort_order: 0 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Caterer', category_slug: 'catering', priority: 'P1', sort_order: 1 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Decorator', category_slug: 'decor', priority: 'P1', sort_order: 2 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Priest', category_slug: 'priests-officiants', priority: 'P1', sort_order: 3 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Photographer', category_slug: 'photography', priority: 'P1', sort_order: 4 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Seating', category_slug: 'furniture-seating', priority: 'P1', sort_order: 5 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Power & utilities', category_slug: 'power-utilities', priority: 'P1', sort_order: 6 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Sound & AV', category_slug: 'sound-av', priority: 'P1', sort_order: 7 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Wedding planner', category_slug: 'event-planning', priority: 'P2', min_guest_count: 150, sort_order: 0 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Bar services', category_slug: 'bar-services', priority: 'P3', suppressed_when_dry: true, sort_order: 0 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Venue', category_slug: 'Venues', priority: 'P1', sort_order: 0 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Caterer', category_slug: 'Food & Beverages > Caterers', legacy_category_slug: 'catering', priority: 'P1', sort_order: 1 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Decorator', category_slug: 'Decoration & Styling > Event Decorators', priority: 'P1', sort_order: 2 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Priest', category_slug: 'Religious & Cultural Services > Priests', priority: 'P1', sort_order: 3 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Photographer', category_slug: 'Photography & Videography > Event Photography', priority: 'P1', sort_order: 4 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Seating', category_slug: 'Event Rentals > Furniture Rental', legacy_category_slug: 'furniture-seating', priority: 'P1', sort_order: 5 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Power & utilities', category_slug: 'Rentals & Utilities > Power Backup', legacy_category_slug: 'power-utilities', priority: 'P1', sort_order: 6 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Sound & AV', category_slug: 'Audio Visual & Production > Sound Systems', legacy_category_slug: 'sound-av', priority: 'P1', sort_order: 7 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Wedding planner', category_slug: 'Event Planning', priority: 'P2', min_guest_count: 150, sort_order: 0 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Bar services', category_slug: 'Food & Beverages > Bartending Services', priority: 'P3', suppressed_when_dry: true, sort_order: 0 }),
   // hindu-wedding / sangeet sub-event
-  req({ event_type_slug: 'hindu-wedding', sub_event_slug: 'sangeet', item_name: 'Bar services (Sangeet)', category_slug: 'bar-services', priority: 'P3', suppressed_when_dry: true, sort_order: 0 }),
+  req({ event_type_slug: 'hindu-wedding', sub_event_slug: 'sangeet', item_name: 'Bar services (Sangeet)', category_slug: 'Food & Beverages > Bartending Services', priority: 'P3', suppressed_when_dry: true, sort_order: 0 }),
   // hindu-wedding / mehendi sub-event — for the real event_functions-driven
   // per-function resolution test (#13 below), distinct from sangeet above.
-  req({ event_type_slug: 'hindu-wedding', sub_event_slug: 'mehendi', item_name: 'Mehendi artist', category_slug: 'beauty', priority: 'P1', sort_order: 0 }),
+  req({ event_type_slug: 'hindu-wedding', sub_event_slug: 'mehendi', item_name: 'Mehendi artist', category_slug: 'Wedding Services > Mehendi Artists', priority: 'P1', sort_order: 0 }),
   // condition_flag rows added for the is_outdoor/season/outstation fixes —
   // real event_type_slug + category_slug values, matching this fixture's
   // own "transcribed like the live seed" convention.
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Weather backup', category_slug: 'tent-mandap', priority: 'P5', condition_flag: 'is_outdoor', sort_order: 1 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Rain cover / weather tent', category_slug: 'tent-mandap', priority: 'P4', condition_flag: 'is_monsoon', sort_order: 2 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Extra cooling', category_slug: 'power-utilities', priority: 'P4', condition_flag: 'is_summer', sort_order: 3 }),
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Guest accommodation', category_slug: 'guest-accommodation', priority: 'P2', condition_flag: 'has_outstation_guests', sort_order: 4 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Weather backup', category_slug: 'Event Rentals > Tent & Shamiana', priority: 'P5', condition_flag: 'is_outdoor', sort_order: 1 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Rain cover / weather tent', category_slug: 'Event Rentals > Tent & Shamiana', priority: 'P4', condition_flag: 'is_monsoon', sort_order: 2 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Extra cooling', category_slug: 'Rentals & Utilities > Power Backup', priority: 'P4', condition_flag: 'is_summer', sort_order: 3 }),
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Guest accommodation', category_slug: 'Accommodation > Hotels', priority: 'P2', condition_flag: 'has_outstation_guests', sort_order: 4 }),
 
-  // satyanarayan-katha (religious event)
-  req({ event_type_slug: 'satyanarayan-katha', item_name: 'Prasad caterer', category_slug: 'prasad-caterer', priority: 'P1', sort_order: 0 }),
-  req({ event_type_slug: 'satyanarayan-katha', item_name: 'Priest', category_slug: 'priests-officiants', priority: 'P1', sort_order: 1 }),
+  // satyanarayan-katha (religious event) — legacy_category_slug set on both
+  // so test #4 can prove prasad-caterer is a distinct legacy slug from
+  // catering (the actual in-house-catering-suppression check reads
+  // legacy_category_slug, not category_slug).
+  req({ event_type_slug: 'satyanarayan-katha', item_name: 'Prasad caterer', category_slug: 'Food & Beverages > Prasad Caterers', legacy_category_slug: 'prasad-caterer', priority: 'P1', sort_order: 0 }),
+  req({ event_type_slug: 'satyanarayan-katha', item_name: 'Priest', category_slug: 'Religious & Cultural Services > Priests', priority: 'P1', sort_order: 1 }),
 
   // kids-birthday
-  req({ event_type_slug: 'kids-birthday', item_name: 'Cake', category_slug: 'bakery-cakes', priority: 'P1', sort_order: 0 }),
-  req({ event_type_slug: 'kids-birthday', item_name: 'Bouncy castle', category_slug: 'kids-entertainment', priority: 'P3', max_age: 7, sort_order: 0 }),
-  req({ event_type_slug: 'kids-birthday', item_name: 'Science show', category_slug: 'kids-entertainment', priority: 'P3', min_age: 8, sort_order: 1 }),
-  req({ event_type_slug: 'kids-birthday', item_name: 'Babysitter for other kids', category_slug: 'childcare', priority: 'P4', condition_flag: 'has_children', sort_order: 0 }),
+  req({ event_type_slug: 'kids-birthday', item_name: 'Cake', category_slug: 'Food & Beverages > Bakery & Cakes', priority: 'P1', sort_order: 0 }),
+  req({ event_type_slug: 'kids-birthday', item_name: 'Bouncy castle', category_slug: 'Kids Party Services > Bouncy Castles', priority: 'P3', max_age: 7, sort_order: 0 }),
+  req({ event_type_slug: 'kids-birthday', item_name: 'Science show', category_slug: 'Entertainment > Kids Entertainment', priority: 'P3', min_age: 8, sort_order: 1 }),
+  req({ event_type_slug: 'kids-birthday', item_name: 'Babysitter for other kids', category_slug: 'Kids Party Services > Childcare & Creche Services', priority: 'P4', condition_flag: 'has_children', sort_order: 0 }),
 ];
 
 // ── vendor_categories fixture ──
@@ -207,8 +221,8 @@ console.log('\n=== 12. allocateBudget — P5 never allocated ===');
   // Synthetic P5 items added directly (fixture data above has none) to
   // positively prove the loop skips P5 even when it's non-empty.
   resolved.P5 = [
-    { item_name: 'Photobooth extra', category_slug: 'photo-booths', priority: 'P5', sort_order: 0 },
-    { item_name: 'Drone follow-cam', category_slug: 'drone-aerial', priority: 'P5', sort_order: 1 },
+    { item_name: 'Photobooth extra', category_slug: 'Photography & Videography > Instant Photo Booths', priority: 'P5', sort_order: 0 },
+    { item_name: 'Drone follow-cam', category_slug: 'Photography & Videography > Drone Photography', priority: 'P5', sort_order: 1 },
   ];
   const estimates = {
     'Venue': { available: true, low: 200000, high: 400000 },
@@ -348,8 +362,8 @@ console.log('\n=== 17. Per-function progress/budget via bookings.sub_event_id (r
   // booking — exactly the shape hooks/useEventPlan.js now fetches
   // (status, category_slug, sub_event_id).
   const bookingsFixture = [
-    { status: 'confirmed', category_slug: 'venues', sub_event_id: null },
-    { status: 'confirmed', category_slug: 'catering', sub_event_id: 'se-sangeet' },
+    { status: 'confirmed', category_slug: 'Venues', sub_event_id: null },
+    { status: 'confirmed', category_slug: 'Food & Beverages > Caterers', sub_event_id: 'se-sangeet' },
   ];
 
   // Whole-event baseline: scoped to sub_event_id IS NULL, same filter
@@ -407,14 +421,80 @@ console.log('\n=== Bonus: computeProgress ===');
 {
   const resolved = resolveRequirements(REQUIREMENTS, { eventTypeSlug: 'hindu-wedding', guestCount: 350 }, null);
   const bookings = [
-    { category_slug: 'venues', status: 'confirmed' },
-    { category_slug: 'catering', status: 'payment_failed' }, // not handled
-    { category_slug: 'decor', status: 'completed' },
+    { category_slug: 'Venues', status: 'confirmed' },
+    { category_slug: 'Food & Beverages > Caterers', status: 'payment_failed' }, // not handled
+    { category_slug: 'Decoration & Styling > Event Decorators', status: 'completed' },
   ];
-  const progress = computeProgress(resolved, bookings, ['priests-officiants']);
+  const progress = computeProgress(resolved, bookings, ['Religious & Cultural Services > Priests']);
   assert('venues counted as handled (confirmed)', progress.p1Handled >= 2); // venues + decor + arranged priest = 3, but at least covers the base
-  const progress2 = computeProgress(resolved, [{ category_slug: 'venues', status: 'payment_pending' }], []);
+  const progress2 = computeProgress(resolved, [{ category_slug: 'Venues', status: 'payment_pending' }], []);
   assert('payment_pending counts as handled, not just confirmed', progress2.p1Handled === 1);
+}
+
+console.log('\n=== 18. resolveMatchKey — the 56 migrated slugs, live and end to end ===');
+{
+  // Every target from supabase/migrations/retire_vendor_categories_bridge.sql's
+  // 56 UPDATE statements, keyed by a real subcategory that should resolve
+  // to it — proves resolveMatchKey() actually produces the exact string
+  // the migration wrote, not just that some string comes out.
+  const MIGRATION_TARGETS = [
+    ['Caterers', 'Food & Beverages > Caterers'], ['Event Photography', 'Photography & Videography > Event Photography'],
+    ['Banquet Halls', 'Venues'], ['Event Decorators', 'Decoration & Styling > Event Decorators'],
+    ['Kids Games', 'Kids Party Services > Kids Games'], ['Security Guards', 'Security & Safety > Security Guards'],
+    ['Return Gifts', 'Entertainment > Live Bands'], // placeholder overwritten below (dup-name case)
+    ['Live Food Counters', 'Food & Beverages > Live Food Counters'], ['Sound Systems', 'Audio Visual & Production > Sound Systems'],
+    ['Cleaning Services', 'Post Event Services > Cleaning Services'], ['Power Backup', 'Rentals & Utilities > Power Backup'],
+    ['Fresh Flowers', 'Florists > Fresh Flowers'], ['Lighting Systems', 'Audio Visual & Production > Lighting Systems'],
+    ['Live Bands', 'Entertainment > Live Bands'], ['Medical Team', 'Security & Safety > Medical Team'],
+    ['DJs', 'Entertainment > DJs'], ['Cinematic Videography', 'Photography & Videography > Cinematic Videography'],
+    ['Priests', 'Religious & Cultural Services > Priests'], ['Bartending Services', 'Food & Beverages > Bartending Services'],
+    ['Registration Software', 'Event Technology > Registration Software'], ['Wedding Cards', 'Invitations & Printing > Wedding Cards'],
+    ['Instant Photo Booths', 'Photography & Videography > Instant Photo Booths'], ['LED Screens', 'Audio Visual & Production > LED Screens'],
+    ['Audience Engagement', 'Event Technology > Audience Engagement'], ['Trussing', 'Audio Visual & Production > Trussing'],
+    ['Bakery & Cakes', 'Food & Beverages > Bakery & Cakes'], ['Furniture Rental', 'Event Rentals > Furniture Rental'],
+    ['Celebrity Appearances', 'Artists & Performers > Celebrity Appearances'], ['Luxury Cars', 'Logistics & Transport > Luxury Cars'],
+    ['Corporate Branding', 'Printing & Branding > Corporate Branding'], ['Hospitality Staff', 'Event Staffing > Hospitality Staff'],
+    ['Ritual & Havan Supplies', 'Religious & Cultural Services > Ritual & Havan Supplies'], ['Tent & Shamiana', 'Event Rentals > Tent & Shamiana'],
+    ['Emcees (Anchors)', 'Entertainment > Emcees (Anchors)'], ['Drone Photography', 'Photography & Videography > Drone Photography'],
+    ['Pyrotechnics', 'Audio Visual & Production > Pyrotechnics'], ['Live Streaming', 'Photography & Videography > Live Streaming'],
+    ['Makeup Artists', 'Beauty & Wellness > Makeup Artists'], ['Valet Parking', 'Logistics & Transport > Valet Parking'],
+    ['Prasad Caterers', 'Food & Beverages > Prasad Caterers'], ['Childcare & Creche Services', 'Kids Party Services > Childcare & Creche Services'],
+    ['Dhol & Baraat Bands', 'Entertainment > Dhol & Baraat Bands'], ['Hotels', 'Accommodation > Hotels'],
+    ['Internet/Wi-Fi', 'Rentals & Utilities > Internet/Wi-Fi'], ['Influencers', 'Artists & Performers > Influencers'],
+    ['Translation & Interpretation', 'Event Staffing > Translation & Interpretation'], ['Choreographers', 'Entertainment > Choreographers'],
+    ['Mehendi Artists', 'Wedding Services > Mehendi Artists'],
+    ['Team Building Activities', 'Corporate Event Services > Team Building Activities'],
+    ['Yoga Instructors', 'Beauty & Wellness > Yoga Instructors'],
+    ['Grooming Experts', 'Beauty & Wellness > Grooming Experts'],
+    ['Pet Care Services', 'Security & Safety > Pet Care Services'],
+    ['Exhibition Booths', 'Corporate Event Services > Exhibition Booths'],
+    ['Ticketing Platforms', 'Event Technology > Ticketing Platforms'],
+  ];
+  let migrationTargetsOk = true;
+  for (const [sub, expected] of MIGRATION_TARGETS) {
+    if (sub === 'Return Gifts') continue; // dup-name case, tested explicitly below instead
+    if (resolveMatchKey(sub) !== expected) { migrationTargetsOk = false; console.log(`    mismatch: ${sub} -> ${resolveMatchKey(sub)} (expected ${expected})`); }
+  }
+  assert('every non-ambiguous migration target round-trips through resolveMatchKey() exactly', migrationTargetsOk);
+
+  assert('Venues prefix-matches any of the 14 real venue subcategories', ['Banquet Halls', 'Rooftop Venues', 'Farmhouses'].every(s => resolveMatchKey(s) === 'Venues'));
+  assert('Event Planning prefix-matches Wedding Services subcategories', resolveMatchKey('Wedding Planners') === 'Event Planning');
+  assert('Event Planning prefix-matches Event Planning & Management subcategories too (the real two-parent case)', resolveMatchKey('Event Coordinator') === 'Event Planning');
+
+  console.log('  --- 5 duplicate-name cases: first-match-wins, deterministic, matches the parent iteration order ---');
+  assert('Magicians -> Entertainment (first parent in VENDOR_TAXONOMY iteration order)', resolveMatchKey('Magicians') === 'Entertainment > Magicians');
+  assert('Return Gifts -> Wedding Services (appears there before Gifts & Favours)', resolveMatchKey('Return Gifts') === 'Wedding Services > Return Gifts');
+  assert('Tattoo Artists -> Kids Party Services (appears there before Miscellaneous)', resolveMatchKey('Tattoo Artists') === 'Kids Party Services > Tattoo Artists');
+  assert('Video Editing -> Photography & Videography (appears there before Post Event Services)', resolveMatchKey('Video Editing') === 'Photography & Videography > Video Editing');
+  assert('Astrologers -> Religious & Cultural Services (appears there before Miscellaneous)', resolveMatchKey('Astrologers') === 'Religious & Cultural Services > Astrologers');
+
+  console.log('  --- 6 content-gap subcategories + pet-care, reachable end to end ---');
+  const NEW_SUBCATEGORIES = ['Ritual & Havan Supplies', 'Prasad Caterers', 'Childcare & Creche Services', 'Translation & Interpretation', 'Dhol & Baraat Bands', 'Choreographers', 'Pet Care Services'];
+  assert('all 7 new subcategories resolve to a real, non-null match key', NEW_SUBCATEGORIES.every(s => resolveMatchKey(s) !== null));
+  assert('all 7 are real entries in VENDOR_TAXONOMY (selectable in AddServiceScreen.js\'s picker)',
+    NEW_SUBCATEGORIES.every(s => Object.values(VENDOR_TAXONOMY).some(c => c.subcategories.includes(s))));
+
+  assert('unrecognized subcategory returns null, not a crash', resolveMatchKey('Something Nobody Sells') === null);
 }
 
 console.log(`\n=== Summary: ${passCount} passed, ${failCount} failed ===`);

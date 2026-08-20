@@ -106,6 +106,18 @@ export default function AddServiceScreen({ navigation, route }) {
   const [description, setDescription] = useState(existingService?.description || '');
   const [priceFrom, setPriceFrom] = useState(existingService?.price_from?.toString() || '');
   const [priceTo, setPriceTo] = useState(existingService?.price_to?.toString() || '');
+  // Optional refinement on top of the required price_from/price_to headline
+  // range above — when set, the event-plan engine (priceEngine.js /
+  // hooks/useEventPlan.js's buildMedianMap) computes a real per-event
+  // number from these instead of just using the flat range. price_from/
+  // price_to still always display on the listing card either way; this
+  // never replaces them, only makes the checklist estimate more accurate.
+  const [pricingModel, setPricingModel] = useState(existingService?.pricing_model || 'flat');
+  const [pricePerGuest, setPricePerGuest] = useState(existingService?.price_per_guest?.toString() || '');
+  const [pricePerHour, setPricePerHour] = useState(existingService?.price_per_hour?.toString() || '');
+  const [pricePerDay, setPricePerDay] = useState(existingService?.price_per_day?.toString() || '');
+  const [travelSurchargePerKm, setTravelSurchargePerKm] = useState(existingService?.travel_surcharge_per_km?.toString() || '');
+  const [travelFreeRadiusKm, setTravelFreeRadiusKm] = useState(existingService?.travel_free_radius_km?.toString() || '');
   const [photos, setPhotos] = useState(existingService?.photos || []);
   const [videos, setVideos] = useState(existingService?.videos || []);
   const [uploadingMedia, setUploadingMedia] = useState(false);
@@ -452,6 +464,12 @@ export default function AddServiceScreen({ navigation, route }) {
         description: description.trim() || null,
         price_from: parseInt(priceFrom),
         price_to: priceTo ? parseInt(priceTo) : null,
+        pricing_model: pricingModel !== 'flat' ? pricingModel : null,
+        price_per_guest: pricingModel === 'per_guest' && pricePerGuest ? parseFloat(pricePerGuest) : null,
+        price_per_hour: pricingModel === 'per_hour' && pricePerHour ? parseFloat(pricePerHour) : null,
+        price_per_day: pricingModel === 'per_day' && pricePerDay ? parseFloat(pricePerDay) : null,
+        travel_surcharge_per_km: travelSurchargePerKm ? parseFloat(travelSurchargePerKm) : null,
+        travel_free_radius_km: travelSurchargePerKm && travelFreeRadiusKm ? parseFloat(travelFreeRadiusKm) : null,
         category: selectedCategory || null,
         event_types: selectedEventTypes,
         is_active: isActive,
@@ -724,6 +742,61 @@ export default function AddServiceScreen({ navigation, route }) {
                 {priceTo && !isNaN(parseInt(priceTo)) ? ` – ₹${parseInt(priceTo).toLocaleString()}` : '+'}
               </Text>
             ) : null}
+          </View>
+
+          <View style={s.fieldGroup}>
+            <Text style={s.label}>Pricing model (optional)</Text>
+            <Text style={s.fieldHint}>
+              Set a real rate and hosts' checklist estimates for your category use it directly — guest count,
+              hours, or days from their actual event — instead of just this listing's price range above.
+            </Text>
+            <View style={s.priceRow}>
+              {[
+                { value: 'flat', label: 'Flat' },
+                { value: 'per_guest', label: 'Per guest' },
+                { value: 'per_hour', label: 'Per hour' },
+                { value: 'per_day', label: 'Per day' },
+              ].map(opt => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[s.pricingModelChip, pricingModel === opt.value && s.pricingModelChipActive]}
+                  onPress={() => setPricingModel(opt.value)}
+                >
+                  <Text style={[s.pricingModelChipText, pricingModel === opt.value && s.pricingModelChipTextActive]}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {pricingModel === 'per_guest' && (
+              <View style={s.priceField}>
+                <Text style={s.pricePrefix}>₹</Text>
+                <TextInput style={s.priceInput} placeholder="Rate per guest" placeholderTextColor={theme.textTertiary} value={pricePerGuest} onChangeText={setPricePerGuest} keyboardType="number-pad" />
+              </View>
+            )}
+            {pricingModel === 'per_hour' && (
+              <View style={s.priceField}>
+                <Text style={s.pricePrefix}>₹</Text>
+                <TextInput style={s.priceInput} placeholder="Rate per hour" placeholderTextColor={theme.textTertiary} value={pricePerHour} onChangeText={setPricePerHour} keyboardType="number-pad" />
+              </View>
+            )}
+            {pricingModel === 'per_day' && (
+              <View style={s.priceField}>
+                <Text style={s.pricePrefix}>₹</Text>
+                <TextInput style={s.priceInput} placeholder="Rate per day" placeholderTextColor={theme.textTertiary} value={pricePerDay} onChangeText={setPricePerDay} keyboardType="number-pad" />
+              </View>
+            )}
+
+            <Text style={[s.label, { marginTop: 14 }]}>Travel surcharge (optional)</Text>
+            <Text style={s.fieldHint}>Charge extra when the venue is far from you — the free radius is included at no charge.</Text>
+            <View style={s.priceRow}>
+              <View style={s.priceField}>
+                <Text style={s.pricePrefix}>₹</Text>
+                <TextInput style={s.priceInput} placeholder="Per km beyond free radius" placeholderTextColor={theme.textTertiary} value={travelSurchargePerKm} onChangeText={setTravelSurchargePerKm} keyboardType="number-pad" />
+              </View>
+              <View style={s.priceField}>
+                <TextInput style={s.priceInput} placeholder="Free radius (km)" placeholderTextColor={theme.textTertiary} value={travelFreeRadiusKm} onChangeText={setTravelFreeRadiusKm} keyboardType="number-pad" />
+                <Text style={s.pricePrefix}>km</Text>
+              </View>
+            </View>
           </View>
 
           <View style={s.fieldGroup}>
@@ -1031,6 +1104,11 @@ function makeStyles(theme) {
     priceInput: { flex: 1, paddingVertical: 13, fontSize: 14, color: theme.text },
     priceSeparator: { fontSize: 13, color: theme.textSecondary },
     pricePreview: { fontSize: 12, color: theme.accent, fontWeight: '700', marginTop: 9 },
+
+    pricingModelChip: { flex: 1, paddingVertical: 11, borderRadius: 14, backgroundColor: theme.cardBg, borderWidth: 0.5, borderColor: theme.border, alignItems: 'center' },
+    pricingModelChipActive: { backgroundColor: theme.text, borderColor: theme.text },
+    pricingModelChipText: { fontSize: 12.5, fontWeight: '600', color: theme.textSecondary },
+    pricingModelChipTextActive: { color: theme.bg },
 
     templateFieldLabel: { fontSize: 12.5, fontWeight: '600', color: theme.text, marginBottom: 7 },
     generateBtn: {

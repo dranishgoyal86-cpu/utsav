@@ -366,9 +366,21 @@ export default function CreateBookingScreen({ route, navigation }) {
           guest_count: parseInt(guestCount),
           venue,
           notes,
+          // total_amount/commission_amount pre-filled with the current
+          // indicative estimate (same as a direct booking) rather than left
+          // null — the flow already shows this number to the host, and
+          // once the vendor confirms a real price via chat (ChatScreen.js's
+          // confirmCard(), see below), this row gets updated with the real
+          // figure. status: 'inquiry', NOT 'pending' — 'pending' means "paid,
+          // awaiting provider's accept/decline" elsewhere in this app
+          // (verify-razorpay-payment/index.ts sets it after a real payment);
+          // an inquiry has no payment at all yet, and must stay excluded
+          // from every consumer that treats 'pending' as a real, actionable
+          // booking (ProviderERP.js's Accept/Decline queue chief among them)
+          // — this was the exact bug in this function before this fix.
           total_amount: totalAmount,
           commission_amount: platformFee,
-          status: 'pending',
+          status: 'inquiry',
           payment_term_option_id: selectedPaymentTermId || null,
         })
         .select()

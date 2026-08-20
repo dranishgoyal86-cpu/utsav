@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabase';
 import { resolveRequirements, computeProgress, INACTIVE_BOOKING_STATUSES } from '../lib/eventResolver';
-import { estimateItem, allocateBudget } from '../lib/priceEngine';
-import { resolveVendorCategorySlug } from '../lib/vendorCategoryBridge';
+import { estimateItem, allocateBudget, billableGuests, volumeMultiplier } from '../lib/priceEngine';
+import { haversineMeters } from '../lib/haversine';
+import { resolveMatchKey } from '../vendorTaxonomy';
 import { resolveVenue } from '../lib/eventContext';
 import { buildChecklistContext } from '../lib/checklistContext';
 
@@ -66,22 +67,65 @@ function median(nums) {
   return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
-// Real per-city and national medians of price_from/price_to across active
-// services, bridged from services.category to vendor_categories.slug —
+// A service with structured pricing (pricing_model + a matching rate
+// column) gets a real computed price for THIS event's actual context,
+// instead of its stored flat price_from/price_to. Mirrors
+// priceEngine.js's own applyPricingModel() defaults exactly (hours ?? 6,
+// durationDays ?? 1) rather than inventing new ones, and reuses
+// billableGuests()/volumeMultiplier() for per_guest so a structured
+// caterer discounts at volume the same way the static catering reference
+// band already does. Travel surcharge only applies when the service set
+// travel_surcharge_per_km AND both the provider's and the venue's real
+// lat/lng are available — never fabricated from partial data (confirmed
+// live: 27423 of 27461 real providers have lat/lng, so this is populated
+// in practice, but still guarded for the rows that don't).
+function structuredServicePrice(sv, context) {
+  const { guestCount, venue } = context;
+  let amount = null;
+  if (sv.pricing_model === 'per_guest' && sv.price_per_guest != null) {
+    const billable = billableGuests(guestCount, venue);
+    amount = sv.price_per_guest * billable * volumeMultiplier(billable);
+  } else if (sv.pricing_model === 'per_hour' && sv.price_per_hour != null) {
+    amount = sv.price_per_hour * 6; // hours ?? 6, same default as priceEngine.js
+  } else if (sv.pricing_model === 'per_day' && sv.price_per_day != null) {
+    amount = sv.price_per_day * 1; // durationDays ?? 1, same default as priceEngine.js
+  } else if (sv.pricing_model === 'flat' && sv.price_from != null) {
+    amount = sv.price_from;
+  }
+  if (amount == null) return null;
+
+  if (sv.travel_surcharge_per_km != null && sv.lat != null && sv.lng != null && venue?.lat != null && venue?.lng != null) {
+    const distanceKm = haversineMeters({ lat: sv.lat, lng: sv.lng }, { lat: venue.lat, lng: venue.lng }) / 1000;
+    const freeRadius = sv.travel_free_radius_km ?? 0;
+    if (distanceKm > freeRadius) amount += (distanceKm - freeRadius) * sv.travel_surcharge_per_km;
+  }
+  return Math.round(amount);
+}
+
+// Real per-city and national medians across active services, qualified
+// from services.category to its real "Parent > Subcategory" match key —
 // this is the "serviceMedian" source estimateItem() prefers over the
-// static reference band.
-function buildMedianMap(services, eventCity) {
+// static reference band. Each service contributes either its structured,
+// context-computed price (guest count/hours/travel applied for real) when
+// it set one, or its stored flat price_from/price_to otherwise — same
+// median/city/national banding either way, only how one data point gets
+// produced differs.
+function buildMedianMap(services, eventCity, context = {}) {
   const bySlug = {};
   for (const sv of services) {
-    const slug = resolveVendorCategorySlug(sv.category);
+    const slug = resolveMatchKey(sv.category);
     if (!slug) continue;
+    const structured = sv.pricing_model ? structuredServicePrice(sv, context) : null;
+    const low = structured ?? sv.price_from;
+    const high = structured ?? (sv.price_to || sv.price_from);
+    if (low == null) continue;
     if (!bySlug[slug]) bySlug[slug] = { cityLows: [], cityHighs: [], natLows: [], natHighs: [] };
     const entry = bySlug[slug];
-    entry.natLows.push(sv.price_from);
-    entry.natHighs.push(sv.price_to || sv.price_from);
+    entry.natLows.push(low);
+    entry.natHighs.push(high);
     if (eventCity && sv.city === eventCity) {
-      entry.cityLows.push(sv.price_from);
-      entry.cityHighs.push(sv.price_to || sv.price_from);
+      entry.cityLows.push(low);
+      entry.cityHighs.push(high);
     }
   }
   const result = {};
@@ -244,13 +288,13 @@ export function useEventPlan(eventId) {
         const { data: bookedServices } = await supabase.from('services').select('id, category').in('id', bookingServiceIds);
         (bookedServices || []).forEach(sv => { servicesById[sv.id] = sv; });
       }
-      // bookings has no category_slug of its own — bridged here via
+      // bookings has no category_slug of its own — qualified here via
       // services.category. sub_event_id carried through unchanged (not
-      // bridged to anything — matched directly against event_functions'
+      // qualified to anything — matched directly against event_functions'
       // source_sub_event_id below, same raw uuid on both sides).
       const bookings = bookingsRaw.map(b => ({
         status: b.status,
-        category_slug: resolveVendorCategorySlug(servicesById[b.service_id]?.category),
+        category_slug: resolveMatchKey(servicesById[b.service_id]?.category),
         sub_event_id: b.sub_event_id,
       }));
 
@@ -284,16 +328,26 @@ export function useEventPlan(eventId) {
       // services has no city column of its own (confirmed against the live
       // schema) — city lives on the provider, so it's joined in JS below,
       // same two-separate-queries convention as everywhere else in this app.
+      // price_from is no longer required — a provider who only set
+      // structured pricing (pricing_model + a rate column, no flat range)
+      // must still be included, or their listing silently drops out of
+      // every price estimate.
       const { data: activeServices } = await supabase
-        .from('services').select('provider_id, category, price_from, price_to').eq('is_active', true).not('price_from', 'is', null);
+        .from('services')
+        .select('provider_id, category, price_from, price_to, pricing_model, price_per_guest, price_per_hour, price_per_day, travel_surcharge_per_km, travel_free_radius_km')
+        .eq('is_active', true)
+        .or('price_from.not.is.null,pricing_model.not.is.null');
       const medianProviderIds = [...new Set((activeServices || []).map(sv => sv.provider_id).filter(Boolean))];
-      let medianProviderCityById = {};
+      let medianProviderLocationById = {};
       if (medianProviderIds.length > 0) {
-        const { data: medianProviders } = await supabase.from('providers').select('id, city').in('id', medianProviderIds);
-        (medianProviders || []).forEach(p => { medianProviderCityById[p.id] = p.city; });
+        const { data: medianProviders } = await supabase.from('providers').select('id, city, lat, lng').in('id', medianProviderIds);
+        (medianProviders || []).forEach(p => { medianProviderLocationById[p.id] = p; });
       }
-      const activeServicesWithCity = (activeServices || []).map(sv => ({ ...sv, city: medianProviderCityById[sv.provider_id] || null }));
-      const medianByCategory = buildMedianMap(activeServicesWithCity, event.city);
+      const activeServicesWithCity = (activeServices || []).map(sv => {
+        const loc = medianProviderLocationById[sv.provider_id];
+        return { ...sv, city: loc?.city || null, lat: loc?.lat ?? null, lng: loc?.lng ?? null };
+      });
+      const medianByCategory = buildMedianMap(activeServicesWithCity, event.city, { guestCount: event.guest_count, venue: resolvedVenue });
 
       const categoriesBySlug = {};
       categories.forEach(c => { categoriesBySlug[c.slug] = c; });
@@ -318,7 +372,12 @@ export function useEventPlan(eventId) {
       };
       const estimates = {};
       for (const item of allItemsIncludingExtras) {
-        const category = categoriesBySlug[item.category_slug];
+        // vendor_categories.slug is still the old coarse slug (pricing
+        // bands are legitimately coarser than the full subcategory
+        // taxonomy) — legacy_category_slug preserves that value
+        // specifically for this lookup; category_slug itself is the new
+        // real matching key, used below for the service-median bucket.
+        const category = categoriesBySlug[item.legacy_category_slug];
         const serviceMedian = medianByCategory[item.category_slug] || null;
         estimates[item.item_name] = estimateItem(item, category, priceContext, serviceMedian, venue);
       }

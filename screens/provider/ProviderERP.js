@@ -292,10 +292,16 @@ function OverviewScreen({ navigation }) {
         });
       }
 
+      // 'inquiry' rows excluded — a host who chose "Confirm with vendor
+      // first" hasn't created a real, payment-committed booking yet, so it
+      // has no place in the booking-management Kanban/tabs (the provider
+      // sees and responds to it via chat instead, see PersonalVendorChat.js-
+      // style confirmation cards).
       const { data: bookingsRaw } = await supabase
         .from('bookings')
         .select('*')
         .eq('provider_id', providerData?.id)
+        .neq('status', 'inquiry')
         .order('created_at', { ascending: false });
 
       const bookingsList = bookingsRaw || [];
@@ -645,11 +651,14 @@ function BookingsScreen({ navigation }) {
         .from('providers').select('id').eq('user_id', session.user.id).maybeSingle();
       if (!providerData) { setBookings([]); return; }
 
+      // Same 'inquiry' exclusion as the other bookings fetch in this file —
+      // see that one's comment.
       const { data: bookingsRaw } = await supabase
         .from('bookings')
         .select('*')
         .eq('provider_id', providerData.id)
         .eq('archived_by_provider', false)
+        .neq('status', 'inquiry')
         .order('event_date', { ascending: true });
 
       const bookingsList = bookingsRaw || [];

@@ -11,7 +11,7 @@ export const AWS_CONFIG = {
 };
 
 export const RAZORPAY_CONFIG = {
-  keyId: 'rzp_test_TNzvCwHKjCy31S',
+  keyId: 'rzp_test_TRwRvFdKUZlcls',
   currency: 'INR',
   appName: 'Utsav',
 };

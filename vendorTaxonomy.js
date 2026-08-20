@@ -10,7 +10,7 @@ export const VENDOR_TAXONOMY = {
   },
   'Food & Beverages': {
     icon: '🍽️',
-    subcategories: ['Caterers', 'Live Food Counters', 'Bartending Services', 'Mocktail Bars', 'Coffee Stations', 'Dessert Counters', 'Ice Cream Vendors', 'Bakery & Cakes', 'Chocolatiers', 'Beverage Suppliers', 'Food Trucks'],
+    subcategories: ['Caterers', 'Live Food Counters', 'Bartending Services', 'Mocktail Bars', 'Coffee Stations', 'Dessert Counters', 'Ice Cream Vendors', 'Bakery & Cakes', 'Chocolatiers', 'Beverage Suppliers', 'Food Trucks', 'Prasad Caterers'],
   },
   'Decoration & Styling': {
     icon: '🎊',
@@ -22,7 +22,7 @@ export const VENDOR_TAXONOMY = {
   },
   'Entertainment': {
     icon: '🎤',
-    subcategories: ['DJs', 'Live Bands', 'Singers', 'Classical Musicians', 'Instrumentalists', 'Celebrity Performers', 'Stand-up Comedians', 'Emcees (Anchors)', 'Dancers', 'Dance Troupes', 'Magicians', 'Puppeteers', 'Kids Entertainment', 'Fire Shows', 'LED Dance Shows', 'Belly Dancers', 'Folk Artists', 'Orchestra', 'Mimicry Artists'],
+    subcategories: ['DJs', 'Live Bands', 'Singers', 'Classical Musicians', 'Instrumentalists', 'Celebrity Performers', 'Stand-up Comedians', 'Emcees (Anchors)', 'Dancers', 'Dance Troupes', 'Magicians', 'Puppeteers', 'Kids Entertainment', 'Fire Shows', 'LED Dance Shows', 'Belly Dancers', 'Folk Artists', 'Orchestra', 'Mimicry Artists', 'Dhol & Baraat Bands', 'Choreographers'],
   },
   'Wedding Services': {
     icon: '💍',
@@ -30,7 +30,7 @@ export const VENDOR_TAXONOMY = {
   },
   'Beauty & Wellness': {
     icon: '💄',
-    subcategories: ['Makeup Artists', 'Hair Stylists', 'Nail Artists', 'Spa Services', 'Salon at Venue', 'Grooming Experts', 'Massage Services'],
+    subcategories: ['Makeup Artists', 'Hair Stylists', 'Nail Artists', 'Spa Services', 'Salon at Venue', 'Grooming Experts', 'Massage Services', 'Yoga Instructors', 'Meditation & Mindfulness', 'Wellness Retreat Coordinators'],
   },
   'Audio Visual & Production': {
     icon: '🔊',
@@ -58,11 +58,11 @@ export const VENDOR_TAXONOMY = {
   },
   'Corporate Event Services': {
     icon: '💼',
-    subcategories: ['Team Building Activities', 'Conference Management', 'Product Launch', 'Trade Shows', 'Exhibition Booths', 'Brand Activation', 'Promotional Staffing'],
+    subcategories: ['Team Building Activities', 'Conference Management', 'Product Launch', 'Trade Shows', 'Exhibition Booths', 'Brand Activation', 'Promotional Staffing', 'Corporate Trainers', 'Outdoor & Adventure Activities'],
   },
   'Kids Party Services': {
     icon: '🎈',
-    subcategories: ['Bouncy Castles', 'Cartoon Characters', 'Puppet Shows', 'Magicians', 'Face Painting', 'Tattoo Artists', 'Kids Games', 'Clowns'],
+    subcategories: ['Bouncy Castles', 'Cartoon Characters', 'Puppet Shows', 'Magicians', 'Face Painting', 'Tattoo Artists', 'Kids Games', 'Clowns', 'Childcare & Creche Services'],
   },
   'Event Technology': {
     icon: '📱',
@@ -74,7 +74,7 @@ export const VENDOR_TAXONOMY = {
   },
   'Security & Safety': {
     icon: '🛡️',
-    subcategories: ['Security Guards', 'Bouncers', 'Fire Safety', 'Ambulance Services', 'Medical Team', 'Crowd Management', 'CCTV Monitoring'],
+    subcategories: ['Security Guards', 'Bouncers', 'Fire Safety', 'Ambulance Services', 'Medical Team', 'Crowd Management', 'CCTV Monitoring', 'Pet Care Services'],
   },
   'Licensing & Compliance': {
     icon: '📜',
@@ -86,7 +86,7 @@ export const VENDOR_TAXONOMY = {
   },
   'Religious & Cultural Services': {
     icon: '🙏',
-    subcategories: ['Pandits', 'Granthis', 'Maulvis', 'Priests', 'Astrologers', 'Vastu Consultants', 'Bhajan Mandali', 'Kirtan Groups'],
+    subcategories: ['Pandits', 'Granthis', 'Maulvis', 'Priests', 'Astrologers', 'Vastu Consultants', 'Bhajan Mandali', 'Kirtan Groups', 'Ritual & Havan Supplies'],
   },
   'Decor Rentals': {
     icon: '🕯️',
@@ -102,7 +102,7 @@ export const VENDOR_TAXONOMY = {
   },
   'Event Staffing': {
     icon: '🧑‍💼',
-    subcategories: ['Hosts & Hostesses', 'Registration Staff', 'Ushers', 'Volunteers', 'Promoters', 'Hospitality Staff', 'Coordinators'],
+    subcategories: ['Hosts & Hostesses', 'Registration Staff', 'Ushers', 'Volunteers', 'Promoters', 'Hospitality Staff', 'Coordinators', 'Translation & Interpretation'],
   },
   'Rentals & Utilities': {
     icon: '🔌',
@@ -151,6 +151,37 @@ export function getParentCategory(subcategory) {
 export function resolveParentCategory(value) {
   if (!value) return null;
   return getParentCategory(value) || (CATEGORY_NAMES.includes(value) ? value : null);
+}
+
+// Replaces lib/vendorCategoryBridge.js entirely — a real service's bare
+// category string IS the taxonomy now (event_requirements.category_slug
+// stores real "Parent > Subcategory" keys directly), so this just qualifies
+// it with its parent instead of translating it down to a coarse
+// vendor_categories slug. Two cases collapse to a shared bare marker
+// instead of their own qualified key, matching how
+// event_requirements.category_slug represents them (see
+// retire_vendor_categories_bridge.sql's comment): 'Venues' covers all 14
+// real Venues subcategories (a "Venue" checklist item was never about one
+// specific subcategory — every one of that parent's subcategories
+// genuinely is a venue type, so the whole parent collapses safely).
+// 'Event Planning' is narrower and deliberately does NOT collapse the
+// whole Wedding Services parent — only 'Wedding Planners' is actually a
+// planning role there; Wedding Services's other 8 subcategories (Mehendi
+// Artists, Bridal Makeup Artists, Wedding Invitations, Return Gifts, ...)
+// are each their own real, distinct service and must keep their own
+// "Wedding Services > X" key, not collapse into a planner match (caught
+// live by scripts/verifyPlanEngine.js's test #18 — an earlier version of
+// this function collapsed the entire parent and silently mismatched all 8).
+const EVENT_PLANNING_SUBCATEGORIES = new Set([
+  'Wedding Planners',
+  ...(VENDOR_TAXONOMY['Event Planning & Management']?.subcategories || []),
+]);
+export function resolveMatchKey(subcategory) {
+  const parent = getParentCategory(subcategory);
+  if (!parent) return null;
+  if (parent === 'Venues') return 'Venues';
+  if (EVENT_PLANNING_SUBCATEGORIES.has(subcategory)) return 'Event Planning';
+  return `${parent} > ${subcategory}`;
 }
 
 export function getSubcategories(category) {
