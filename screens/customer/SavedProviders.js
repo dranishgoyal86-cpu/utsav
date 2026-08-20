@@ -1,0 +1,205 @@
+import { useState, useCallback } from 'react';
+import {
+  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { supabase } from '../../supabase';
+import { useTheme } from '../../ThemeContext';
+import { useFocusEffect } from '@react-navigation/native';
+import { confirmDestructive } from '../../helpers';
+import SwipeableRow from '../../components/SwipeableRow';
+import AppHeader from '../../components/AppHeader';
+
+export default function SavedProviders({ navigation }) {
+  const { theme } = useTheme();
+  const [saved, setSaved] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const s = makeStyles(theme);
+
+  useFocusEffect(
+    useCallback(() => { fetchSaved(); }, [])
+  );
+
+  async function fetchSaved() {
+    try {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      // Fetch saved_providers rows — no join
+      const { data: savedData, error } = await supabase
+        .from('saved_providers')
+        .select('*')
+        .eq('customer_id', session.user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      if (!savedData?.length) { setSaved([]); return; }
+
+      // Fetch related providers separately
+      const providerIds = savedData.map(s => s.provider_id).filter(Boolean);
+      const { data: providersData } = await supabase
+        .from('providers')
+        .select('id, category, city, rating, total_reviews, is_verified, user_id')
+        .in('id', providerIds);
+
+      // Fetch related users separately
+      const userIds = (providersData || []).map(p => p.user_id).filter(Boolean);
+      const { data: usersData } = await supabase
+        .from('users')
+        .select('id, name, avatar_url')
+        .in('id', userIds);
+
+      // Manually join in JS
+      const merged = savedData.map(item => {
+        const provider = providersData?.find(p => p.id === item.provider_id) || null;
+        return {
+          ...item,
+          providers: provider
+            ? { ...provider, users: usersData?.find(u => u.id === provider.user_id) || null }
+            : null,
+        };
+      });
+
+      setSaved(merged);
+    } catch (err) {
+      console.log('Fetch saved error:', err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleUnsave(savedId, providerName) {
+    confirmDestructive(
+      'Remove from saved?',
+      `Remove ${providerName} from your saved providers?`,
+      'Remove',
+      async () => {
+        await supabase.from('saved_providers').delete().eq('id', savedId);
+        setSaved(prev => prev.filter(s => s.id !== savedId));
+      }
+    );
+  }
+
+  return (
+    <SafeAreaView style={s.container}>
+      <AppHeader title="Saved providers" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
+
+      {loading ? (
+        <View style={s.centerBox}>
+          <ActivityIndicator size="large" color={theme.accent} />
+        </View>
+      ) : saved.length === 0 ? (
+        <View style={s.centerBox}>
+          <Text style={s.emptyIcon}>🤍</Text>
+          <Text style={s.emptyTitle}>No saved providers yet</Text>
+          <Text style={s.emptySub}>
+            Tap the ♡ heart on any provider card to save them for later
+          </Text>
+          <TouchableOpacity
+            style={s.browseBtn}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={s.browseBtnText}>Browse providers →</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={saved}
+          keyExtractor={item => item.id}
+          contentContainerStyle={s.list}
+          renderItem={({ item }) => {
+            const provider = item.providers;
+            const name = provider?.users?.name || 'Provider';
+            return (
+              <SwipeableRow
+                style={s.providerCardWrap}
+                onPress={() => navigation.navigate('ProviderProfile', { provider })}
+                onDelete={() => handleUnsave(item.id, name)}
+              >
+                <View style={s.providerCard}>
+                  <View style={s.cardLeft}>
+                    <View style={s.avatar}>
+                      <Text style={s.avatarText}>{name[0]}</Text>
+                    </View>
+                    <View style={s.info}>
+                      <Text style={s.name}>{name}</Text>
+                      <Text style={s.meta}>
+                        {provider?.category} · {provider?.city}
+                      </Text>
+                      <View style={s.ratingRow}>
+                        <Text style={s.star}>⭐</Text>
+                        <Text style={s.rating}>
+                          {provider?.rating?.toFixed(1) || 'New'}
+                        </Text>
+                        <Text style={s.reviews}>
+                          ({provider?.total_reviews || 0} reviews)
+                        </Text>
+                        {provider?.is_verified && (
+                          <View style={s.verifiedBadge}>
+                            <Text style={s.verifiedText}>✓</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+                  <View style={s.cardRight}>
+                    <View style={s.heartBtn}>
+                      <Text style={s.heartFilled}>♥</Text>
+                    </View>
+                  </View>
+                </View>
+              </SwipeableRow>
+            );
+          }}
+          ListFooterComponent={
+            <Text style={s.footerText}>
+              {saved.length} saved provider{saved.length !== 1 ? 's' : ''}
+            </Text>
+          }
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+function makeStyles(theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 0.5, borderBottomColor: theme.border },
+    backIcon: { fontSize: 22, color: theme.text, width: 32 },
+    headerTitle: { fontSize: 18, fontWeight: '700', color: theme.text },
+
+    centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+    emptyIcon: { fontSize: 52, marginBottom: 16, opacity: 0.6 },
+    emptyTitle: { fontSize: 17, fontWeight: '700', color: theme.text, marginBottom: 8 },
+    emptySub: { fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 21, marginBottom: 26 },
+    browseBtn: { backgroundColor: theme.btnPrimary, borderRadius: 14, paddingHorizontal: 24, paddingVertical: 13 },
+    browseBtnText: { color: theme.btnPrimaryText, fontSize: 14, fontWeight: '700' },
+
+    list: { padding: 16, paddingBottom: 140 },
+    providerCardWrap: { borderRadius: 20, marginBottom: 12 },
+    providerCard: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      backgroundColor: theme.cardBg, borderRadius: 20, padding: 16,
+      borderWidth: 0.5, borderColor: theme.border,
+      shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+    },
+    cardLeft: { flexDirection: 'row', alignItems: 'center', gap: 13, flex: 1 },
+    avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+    avatarText: { fontSize: 19, color: '#FFF', fontWeight: '700' },
+    info: { flex: 1 },
+    name: { fontSize: 15, fontWeight: '700', color: theme.text, marginBottom: 2 },
+    meta: { fontSize: 12.5, color: theme.textSecondary, marginBottom: 5 },
+    ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    star: { fontSize: 11 },
+    rating: { fontSize: 12, fontWeight: '700', color: theme.text },
+    reviews: { fontSize: 11, color: theme.textSecondary },
+    verifiedBadge: { backgroundColor: theme.bgSecondary, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+    verifiedText: { fontSize: 10, color: theme.text, fontWeight: '700' },
+    cardRight: { alignItems: 'center', gap: 8, marginLeft: 8 },
+    heartBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#FFF0EC', alignItems: 'center', justifyContent: 'center' },
+    heartFilled: { fontSize: 17, color: '#E85D04' },
+    footerText: { textAlign: 'center', fontSize: 12, color: theme.textTertiary, marginTop: 8, paddingBottom: 12 },
+  });
+}

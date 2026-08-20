@@ -1,0 +1,11 @@
+-- Tags how a guest_passes row got checked in — the host's offline scanner
+-- (lib/passQueue.js's recordCheckIn()/syncOneCheckIn()) and a guest's own
+-- proximity self-check-in (supabase/functions/guest-pass) are now two
+-- independent write paths onto the same table, both applying the same
+-- earliest-checked_in_at/highest-arrived_count merge rule — this column is
+-- purely informational (which path fired), it does not change that merge.
+-- Verified live via information_schema.columns: guest_passes currently has
+-- id/event_id/guest_id/pass_code/party_size/status/checked_in_at/
+-- checked_in_by/arrived_count/issued_at only — no source-tracking column.
+alter table public.guest_passes add column if not exists checkin_source text;
+-- expected values: 'scanner' | 'proximity_tap' | 'geofence_auto' (future) | null (legacy/unknown)

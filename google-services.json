@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "776109314926",
+    "project_id": "utsav-e21d9",
+    "storage_bucket": "utsav-e21d9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:776109314926:android:4ad561d5719c14cc88e77f",
+        "android_client_info": {
+          "package_name": "com.utsav.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVjQYznEX8e3rZ46JDVZeQiYcEXGzQ_Pc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:776109314926:android:d07b86a2718e69ae88e77f",
+        "android_client_info": {
+          "package_name": "com.utsav.events"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVjQYznEX8e3rZ46JDVZeQiYcEXGzQ_Pc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
