@@ -44,7 +44,7 @@
           "data": [
             {
               "scheme": "https",
-              "host": "www.theutsavapp.com",
+              "host": "app.theutsavapp.com",
               "pathPrefix": "/provider"
             },
             {
@@ -62,7 +62,7 @@
           "data": [
             {
               "scheme": "https",
-              "host": "www.theutsavapp.com",
+              "host": "app.theutsavapp.com",
               "pathPrefix": "/event"
             },
             {

@@ -17,12 +17,7 @@ export const RAZORPAY_CONFIG = {
 };
 
 // The official public host for shared links (RSVP, provider profiles,
-// gate passes, etc.). Still served by `eas deploy` (Expo Hosting) behind
-// the scenes — this domain needs its DNS pointed at that deployment before
-// links actually resolve. NOT yet live: as of 2026-08-14 this domain's
-// hosting is the separate Next.js marketing site (theutsavapp.com), which
-// has no /rsvp, /p, /provider, etc. routes — those only exist in this app's
-// own web build. Every link-generating call site imports from here rather
-// than hardcoding it, so once DNS/hosting is sorted, this is the only line
-// that needs to change.
-export const PUBLIC_WEB_URL = 'https://www.theutsavapp.com';
+// gate passes, etc.). Served by Cloudflare Pages (project "utsav-app"),
+// with app.theutsavapp.com attached as a verified custom domain. Every
+// link-generating call site imports from here rather than hardcoding it.
+export const PUBLIC_WEB_URL = 'https://app.theutsavapp.com';

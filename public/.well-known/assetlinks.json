@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.utsav.events",
+      "sha256_cert_fingerprints": [
+        "6E:56:DF:E6:E4:0E:55:8D:C7:EE:BB:D0:9F:30:80:48:B9:29:DF:84:67:66:BD:1F:F3:96:31:00:8C:54:68:A5"
+      ]
+    }
+  }
+]
