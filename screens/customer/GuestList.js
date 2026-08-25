@@ -2992,7 +2992,7 @@ export default function GuestList({ route, navigation }) {
             {!isDelegateView && (
               <TouchableOpacity style={s.utilityChip} onPress={() => navigation.navigate('ToranInvites', { eventId: event.id })}>
                 <PaperPlaneTilt size={14} color={theme.text} />
-                <Text style={s.utilityChipText}>Toran invites</Text>
+                <Text style={s.utilityChipText}>Create invite</Text>
               </TouchableOpacity>
             )}
             {showRsvpTracking && !isDelegateView && (

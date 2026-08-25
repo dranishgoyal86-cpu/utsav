@@ -310,6 +310,7 @@ Deno.serve(async (req) => {
       // through to null (ToranCover/page.tsx's existing eventName fallback)
       // rather than 500ing the whole invite over a table that's still
       // pending.
+      let design = "toran";
       let partner1: string | null = null;
       let partner2: string | null = null;
       let hostedBy: string | null = null;
@@ -317,10 +318,11 @@ Deno.serve(async (req) => {
       let coupleQuote: string | null = null;
       const { data: contentRow, error: contentError } = await supabaseAdmin
         .from("event_invite_content")
-        .select("partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote")
+        .select("template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote")
         .eq("event_id", pass.event_id)
         .maybeSingle();
       if (!contentError && contentRow) {
+        design = contentRow.template_id || "toran";
         partner1 = contentRow.partner_1_name || null;
         partner2 = contentRow.partner_2_name || null;
         hostedBy = contentRow.hosted_by || null;
@@ -345,6 +347,7 @@ Deno.serve(async (req) => {
           ...passShape,
           invitee_id: pass.guest_id,
           functions,
+          design,
           partner1Name: partner1,
           partner2Name: partner2,
           hostedBy,

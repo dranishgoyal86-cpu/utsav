@@ -11,6 +11,7 @@ import { insertGuestPassesWithRetry } from '../../lib/capabilities';
 import { useEventContext } from '../../hooks/useEventContext';
 import AppHeader from '../../components/AppHeader';
 import ToranCoverCard from '../../components/invite/ToranCoverCard';
+import { inviteThemes, DEFAULT_DESIGN } from '../../lib/inviteThemes';
 
 // react-native-share + react-native-view-shot, same pattern GuestList.js's
 // old designer already uses — image and text/link go out together in one
@@ -25,12 +26,17 @@ if (Platform.OS !== 'web') {
   ViewShot = require('react-native-view-shot').default;
 }
 
-// Wave 1, Task 4 — minimal, deliberately not polished. Toran is the only
-// design; no picker. Reuses insertGuestPassesWithRetry() from Task 2 as-is
-// (no reimplementation) and PassIssue.js's own batch-generate pattern.
-// Standing gap, not fixed here: rate limiting on guest-pass (Task 5) is
-// still open — treat pass_codes generated here as fine for internal/
-// test-guest use, not a real wedding's full list, until that lands.
+// Wave 1, Task 4 — minimal, deliberately not polished. Reuses
+// insertGuestPassesWithRetry() from Task 2 as-is (no reimplementation) and
+// PassIssue.js's own batch-generate pattern. Standing gap, not fixed here:
+// rate limiting on guest-pass (Task 5) is still open — treat pass_codes
+// generated here as fine for internal/test-guest use, not a real wedding's
+// full list, until that lands.
+//
+// Wave 5 — design is no longer fixed to Toran. Stored in
+// event_invite_content.template_id (reused, not a new column — it already
+// existed with exactly this shape: text, not null, default 'toran'), read
+// through inviteThemes.js so nothing here hardcodes a design's colours.
 export default function ToranInvites({ route, navigation }) {
   const { eventId } = route.params;
   const { theme } = useTheme();
@@ -41,6 +47,7 @@ export default function ToranInvites({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const [design, setDesign] = useState(DEFAULT_DESIGN);
   const [partner1, setPartner1] = useState('');
   const [partner2, setPartner2] = useState('');
   const [hostedBy, setHostedBy] = useState('');
@@ -61,11 +68,12 @@ export default function ToranInvites({ route, navigation }) {
 
       const { data: contentRow } = await supabase
         .from('event_invite_content')
-        .select('partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote')
+        .select('template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote')
         .eq('event_id', eventId)
         .maybeSingle();
 
       if (contentRow) {
+        setDesign(contentRow.template_id || DEFAULT_DESIGN);
         setPartner1(contentRow.partner_1_name || '');
         setPartner2(contentRow.partner_2_name || '');
         setHostedBy(contentRow.hosted_by || '');
@@ -111,7 +119,7 @@ export default function ToranInvites({ route, navigation }) {
         {
           event_id: eventId,
           host_id: user.id,
-          template_id: 'toran',
+          template_id: design,
           partner_1_name: partner1.trim() || null,
           partner_2_name: partner2.trim() || null,
           hosted_by: hostedBy.trim() || null,
@@ -208,7 +216,7 @@ export default function ToranInvites({ route, navigation }) {
   if (loading) {
     return (
       <SafeAreaView style={s.container}>
-        <AppHeader title="Toran invites" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
+        <AppHeader title="Invite designer" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
         <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
       </SafeAreaView>
     );
@@ -224,10 +232,17 @@ export default function ToranInvites({ route, navigation }) {
         ListHeaderComponent={
           <>
             <View style={s.designRow}>
-              <View style={s.designChipActive}>
-                <Text style={s.designChipActiveText}>Toran</Text>
-              </View>
-              <Text style={s.designNote}>Only design available in this wave</Text>
+              {Object.keys(inviteThemes).map((key) => (
+                <TouchableOpacity
+                  key={key}
+                  style={design === key ? s.designChipActive : s.designChip}
+                  onPress={() => setDesign(key)}
+                >
+                  <Text style={design === key ? s.designChipActiveText : s.designChipText}>
+                    {key === 'toran' ? 'Toran' : 'Kalamkari'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
             {/* Doubles as the host's live preview and the capture target
@@ -237,6 +252,7 @@ export default function ToranInvites({ route, navigation }) {
               {Platform.OS !== 'web' && ViewShot ? (
                 <ViewShot ref={cardRef} options={{ format: 'jpg', quality: 0.92 }}>
                   <ToranCoverCard
+                    design={design}
                     eventName={event?.name}
                     eventDate={event?.event_date}
                     venue={event?.venue}
@@ -247,6 +263,7 @@ export default function ToranInvites({ route, navigation }) {
                 </ViewShot>
               ) : (
                 <ToranCoverCard
+                  design={design}
                   eventName={event?.name}
                   eventDate={event?.event_date}
                   venue={event?.venue}
@@ -371,7 +388,8 @@ function makeStyles(theme) {
     previewWrap: { alignItems: 'center', marginBottom: 16 },
     designChipActive: { backgroundColor: theme.accent, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6 },
     designChipActiveText: { fontSize: 13, fontWeight: '700', color: theme.accentText },
-    designNote: { fontSize: 11, color: theme.textSecondary, flexShrink: 1 },
+    designChip: { backgroundColor: theme.cardBg, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6, borderWidth: 0.5, borderColor: theme.border },
+    designChipText: { fontSize: 13, fontWeight: '700', color: theme.textSecondary },
 
     formCard: { backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 0.5, borderColor: theme.border, padding: 16, marginBottom: 16 },
     label: { fontSize: 12, fontWeight: '600', color: theme.textSecondary, marginBottom: 6, marginTop: 10 },
