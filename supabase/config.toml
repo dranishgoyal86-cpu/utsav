@@ -84,3 +84,20 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/auto-complete-bookings/deno.json"
 entrypoint = "./functions/auto-complete-bookings/index.ts"
+
+[functions.guest-pass]
+enabled = true
+verify_jwt = false
+import_map = "./functions/guest-pass/deno.json"
+entrypoint = "./functions/guest-pass/index.ts"
+
+[functions.anonymize-guests]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/anonymize-guests/index.ts"
+
+[functions.purge-deleted-accounts]
+enabled = true
+verify_jwt = false
+import_map = "./functions/purge-deleted-accounts/deno.json"
+entrypoint = "./functions/purge-deleted-accounts/index.ts"

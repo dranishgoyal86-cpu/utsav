@@ -26,6 +26,55 @@ function json(body: unknown, status = 200) {
 const RSVP_STATUSES = ["yes", "no", "maybe"];
 const FOOD_PREFS = ["any", "veg", "nonveg", "jain"];
 
+// ── Rate limiting (Wave 1, Task 5) — same design as guest-pass/index.ts,
+// duplicated rather than shared: this codebase has no cross-function
+// shared-module convention, every edge function is self-contained
+// (corsHeaders/json() are already duplicated the same way). Failure-counted,
+// not volume-counted — see that file's comment for the full reasoning.
+// Every action here shares one credential (invite_code) at one lookup
+// point, so this uses a single bucket per identifier rather than
+// per-action — unlike guest-pass, there's no case where different actions
+// need separate budgets.
+const RATE_LIMIT_WINDOW_MINUTES = 10;
+const RATE_LIMIT_THRESHOLD = 15;
+const RATE_LIMIT_SALT = Deno.env.get("RATE_LIMIT_SALT") || "";
+const RATE_LIMIT_ACTION = "invite_code";
+
+function getClientIp(req: Request): string {
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf;
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const parts = xff.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
+  }
+  return "unknown";
+}
+
+async function hashIdentifier(ip: string): Promise<string> {
+  const data = new TextEncoder().encode(`${RATE_LIMIT_SALT}:${ip}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function isRateLimited(req: Request): Promise<{ identifier: string; blocked: boolean }> {
+  const identifier = await hashIdentifier(getClientIp(req));
+  const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MINUTES * 60 * 1000).toISOString();
+  const { count } = await supabaseAdmin
+    .from("guest_code_attempts")
+    .select("id", { count: "exact", head: true })
+    .eq("identifier", identifier)
+    .eq("action", RATE_LIMIT_ACTION)
+    .eq("succeeded", false)
+    .gte("created_at", windowStart);
+  return { identifier, blocked: (count || 0) >= RATE_LIMIT_THRESHOLD };
+}
+
+function recordAttempt(identifier: string, succeeded: boolean) {
+  supabaseAdmin.from("guest_code_attempts").insert({ identifier, action: RATE_LIMIT_ACTION, succeeded })
+    .then(({ error }) => { if (error) console.log("recordAttempt failed:", error.message); });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -40,6 +89,11 @@ Deno.serve(async (req) => {
 
     if (!invite_code) return json({ error: "invite_code required" }, 400);
 
+    const { identifier, blocked } = await isRateLimited(req);
+    if (blocked) {
+      return json({ error: "Too many attempts. Please wait a few minutes and try again." }, 429);
+    }
+
     // Every action needs the event first — this is the entire security
     // boundary. A guest can only ever act within the one event their code
     // points to; no host_id or other internal fields are ever returned to
@@ -51,7 +105,11 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (eventError) return json({ error: eventError.message }, 500);
-    if (!event) return json({ error: "Invite not found. Check the code and try again." }, 404);
+    if (!event) {
+      recordAttempt(identifier, false);
+      return json({ error: "Invite not found. Check the code and try again." }, 404);
+    }
+    recordAttempt(identifier, true);
 
     if (action === "get_event") {
       // events.default_plus_one_limit may not exist yet on this database

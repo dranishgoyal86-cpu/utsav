@@ -11,6 +11,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Updates from 'expo-updates';
 import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
+import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
 import { supabase } from './supabase';
 import { ThemeProvider, useTheme } from './ThemeContext';
 import { registerTourTarget } from './lib/tourTargets';
@@ -40,6 +42,12 @@ if (SENTRY_DSN && !__DEV__) {
     enableAutoSessionTracking: true,
   });
 }
+
+// Held visible (see App() below) until Toran's invite-card fonts resolve —
+// a flash of fallback font on an invite card is the exact failure this
+// exists to prevent. Called at module scope, per expo-splash-screen's own
+// requirement.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const navigationRef = createNavigationContainerRef();
 const PENDING_DELEGATE_CODE_KEY = 'pending_delegate_code';
@@ -92,6 +100,8 @@ import GuestList from './screens/customer/GuestList';
 import SeatingChart from './screens/customer/SeatingChart';
 import GatePass from './screens/customer/GatePass';
 import PassIssue from './screens/customer/PassIssue';
+import ToranInvites from './screens/customer/ToranInvites';
+import RsvpDashboard from './screens/customer/RsvpDashboard';
 import PassCard from './screens/customer/PassCard';
 import PassScanner from './screens/customer/PassScanner';
 import GiftStickers from './screens/customer/GiftStickers';
@@ -511,6 +521,8 @@ function MainApp() {
             <Stack.Screen name="SeatingChart" component={SeatingChart} />
             <Stack.Screen name="GatePass" component={GatePass} />
             <Stack.Screen name="PassIssue" component={PassIssue} />
+            <Stack.Screen name="ToranInvites" component={ToranInvites} />
+            <Stack.Screen name="RsvpDashboard" component={RsvpDashboard} />
             <Stack.Screen name="PassCard" component={PassCard} />
             <Stack.Screen name="PassScanner" component={PassScanner} />
             <Stack.Screen name="GiftStickers" component={GiftStickers} />
@@ -547,6 +559,25 @@ function MainApp() {
 
 // ─── Root export — ThemeProvider wraps everything ───
 function App() {
+  const [fontsLoaded, fontError] = useFonts({
+    'CormorantGaramond-SemiBold': require('./assets/fonts/CormorantGaramond-SemiBold.ttf'),
+    'CormorantGaramond-Italic': require('./assets/fonts/CormorantGaramond-Italic.ttf'),
+    'Manrope-Regular': require('./assets/fonts/Manrope-Regular.ttf'),
+    'Manrope-SemiBold': require('./assets/fonts/Manrope-SemiBold.ttf'),
+    'TiroDevanagariHindi-Regular': require('./assets/fonts/TiroDevanagariHindi-Regular.ttf'),
+  });
+
+  useEffect(() => {
+    if (fontsLoaded || fontError) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded, fontError]);
+
+  // Splash stays up (nothing rendered) until fonts settle either way — a
+  // font load failure shouldn't hard-block the app forever, just fall
+  // through to system fonts once fontError is set.
+  if (!fontsLoaded && !fontError) return null;
+
   return (
     <SafeAreaProvider>
       <ThemeProvider>

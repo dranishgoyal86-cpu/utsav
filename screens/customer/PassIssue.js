@@ -5,7 +5,7 @@ import { ArrowLeft } from 'phosphor-react-native';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import { showAlert, resolveGuestPartySize } from '../../helpers';
-import { generatePassCode } from '../../lib/capabilities';
+import { insertGuestPassesWithRetry } from '../../lib/capabilities';
 import { useEventContext } from '../../hooks/useEventContext';
 import AppHeader from '../../components/AppHeader';
 
@@ -62,17 +62,12 @@ export default function PassIssue({ route, navigation }) {
     setIssuing(true);
     try {
       const existingCodes = passes.map(p => p.pass_code);
-      const rows = [];
-      for (const guest of missingGuests) {
-        const code = generatePassCode([...existingCodes, ...rows.map(r => r.pass_code)]);
-        rows.push({
-          event_id: eventId,
-          guest_id: guest.id,
-          pass_code: code,
-          party_size: resolveGuestPartySize(guest),
-        });
-      }
-      const { error } = await supabase.from('guest_passes').insert(rows);
+      const baseRows = missingGuests.map(guest => ({
+        event_id: eventId,
+        guest_id: guest.id,
+        party_size: resolveGuestPartySize(guest),
+      }));
+      const { rows, error } = await insertGuestPassesWithRetry(supabase, baseRows, existingCodes);
       if (error) throw error;
 
       if (!event?.gate_pass_issued_at) {

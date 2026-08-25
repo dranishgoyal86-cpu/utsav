@@ -1,0 +1,342 @@
+import { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, TextInput, Platform } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PaperPlaneTilt, CheckCircle } from 'phosphor-react-native';
+import * as Clipboard from 'expo-clipboard';
+import { useTheme } from '../../ThemeContext';
+import { supabase } from '../../supabase';
+import { showAlert, resolveGuestPartySize } from '../../helpers';
+import { insertGuestPassesWithRetry } from '../../lib/capabilities';
+import { useEventContext } from '../../hooks/useEventContext';
+import AppHeader from '../../components/AppHeader';
+import ToranCoverCard from '../../components/invite/ToranCoverCard';
+
+// react-native-share + react-native-view-shot, same pattern GuestList.js's
+// old designer already uses — image and text/link go out together in one
+// share intent. Wave 1, Task 4 originally shipped text-only here (no
+// captured image existed yet); Wave 2, Task 1 closes that gap: a guest who
+// never taps the link must still receive a complete invitation — name,
+// date, venue — on the picture itself, same guarantee the old 40-template
+// system already gives.
+let NativeShare, ViewShot;
+if (Platform.OS !== 'web') {
+  NativeShare = require('react-native-share').default;
+  ViewShot = require('react-native-view-shot').default;
+}
+
+// Wave 1, Task 4 — minimal, deliberately not polished. Toran is the only
+// design; no picker. Reuses insertGuestPassesWithRetry() from Task 2 as-is
+// (no reimplementation) and PassIssue.js's own batch-generate pattern.
+// Standing gap, not fixed here: rate limiting on guest-pass (Task 5) is
+// still open — treat pass_codes generated here as fine for internal/
+// test-guest use, not a real wedding's full list, until that lands.
+export default function ToranInvites({ route, navigation }) {
+  const { eventId } = route.params;
+  const { theme } = useTheme();
+  const s = makeStyles(theme);
+  const insets = useSafeAreaInsets();
+  const { event } = useEventContext(eventId);
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [partner1, setPartner1] = useState('');
+  const [partner2, setPartner2] = useState('');
+  const [hostedBy, setHostedBy] = useState('');
+  const [contentSaved, setContentSaved] = useState(false);
+  const [guests, setGuests] = useState([]);
+  const [passes, setPasses] = useState([]);
+  const cardRef = useRef(null);
+
+  useEffect(() => { load(); }, [eventId]);
+
+  async function load() {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+
+      const { data: contentRow } = await supabase
+        .from('event_invite_content')
+        .select('partner_1_name, partner_2_name, hosted_by')
+        .eq('event_id', eventId)
+        .maybeSingle();
+
+      if (contentRow) {
+        setPartner1(contentRow.partner_1_name || '');
+        setPartner2(contentRow.partner_2_name || '');
+        setHostedBy(contentRow.hosted_by || '');
+        setContentSaved(true);
+      } else if (user) {
+        // Pre-fill from the one place this codebase already remembers a
+        // host's name for invite purposes (the old designer's saved prefs)
+        // — not a guess from free-text event data.
+        const { data: userRow } = await supabase
+          .from('users').select('invite_preferences').eq('id', user.id).maybeSingle();
+        const hostName = userRow?.invite_preferences?.hostName;
+        if (hostName) setPartner1(hostName);
+      }
+
+      const { data: guestRows, error: guestErr } = await supabase
+        .from('event_invitees')
+        .select('id, name, plus_ones, entry_type, household_size')
+        .eq('event_id', eventId)
+        .neq('rsvp_status', 'no');
+      if (guestErr) throw guestErr;
+
+      const { data: passRows, error: passErr } = await supabase
+        .from('guest_passes').select('id, guest_id, pass_code').eq('event_id', eventId);
+      if (passErr) throw passErr;
+
+      setGuests(guestRows || []);
+      setPasses(passRows || []);
+    } catch (err) {
+      showAlert('Error', err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveContent() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('event_invite_content').upsert(
+        {
+          event_id: eventId,
+          host_id: user.id,
+          template_id: 'toran',
+          partner_1_name: partner1.trim() || null,
+          partner_2_name: partner2.trim() || null,
+          hosted_by: hostedBy.trim() || null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'event_id' }
+      );
+      if (error) throw error;
+      setContentSaved(true);
+      showAlert('Saved', 'Invite details saved.');
+    } catch (err) {
+      showAlert('Error', err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const issuedGuestIds = new Set(passes.map((p) => p.guest_id));
+  const missingGuests = guests.filter((g) => !issuedGuestIds.has(g.id));
+  const readyGuests = guests.filter((g) => issuedGuestIds.has(g.id));
+
+  async function prepareInvites() {
+    if (missingGuests.length === 0) return;
+    setPreparing(true);
+    try {
+      const existingCodes = passes.map((p) => p.pass_code);
+      const baseRows = missingGuests.map((guest) => ({
+        event_id: eventId,
+        guest_id: guest.id,
+        party_size: resolveGuestPartySize(guest),
+      }));
+      const { rows, error } = await insertGuestPassesWithRetry(supabase, baseRows, existingCodes);
+      if (error) throw error;
+      showAlert('Invites prepared', `${rows.length} invite link${rows.length === 1 ? '' : 's'} ready to send.`);
+      await load();
+    } catch (err) {
+      showAlert('Error', err.message);
+    } finally {
+      setPreparing(false);
+    }
+  }
+
+  async function sendInvite(guest) {
+    const pass = passes.find((p) => p.guest_id === guest.id);
+    if (!pass) return;
+    // Bare theutsavapp.com — the marketing site's own domain, where Task 3's
+    // page actually lives. Deliberately NOT config.js's PUBLIC_WEB_URL,
+    // which points at app.theutsavapp.com (the Expo web export) — a
+    // different deployment entirely with no /invite/[code] route at all.
+    const link = `https://theutsavapp.com/invite/${pass.pass_code}`;
+    const message = `Hi ${guest.name}! You're invited${partner1 ? ` to ${partner1}${partner2 ? ` & ${partner2}` : ''}'s celebration` : ''}. Open your invite: ${link}`;
+
+    if (Platform.OS !== 'web' && NativeShare && ViewShot && cardRef.current) {
+      try {
+        // The complete invitation — name/date/venue — must reach a guest
+        // who never taps the link, same guarantee the old 40-template
+        // system already gives (this was Wave 1's gap: text-only share).
+        const uri = await cardRef.current.capture();
+        await NativeShare.open({ url: uri, message, failOnCancel: false });
+      } catch (err) {
+        if (!err?.message?.includes('User did not share')) showAlert('Error', err.message);
+      }
+    } else {
+      await Clipboard.setStringAsync(message);
+      showAlert('Copied', "Invite message copied — paste it wherever you'd like to send it.");
+    }
+  }
+
+  if (loading) {
+    return (
+      <SafeAreaView style={s.container}>
+        <AppHeader title="Toran invites" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
+        <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={s.container}>
+      <AppHeader title="Toran invites" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
+      <FlatList
+        data={readyGuests}
+        keyExtractor={(g) => g.id}
+        contentContainerStyle={s.list}
+        ListHeaderComponent={
+          <>
+            <View style={s.designRow}>
+              <View style={s.designChipActive}>
+                <Text style={s.designChipActiveText}>Toran</Text>
+              </View>
+              <Text style={s.designNote}>Only design available in this wave</Text>
+            </View>
+
+            {/* Doubles as the host's live preview and the capture target
+                sendInvite() screenshots — same CardWrapper-via-ViewShot
+                pattern GuestList.js's old designer already uses. */}
+            <View style={s.previewWrap}>
+              {Platform.OS !== 'web' && ViewShot ? (
+                <ViewShot ref={cardRef} options={{ format: 'jpg', quality: 0.92 }}>
+                  <ToranCoverCard
+                    eventName={event?.name}
+                    eventDate={event?.event_date}
+                    venue={event?.venue}
+                    partner1Name={partner1}
+                    partner2Name={partner2}
+                    hostedBy={hostedBy}
+                  />
+                </ViewShot>
+              ) : (
+                <ToranCoverCard
+                  eventName={event?.name}
+                  eventDate={event?.event_date}
+                  venue={event?.venue}
+                  partner1Name={partner1}
+                  partner2Name={partner2}
+                  hostedBy={hostedBy}
+                />
+              )}
+            </View>
+
+            <View style={s.formCard}>
+              <Text style={s.label}>Partner 1 name</Text>
+              <TextInput
+                style={s.input}
+                value={partner1}
+                onChangeText={setPartner1}
+                placeholder="e.g. Aarav"
+                placeholderTextColor={theme.textTertiary}
+              />
+              <Text style={s.label}>Partner 2 name (optional)</Text>
+              <TextInput
+                style={s.input}
+                value={partner2}
+                onChangeText={setPartner2}
+                placeholder="e.g. Meera"
+                placeholderTextColor={theme.textTertiary}
+              />
+              <Text style={s.label}>Hosted by (optional)</Text>
+              <TextInput
+                style={s.input}
+                value={hostedBy}
+                onChangeText={setHostedBy}
+                placeholder="e.g. The Sharma and Verma families"
+                placeholderTextColor={theme.textTertiary}
+              />
+              <TouchableOpacity style={s.saveBtn} onPress={saveContent} disabled={saving}>
+                {saving ? <ActivityIndicator color={theme.btnPrimaryText} /> : (
+                  <Text style={s.saveBtnText}>{contentSaved ? 'Update details' : 'Save details'}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <View style={s.statsRow}>
+              <View style={s.statCard}>
+                <Text style={s.statValue}>{readyGuests.length}</Text>
+                <Text style={s.statLabel}>Ready to send</Text>
+              </View>
+              <View style={s.statCard}>
+                <Text style={s.statValue}>{missingGuests.length}</Text>
+                <Text style={s.statLabel}>Not prepared yet</Text>
+              </View>
+            </View>
+
+            {missingGuests.length > 0 && (
+              <TouchableOpacity style={s.prepareBtn} onPress={prepareInvites} disabled={preparing}>
+                {preparing ? <ActivityIndicator color={theme.btnPrimaryText} /> : (
+                  <Text style={s.prepareBtnText}>
+                    Prepare invites for {missingGuests.length} guest{missingGuests.length === 1 ? '' : 's'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {readyGuests.length > 0 && <Text style={s.sectionLabel}>READY TO SEND</Text>}
+          </>
+        }
+        ListEmptyComponent={
+          !loading && missingGuests.length === 0 ? (
+            <Text style={s.emptyText}>No guests on this event yet.</Text>
+          ) : null
+        }
+        renderItem={({ item }) => (
+          <View style={s.guestRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.guestName}>{item.name}</Text>
+            </View>
+            <TouchableOpacity style={s.sendBtn} onPress={() => sendInvite(item)}>
+              <PaperPlaneTilt size={14} color={theme.accentText} weight="fill" />
+              <Text style={s.sendBtnText}>Send</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      />
+    </SafeAreaView>
+  );
+}
+
+function makeStyles(theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg },
+    list: { paddingHorizontal: 16, paddingBottom: 40 },
+
+    designRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16, marginBottom: 16 },
+    previewWrap: { alignItems: 'center', marginBottom: 16 },
+    designChipActive: { backgroundColor: theme.accent, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6 },
+    designChipActiveText: { fontSize: 13, fontWeight: '700', color: theme.accentText },
+    designNote: { fontSize: 11, color: theme.textSecondary, flexShrink: 1 },
+
+    formCard: { backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 0.5, borderColor: theme.border, padding: 16, marginBottom: 16 },
+    label: { fontSize: 12, fontWeight: '600', color: theme.textSecondary, marginBottom: 6, marginTop: 10 },
+    input: { backgroundColor: theme.inputBg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: theme.text },
+    saveBtn: { backgroundColor: theme.btnPrimary, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 16 },
+    saveBtnText: { fontSize: 14, fontWeight: '700', color: theme.btnPrimaryText },
+
+    statsRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+    statCard: { flex: 1, alignItems: 'center', backgroundColor: theme.cardBg, borderRadius: 14, paddingVertical: 14, borderWidth: 0.5, borderColor: theme.border },
+    statValue: { fontSize: 20, fontWeight: '800', color: theme.text },
+    statLabel: { fontSize: 11, color: theme.textSecondary, marginTop: 2 },
+
+    prepareBtn: { backgroundColor: theme.btnPrimary, borderRadius: 16, paddingVertical: 16, alignItems: 'center', marginBottom: 16 },
+    prepareBtnText: { fontSize: 15, fontWeight: '700', color: theme.btnPrimaryText },
+
+    sectionLabel: { fontSize: 11, fontWeight: '700', color: theme.textTertiary, letterSpacing: 0.6, marginBottom: 8 },
+    emptyText: { fontSize: 13, color: theme.textSecondary, textAlign: 'center', paddingVertical: 30 },
+    guestRow: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      backgroundColor: theme.cardBg, borderRadius: 12, borderWidth: 0.5, borderColor: theme.border,
+      paddingHorizontal: 14, paddingVertical: 12, marginBottom: 8,
+    },
+    guestName: { fontSize: 14, fontWeight: '600', color: theme.text },
+    sendBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.accent, borderRadius: 100, paddingHorizontal: 12, paddingVertical: 7 },
+    sendBtnText: { fontSize: 12, fontWeight: '700', color: theme.accentText },
+  });
+}

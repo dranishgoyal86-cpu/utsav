@@ -74,7 +74,7 @@ const GUESTLIST_TOUR_STEPS = [
 import {
   ArrowLeft, Plus, X, Trash, PaperPlaneTilt, Palette, Users, AddressBook, Check,
   Image as ImageIcon, ClipboardText, CaretLeft, CaretRight, MagnifyingGlass,
-  DotsThreeVertical, Star, ForkKnife, Gift, Table, QrCode, UserPlus
+  DotsThreeVertical, Star, ForkKnife, Gift, Table, QrCode, UserPlus, ChartBar
 } from 'phosphor-react-native';
 
 // Native-only — the contact book, image picking/pasting, and PDF export have
@@ -2989,6 +2989,18 @@ export default function GuestList({ route, navigation }) {
               <Table size={14} color={theme.text} />
               <Text style={s.utilityChipText}>Seating</Text>
             </TouchableOpacity>
+            {!isDelegateView && (
+              <TouchableOpacity style={s.utilityChip} onPress={() => navigation.navigate('ToranInvites', { eventId: event.id })}>
+                <PaperPlaneTilt size={14} color={theme.text} />
+                <Text style={s.utilityChipText}>Toran invites</Text>
+              </TouchableOpacity>
+            )}
+            {showRsvpTracking && !isDelegateView && (
+              <TouchableOpacity style={s.utilityChip} onPress={() => navigation.navigate('RsvpDashboard', { eventId: event.id })}>
+                <ChartBar size={14} color={theme.text} />
+                <Text style={s.utilityChipText}>RSVP dashboard</Text>
+              </TouchableOpacity>
+            )}
             {showGatePass && !isDelegateView && (
               <TouchableOpacity ref={gatePassChipRef} style={s.utilityChip} onPress={() => navigation.navigate('GatePass', { eventId: event.id })}>
                 <QrCode size={14} color={theme.text} />

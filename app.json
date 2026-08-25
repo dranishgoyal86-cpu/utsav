@@ -138,7 +138,9 @@
       [
         "react-native-share",
         {}
-      ]
+      ],
+      "expo-font",
+      "expo-splash-screen"
     ],
     "extra": {
       "eas": {
