@@ -562,6 +562,7 @@ function App() {
   const [fontsLoaded, fontError] = useFonts({
     'CormorantGaramond-SemiBold': require('./assets/fonts/CormorantGaramond-SemiBold.ttf'),
     'CormorantGaramond-Italic': require('./assets/fonts/CormorantGaramond-Italic.ttf'),
+    'CormorantGaramond-Regular': require('./assets/fonts/CormorantGaramond-Regular.ttf'),
     'Manrope-Regular': require('./assets/fonts/Manrope-Regular.ttf'),
     'Manrope-SemiBold': require('./assets/fonts/Manrope-SemiBold.ttf'),
     'TiroDevanagariHindi-Regular': require('./assets/fonts/TiroDevanagariHindi-Regular.ttf'),

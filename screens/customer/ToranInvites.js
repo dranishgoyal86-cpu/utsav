@@ -11,7 +11,13 @@ import { insertGuestPassesWithRetry } from '../../lib/capabilities';
 import { useEventContext } from '../../hooks/useEventContext';
 import AppHeader from '../../components/AppHeader';
 import ToranCoverCard from '../../components/invite/ToranCoverCard';
-import { inviteThemes, DEFAULT_DESIGN } from '../../lib/inviteThemes';
+import StillnessCard from '../../components/invite/StillnessCard';
+import { DEFAULT_DESIGN } from '../../lib/inviteThemes';
+import { isCelebratory } from '../../lib/eventTypeNames';
+
+const DESIGN_LABELS = { toran: 'Toran', kalamkari: 'Kalamkari', stillness: 'Stillness' };
+const CELEBRATORY_DESIGNS = ['toran', 'kalamkari'];
+const SOLEMN_DESIGNS = ['stillness'];
 
 // react-native-share + react-native-view-shot, same pattern GuestList.js's
 // old designer already uses — image and text/link go out together in one
@@ -53,11 +59,33 @@ export default function ToranInvites({ route, navigation }) {
   const [hostedBy, setHostedBy] = useState('');
   const [couplePhotoUrl, setCouplePhotoUrl] = useState(null);
   const [coupleQuote, setCoupleQuote] = useState('');
+  const [subjectNameLine1, setSubjectNameLine1] = useState('');
+  const [subjectNameLine2, setSubjectNameLine2] = useState('');
+  const [subjectYears, setSubjectYears] = useState('');
+  const [detailLine1, setDetailLine1] = useState('');
+  const [detailLine2, setDetailLine2] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [contentSaved, setContentSaved] = useState(false);
   const [guests, setGuests] = useState([]);
   const [passes, setPasses] = useState([]);
   const cardRef = useRef(null);
+
+  // Wave 6 (Stillness) — Task 1's gating decision (Option A, restricted):
+  // an event already marked non-celebratory only ever gets Stillness
+  // offered; a celebratory (or unknown/null slug, which isCelebratory()
+  // already treats as celebratory) event only ever gets Toran/Kalamkari.
+  // Never a combined list — the risk this exists to prevent is a grieving
+  // family seeing a picker with a party theme sitting next to a memorial.
+  const celebratory = isCelebratory(event?.event_type_slug);
+  const allowedDesigns = celebratory ? CELEBRATORY_DESIGNS : SOLEMN_DESIGNS;
+
+  // Self-heals if the loaded design doesn't match this event's allowed set
+  // (e.g. event type changed after content was saved, or the default
+  // 'toran' state resolved before `event` finished loading).
+  useEffect(() => {
+    if (!event) return;
+    if (!allowedDesigns.includes(design)) setDesign(allowedDesigns[0]);
+  }, [event?.event_type_slug, design]);
 
   useEffect(() => { load(); }, [eventId]);
 
@@ -68,7 +96,7 @@ export default function ToranInvites({ route, navigation }) {
 
       const { data: contentRow } = await supabase
         .from('event_invite_content')
-        .select('template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote')
+        .select('template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote, subject_name_line1, subject_name_line2, subject_years, detail_line1, detail_line2')
         .eq('event_id', eventId)
         .maybeSingle();
 
@@ -79,11 +107,17 @@ export default function ToranInvites({ route, navigation }) {
         setHostedBy(contentRow.hosted_by || '');
         setCouplePhotoUrl(contentRow.couple_photo_url || null);
         setCoupleQuote(contentRow.couple_quote || '');
+        setSubjectNameLine1(contentRow.subject_name_line1 || '');
+        setSubjectNameLine2(contentRow.subject_name_line2 || '');
+        setSubjectYears(contentRow.subject_years || '');
+        setDetailLine1(contentRow.detail_line1 || '');
+        setDetailLine2(contentRow.detail_line2 || '');
         setContentSaved(true);
-      } else if (user) {
+      } else if (user && isCelebratory(event?.event_type_slug)) {
         // Pre-fill from the one place this codebase already remembers a
         // host's name for invite purposes (the old designer's saved prefs)
-        // — not a guess from free-text event data.
+        // — not a guess from free-text event data. Skipped for solemn
+        // events: there's no "partner 1" to prefill for a memorial.
         const { data: userRow } = await supabase
           .from('users').select('invite_preferences').eq('id', user.id).maybeSingle();
         const hostName = userRow?.invite_preferences?.hostName;
@@ -115,16 +149,26 @@ export default function ToranInvites({ route, navigation }) {
     if (!user) return;
     setSaving(true);
     try {
+      // Only the active design's field set is ever written with real
+      // values — the other set is explicitly nulled rather than left
+      // stale, so switching designs never leaves orphaned data behind
+      // (e.g. old partner names surviving under a Stillness invite).
+      const isStillness = design === 'stillness';
       const { error } = await supabase.from('event_invite_content').upsert(
         {
           event_id: eventId,
           host_id: user.id,
           template_id: design,
-          partner_1_name: partner1.trim() || null,
-          partner_2_name: partner2.trim() || null,
-          hosted_by: hostedBy.trim() || null,
-          couple_photo_url: couplePhotoUrl,
-          couple_quote: coupleQuote.trim() || null,
+          partner_1_name: isStillness ? null : (partner1.trim() || null),
+          partner_2_name: isStillness ? null : (partner2.trim() || null),
+          hosted_by: isStillness ? null : (hostedBy.trim() || null),
+          couple_photo_url: isStillness ? null : couplePhotoUrl,
+          couple_quote: isStillness ? null : (coupleQuote.trim() || null),
+          subject_name_line1: isStillness ? (subjectNameLine1.trim() || null) : null,
+          subject_name_line2: isStillness ? (subjectNameLine2.trim() || null) : null,
+          subject_years: isStillness ? (subjectYears.trim() || null) : null,
+          detail_line1: isStillness ? (detailLine1.trim() || null) : null,
+          detail_line2: isStillness ? (detailLine2.trim() || null) : null,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'event_id' }
@@ -195,7 +239,12 @@ export default function ToranInvites({ route, navigation }) {
     // which points at app.theutsavapp.com (the Expo web export) — a
     // different deployment entirely with no /invite/[code] route at all.
     const link = `https://theutsavapp.com/invite/${pass.pass_code}`;
-    const message = `Hi ${guest.name}! You're invited${partner1 ? ` to ${partner1}${partner2 ? ` & ${partner2}` : ''}'s celebration` : ''}. Open your invite: ${link}`;
+    // Stillness gets its own, non-celebratory wording — no "invited",
+    // no "celebration". Names the subject when known rather than staying
+    // fully generic, matching the reference's dignified-but-specific tone.
+    const message = design === 'stillness'
+      ? `Hi ${guest.name}. Sharing the details${subjectNameLine1 ? ` for ${subjectNameLine1}${subjectNameLine2 ? ` ${subjectNameLine2}` : ''}` : ''}: ${link}`
+      : `Hi ${guest.name}! You're invited${partner1 ? ` to ${partner1}${partner2 ? ` & ${partner2}` : ''}'s celebration` : ''}. Open your invite: ${link}`;
 
     if (Platform.OS !== 'web' && NativeShare && ViewShot && cardRef.current) {
       try {
@@ -224,7 +273,7 @@ export default function ToranInvites({ route, navigation }) {
 
   return (
     <SafeAreaView style={s.container}>
-      <AppHeader title="Toran invites" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
+      <AppHeader title="Invite designer" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
       <FlatList
         data={readyGuests}
         keyExtractor={(g) => g.id}
@@ -232,17 +281,20 @@ export default function ToranInvites({ route, navigation }) {
         ListHeaderComponent={
           <>
             <View style={s.designRow}>
-              {Object.keys(inviteThemes).map((key) => (
+              {allowedDesigns.map((key) => (
                 <TouchableOpacity
                   key={key}
                   style={design === key ? s.designChipActive : s.designChip}
                   onPress={() => setDesign(key)}
                 >
                   <Text style={design === key ? s.designChipActiveText : s.designChipText}>
-                    {key === 'toran' ? 'Toran' : 'Kalamkari'}
+                    {DESIGN_LABELS[key]}
                   </Text>
                 </TouchableOpacity>
               ))}
+              {!celebratory && (
+                <Text style={s.designNote}>Restricted to Stillness for this event type</Text>
+              )}
             </View>
 
             {/* Doubles as the host's live preview and the capture target
@@ -251,16 +303,34 @@ export default function ToranInvites({ route, navigation }) {
             <View style={s.previewWrap}>
               {Platform.OS !== 'web' && ViewShot ? (
                 <ViewShot ref={cardRef} options={{ format: 'jpg', quality: 0.92 }}>
-                  <ToranCoverCard
-                    design={design}
-                    eventName={event?.name}
-                    eventDate={event?.event_date}
-                    venue={event?.venue}
-                    partner1Name={partner1}
-                    partner2Name={partner2}
-                    hostedBy={hostedBy}
-                  />
+                  {design === 'stillness' ? (
+                    <StillnessCard
+                      nameLine1={subjectNameLine1}
+                      nameLine2={subjectNameLine2}
+                      years={subjectYears}
+                      detailLine1={detailLine1}
+                      detailLine2={detailLine2}
+                    />
+                  ) : (
+                    <ToranCoverCard
+                      design={design}
+                      eventName={event?.name}
+                      eventDate={event?.event_date}
+                      venue={event?.venue}
+                      partner1Name={partner1}
+                      partner2Name={partner2}
+                      hostedBy={hostedBy}
+                    />
+                  )}
                 </ViewShot>
+              ) : design === 'stillness' ? (
+                <StillnessCard
+                  nameLine1={subjectNameLine1}
+                  nameLine2={subjectNameLine2}
+                  years={subjectYears}
+                  detailLine1={detailLine1}
+                  detailLine2={detailLine2}
+                />
               ) : (
                 <ToranCoverCard
                   design={design}
@@ -275,58 +345,107 @@ export default function ToranInvites({ route, navigation }) {
             </View>
 
             <View style={s.formCard}>
-              <Text style={s.label}>Couple photo (optional)</Text>
-              <TouchableOpacity style={s.photoPicker} onPress={pickCouplePhoto} disabled={uploadingPhoto}>
-                {uploadingPhoto ? (
-                  <ActivityIndicator color={theme.accent} />
-                ) : couplePhotoUrl ? (
-                  <Image source={{ uri: couplePhotoUrl }} style={s.photoPreview} />
-                ) : (
-                  <>
-                    <Camera size={20} color={theme.textSecondary} />
-                    <Text style={s.photoPickerText}>Add a photo</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              {couplePhotoUrl && !uploadingPhoto && (
-                <TouchableOpacity onPress={pickCouplePhoto}>
-                  <Text style={s.photoReplaceText}>Replace photo</Text>
-                </TouchableOpacity>
+              {design === 'stillness' ? (
+                <>
+                  {/* No photo upload here at all, not even optional — the
+                      absence is the design, per the reference. */}
+                  <Text style={s.label}>Name — line 1</Text>
+                  <TextInput
+                    style={s.input}
+                    value={subjectNameLine1}
+                    onChangeText={setSubjectNameLine1}
+                    placeholder="e.g. Shri Ramesh"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                  <Text style={s.label}>Name — line 2 (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={subjectNameLine2}
+                    onChangeText={setSubjectNameLine2}
+                    placeholder="e.g. Chandra Goyal"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                  <Text style={s.label}>Years (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={subjectYears}
+                    onChangeText={setSubjectYears}
+                    placeholder="e.g. 1947 — 2026"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                  <Text style={s.label}>Details — line 1</Text>
+                  <TextInput
+                    style={s.input}
+                    value={detailLine1}
+                    onChangeText={setDetailLine1}
+                    placeholder="e.g. Prayer meeting · 18 August, 4 PM"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                  <Text style={s.label}>Details — line 2 (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={detailLine2}
+                    onChangeText={setDetailLine2}
+                    placeholder="e.g. Venue / address"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={s.label}>Couple photo (optional)</Text>
+                  <TouchableOpacity style={s.photoPicker} onPress={pickCouplePhoto} disabled={uploadingPhoto}>
+                    {uploadingPhoto ? (
+                      <ActivityIndicator color={theme.accent} />
+                    ) : couplePhotoUrl ? (
+                      <Image source={{ uri: couplePhotoUrl }} style={s.photoPreview} />
+                    ) : (
+                      <>
+                        <Camera size={20} color={theme.textSecondary} />
+                        <Text style={s.photoPickerText}>Add a photo</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  {couplePhotoUrl && !uploadingPhoto && (
+                    <TouchableOpacity onPress={pickCouplePhoto}>
+                      <Text style={s.photoReplaceText}>Replace photo</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <Text style={s.label}>A line in your own words (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={coupleQuote}
+                    onChangeText={setCoupleQuote}
+                    placeholder="e.g. Two families, one celebration"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+
+                  <Text style={s.label}>Partner 1 name</Text>
+                  <TextInput
+                    style={s.input}
+                    value={partner1}
+                    onChangeText={setPartner1}
+                    placeholder="e.g. Aarav"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                  <Text style={s.label}>Partner 2 name (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={partner2}
+                    onChangeText={setPartner2}
+                    placeholder="e.g. Meera"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                  <Text style={s.label}>Hosted by (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={hostedBy}
+                    onChangeText={setHostedBy}
+                    placeholder="e.g. The Sharma and Verma families"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                </>
               )}
-
-              <Text style={s.label}>A line in your own words (optional)</Text>
-              <TextInput
-                style={s.input}
-                value={coupleQuote}
-                onChangeText={setCoupleQuote}
-                placeholder="e.g. Two families, one celebration"
-                placeholderTextColor={theme.textTertiary}
-              />
-
-              <Text style={s.label}>Partner 1 name</Text>
-              <TextInput
-                style={s.input}
-                value={partner1}
-                onChangeText={setPartner1}
-                placeholder="e.g. Aarav"
-                placeholderTextColor={theme.textTertiary}
-              />
-              <Text style={s.label}>Partner 2 name (optional)</Text>
-              <TextInput
-                style={s.input}
-                value={partner2}
-                onChangeText={setPartner2}
-                placeholder="e.g. Meera"
-                placeholderTextColor={theme.textTertiary}
-              />
-              <Text style={s.label}>Hosted by (optional)</Text>
-              <TextInput
-                style={s.input}
-                value={hostedBy}
-                onChangeText={setHostedBy}
-                placeholder="e.g. The Sharma and Verma families"
-                placeholderTextColor={theme.textTertiary}
-              />
               <TouchableOpacity style={s.saveBtn} onPress={saveContent} disabled={saving}>
                 {saving ? <ActivityIndicator color={theme.btnPrimaryText} /> : (
                   <Text style={s.saveBtnText}>{contentSaved ? 'Update details' : 'Save details'}</Text>
@@ -390,6 +509,7 @@ function makeStyles(theme) {
     designChipActiveText: { fontSize: 13, fontWeight: '700', color: theme.accentText },
     designChip: { backgroundColor: theme.cardBg, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6, borderWidth: 0.5, borderColor: theme.border },
     designChipText: { fontSize: 13, fontWeight: '700', color: theme.textSecondary },
+    designNote: { fontSize: 11, color: theme.textSecondary, flexShrink: 1 },
 
     formCard: { backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 0.5, borderColor: theme.border, padding: 16, marginBottom: 16 },
     label: { fontSize: 12, fontWeight: '600', color: theme.textSecondary, marginBottom: 6, marginTop: 10 },
