@@ -24,8 +24,10 @@ export default function RsvpDashboard({ route, navigation }) {
   const [totalInvited, setTotalInvited] = useState(0);
   const [totalResponded, setTotalResponded] = useState(0);
   const [functionRows, setFunctionRows] = useState([]);
-  const [giftCount, setGiftCount] = useState(0);
-  const [giftTotal, setGiftTotal] = useState(0);
+  const [stickerCount, setStickerCount] = useState(0);
+  const [stickerTotal, setStickerTotal] = useState(0);
+  const [notedCount, setNotedCount] = useState(0);
+  const [notedTotal, setNotedTotal] = useState(0);
 
   const capabilities = useCapabilities({
     eventTypeSlug: event?.event_type_slug ?? null,
@@ -96,13 +98,32 @@ export default function RsvpDashboard({ route, navigation }) {
       // from before syncing. No reciprocity/settled computation exists
       // anywhere to reuse — that's a manual host toggle on the ledger
       // screen, not a value to duplicate here.
-      const { data: gifts, error: giftsErr } = await supabase
+      //
+      // Corrected after review: this originally only read gift_stickers,
+      // silently missing anything a host logged the simpler way, directly
+      // on a guest's detail form (event_invitees.gift_type/gift_amount —
+      // confirmed via GuestDetailModal.js to be a completely separate,
+      // unsynced recording path, not a mirror of gift_stickers). No shared
+      // key exists to dedupe the two, so they're shown as two distinct,
+      // honestly-labeled counts below rather than merged into one number
+      // that could double-count or under-count depending on which path a
+      // host actually used.
+      const { data: stickers, error: stickersErr } = await supabase
         .from('gift_stickers').select('amount, gift_type')
         .eq('event_id', eventId).not('guest_id', 'is', null);
-      if (giftsErr) throw giftsErr;
-      setGiftCount((gifts || []).length);
-      setGiftTotal((gifts || []).reduce((sum, g) => (
+      if (stickersErr) throw stickersErr;
+      setStickerCount((stickers || []).length);
+      setStickerTotal((stickers || []).reduce((sum, g) => (
         (g.gift_type === 'cash' || g.gift_type === 'upi') ? sum + (g.amount || 0) : sum
+      ), 0));
+
+      const { data: noted, error: notedErr } = await supabase
+        .from('event_invitees').select('gift_type, gift_amount')
+        .eq('event_id', eventId).not('gift_type', 'is', null);
+      if (notedErr) throw notedErr;
+      setNotedCount((noted || []).length);
+      setNotedTotal((noted || []).reduce((sum, g) => (
+        g.gift_type === 'cash' ? sum + (g.gift_amount || 0) : sum
       ), 0));
     } catch (err) {
       console.log('RsvpDashboard load error:', err.message);
@@ -145,14 +166,22 @@ export default function RsvpDashboard({ route, navigation }) {
               <Text style={s.summaryLabel}>Guests responded</Text>
             </View>
 
-            {giftCount > 0 && (
+            {(stickerCount > 0 || notedCount > 0) && (
               <TouchableOpacity style={s.giftCard} onPress={() => navigation.navigate('ReciprocityLedger')}>
-                <View>
-                  <Text style={s.giftValue}>
-                    {giftCount} gift{giftCount === 1 ? '' : 's'} recorded
-                    {giftTotal > 0 ? ` · ₹${giftTotal.toLocaleString('en-IN')}` : ''}
-                  </Text>
-                  <Text style={s.giftLabel}>Host-only · not visible to guests</Text>
+                <View style={{ flex: 1 }}>
+                  {stickerCount > 0 && (
+                    <Text style={s.giftValue}>
+                      {stickerCount} via Gift Stickers
+                      {stickerTotal > 0 ? ` · ₹${stickerTotal.toLocaleString('en-IN')}` : ''}
+                    </Text>
+                  )}
+                  {notedCount > 0 && (
+                    <Text style={[s.giftValue, stickerCount > 0 && { marginTop: 4 }]}>
+                      {notedCount} noted on guest profiles
+                      {notedTotal > 0 ? ` · ₹${notedTotal.toLocaleString('en-IN')}` : ''}
+                    </Text>
+                  )}
+                  <Text style={s.giftLabel}>Host-only · not visible to guests · may overlap, not deduped</Text>
                 </View>
                 <Text style={s.giftLink}>View gift ledger →</Text>
               </TouchableOpacity>
