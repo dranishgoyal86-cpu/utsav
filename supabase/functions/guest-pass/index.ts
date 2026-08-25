@@ -96,7 +96,7 @@ async function buildPassShape(pass: Record<string, any>) {
 
   const { data: event, error: eventError } = await supabaseAdmin
     .from("events")
-    .select("id, name, event_date, event_time, venue, venue_id, entry_start_time, entry_end_time")
+    .select("id, name, event_date, event_time, venue, venue_id, entry_start_time, entry_end_time, maps_link")
     .eq("id", pass.event_id)
     .maybeSingle();
   if (eventError) throw new Error(eventError.message);
@@ -154,6 +154,7 @@ async function buildPassShape(pass: Record<string, any>) {
     venueAddress: venueAddress || event.venue || null,
     venueLat,
     venueLng,
+    mapsLink: event.maps_link || null,
     entryWindow: event.entry_start_time || event.entry_end_time
       ? `${event.entry_start_time || "—"} to ${event.entry_end_time || "—"}`
       : null,
@@ -312,15 +313,19 @@ Deno.serve(async (req) => {
       let partner1: string | null = null;
       let partner2: string | null = null;
       let hostedBy: string | null = null;
+      let couplePhotoUrl: string | null = null;
+      let coupleQuote: string | null = null;
       const { data: contentRow, error: contentError } = await supabaseAdmin
         .from("event_invite_content")
-        .select("partner_1_name, partner_2_name, hosted_by")
+        .select("partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote")
         .eq("event_id", pass.event_id)
         .maybeSingle();
       if (!contentError && contentRow) {
         partner1 = contentRow.partner_1_name || null;
         partner2 = contentRow.partner_2_name || null;
         hostedBy = contentRow.hosted_by || null;
+        couplePhotoUrl = contentRow.couple_photo_url || null;
+        coupleQuote = contentRow.couple_quote || null;
       }
 
       // has_outstation_guests gates whether the travel form is worth
@@ -343,6 +348,8 @@ Deno.serve(async (req) => {
           partner1Name: partner1,
           partner2Name: partner2,
           hostedBy,
+          couplePhotoUrl,
+          coupleQuote,
           hasOutstationGuests: !!eventFlags?.has_outstation_guests,
           travel: travelRow || null,
         },

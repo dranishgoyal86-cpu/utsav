@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, TextInput, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, TextInput, Platform, Image } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PaperPlaneTilt, CheckCircle } from 'phosphor-react-native';
+import { PaperPlaneTilt, CheckCircle, Camera } from 'phosphor-react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
-import { showAlert, resolveGuestPartySize } from '../../helpers';
+import { showAlert, resolveGuestPartySize, uploadToCloudinary } from '../../helpers';
 import { insertGuestPassesWithRetry } from '../../lib/capabilities';
 import { useEventContext } from '../../hooks/useEventContext';
 import AppHeader from '../../components/AppHeader';
@@ -43,6 +44,9 @@ export default function ToranInvites({ route, navigation }) {
   const [partner1, setPartner1] = useState('');
   const [partner2, setPartner2] = useState('');
   const [hostedBy, setHostedBy] = useState('');
+  const [couplePhotoUrl, setCouplePhotoUrl] = useState(null);
+  const [coupleQuote, setCoupleQuote] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [contentSaved, setContentSaved] = useState(false);
   const [guests, setGuests] = useState([]);
   const [passes, setPasses] = useState([]);
@@ -57,7 +61,7 @@ export default function ToranInvites({ route, navigation }) {
 
       const { data: contentRow } = await supabase
         .from('event_invite_content')
-        .select('partner_1_name, partner_2_name, hosted_by')
+        .select('partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote')
         .eq('event_id', eventId)
         .maybeSingle();
 
@@ -65,6 +69,8 @@ export default function ToranInvites({ route, navigation }) {
         setPartner1(contentRow.partner_1_name || '');
         setPartner2(contentRow.partner_2_name || '');
         setHostedBy(contentRow.hosted_by || '');
+        setCouplePhotoUrl(contentRow.couple_photo_url || null);
+        setCoupleQuote(contentRow.couple_quote || '');
         setContentSaved(true);
       } else if (user) {
         // Pre-fill from the one place this codebase already remembers a
@@ -109,6 +115,8 @@ export default function ToranInvites({ route, navigation }) {
           partner_1_name: partner1.trim() || null,
           partner_2_name: partner2.trim() || null,
           hosted_by: hostedBy.trim() || null,
+          couple_photo_url: couplePhotoUrl,
+          couple_quote: coupleQuote.trim() || null,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'event_id' }
@@ -120,6 +128,29 @@ export default function ToranInvites({ route, navigation }) {
       showAlert('Error', err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function pickCouplePhoto() {
+    if (Platform.OS === 'web') {
+      showAlert('Use the mobile app', 'Uploading a couple photo works in the Utsav mobile app.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+    setUploadingPhoto(true);
+    try {
+      const { url } = await uploadToCloudinary(result.assets[0].uri);
+      setCouplePhotoUrl(url);
+    } catch (err) {
+      showAlert('Upload failed', err.message);
+    } finally {
+      setUploadingPhoto(false);
     }
   }
 
@@ -227,6 +258,34 @@ export default function ToranInvites({ route, navigation }) {
             </View>
 
             <View style={s.formCard}>
+              <Text style={s.label}>Couple photo (optional)</Text>
+              <TouchableOpacity style={s.photoPicker} onPress={pickCouplePhoto} disabled={uploadingPhoto}>
+                {uploadingPhoto ? (
+                  <ActivityIndicator color={theme.accent} />
+                ) : couplePhotoUrl ? (
+                  <Image source={{ uri: couplePhotoUrl }} style={s.photoPreview} />
+                ) : (
+                  <>
+                    <Camera size={20} color={theme.textSecondary} />
+                    <Text style={s.photoPickerText}>Add a photo</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              {couplePhotoUrl && !uploadingPhoto && (
+                <TouchableOpacity onPress={pickCouplePhoto}>
+                  <Text style={s.photoReplaceText}>Replace photo</Text>
+                </TouchableOpacity>
+              )}
+
+              <Text style={s.label}>A line in your own words (optional)</Text>
+              <TextInput
+                style={s.input}
+                value={coupleQuote}
+                onChangeText={setCoupleQuote}
+                placeholder="e.g. Two families, one celebration"
+                placeholderTextColor={theme.textTertiary}
+              />
+
               <Text style={s.label}>Partner 1 name</Text>
               <TextInput
                 style={s.input}
@@ -317,6 +376,14 @@ function makeStyles(theme) {
     formCard: { backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 0.5, borderColor: theme.border, padding: 16, marginBottom: 16 },
     label: { fontSize: 12, fontWeight: '600', color: theme.textSecondary, marginBottom: 6, marginTop: 10 },
     input: { backgroundColor: theme.inputBg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: theme.text },
+    photoPicker: {
+      width: 96, height: 96, borderRadius: 48, backgroundColor: theme.inputBg,
+      alignItems: 'center', justifyContent: 'center', alignSelf: 'center', overflow: 'hidden',
+      borderWidth: 1, borderColor: theme.border, borderStyle: 'dashed',
+    },
+    photoPreview: { width: 96, height: 96, borderRadius: 48 },
+    photoPickerText: { fontSize: 10, color: theme.textSecondary, marginTop: 4 },
+    photoReplaceText: { fontSize: 12, fontWeight: '600', color: theme.accent, textAlign: 'center', marginTop: 8 },
     saveBtn: { backgroundColor: theme.btnPrimary, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 16 },
     saveBtnText: { fontSize: 14, fontWeight: '700', color: theme.btnPrimaryText },
 
