@@ -514,7 +514,18 @@ export default function GuestList({ route, navigation }) {
   const [delegatesLoading, setDelegatesLoading] = useState(false);
   const [delegatePhone, setDelegatePhone] = useState('');
   const [invitingDelegate, setInvitingDelegate] = useState(false);
+  // Moved up from further below in this file (was declared at the old line
+  // 874, after this point) — isDelegateView here referenced userId before
+  // its declaration ran, a temporal-dead-zone crash ("Cannot access
+  // 'userId' before initialization") that broke this entire screen for
+  // every user. Predates this whole project's multi-wave session (traces
+  // to the initial commit) — caught only now, via real browser rendering
+  // instead of SQL-only verification.
+  const [userId, setUserId] = useState(null);
   const isDelegateView = !!(event?.id && userId && event.host_id && event.host_id !== userId);
+  // Also moved up (same bug, same cause) — a useEffect deps array further
+  // below referenced guests before this ran.
+  const [guests, setGuests] = useState([]);
   useEffect(() => {
     setDisplayName(event?.name || ''); // optimistic — avoids a blank header while the fetch below is in flight
     // `event` is whatever route params/pickedEvent handed us, which can be a
@@ -869,9 +880,7 @@ export default function GuestList({ route, navigation }) {
     };
   }, [event?.id, capFields, venueRow]);
 
-  const [guests, setGuests] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState(null);
 
   // Add/Edit guest modal — editingGuestId null means "adding new"
   const [guestModal, setGuestModal] = useState(false);
