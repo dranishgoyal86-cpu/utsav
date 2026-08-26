@@ -92,6 +92,10 @@ const EVENT_ICONS = {
   anniversary: '❤️', lastrites: '🕊️', other: '🎉',
   // event_type_slug values (new flow, lib/eventTypeNames.js)
   'hindu-wedding': '💍', 'kids-birthday': '🎈', 'adult-birthday': '🎂',
+  // Wave 7 — new wedding traditions, same icon as hindu-wedding (💍
+  // represents "wedding," not a specific tradition).
+  'nikah': '💍', 'anand-karaj': '💍', 'christian-wedding': '💍',
+  'parsi-wedding': '💍', 'jain-wedding': '💍', 'interfaith-wedding': '💍',
   'mundan': '👶', 'baby-shower': '🍼', 'housewarming': '🏡',
   'naming-ceremony': '📛', 'religious-event': '🪔',
   'corporate-conference': '💼', 'product-launch': '🚀',

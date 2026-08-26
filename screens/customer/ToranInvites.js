@@ -19,6 +19,17 @@ const DESIGN_LABELS = { toran: 'Toran', kalamkari: 'Kalamkari', stillness: 'Stil
 const CELEBRATORY_DESIGNS = ['toran', 'kalamkari'];
 const SOLEMN_DESIGNS = ['stillness'];
 
+// Wave 7 — suggestion, not gating. Every event type in CELEBRATORY_DESIGNS
+// can still pick either Toran or Kalamkari regardless of what's suggested
+// here; funeral-last-rites isn't listed because Wave 6's restriction to
+// Stillness already makes it the only option, nothing to "suggest" among.
+// Deliberately no entry for nikah/anand-karaj/christian-wedding/
+// parsi-wedding/jain-wedding/interfaith-wedding or any non-wedding
+// celebratory type — neither Toran nor Kalamkari leans toward any of
+// them, so no suggestion is made rather than silently defaulting to a
+// Hindu-coded design.
+const DESIGN_SUGGESTIONS = { 'hindu-wedding': 'toran' };
+
 // react-native-share + react-native-view-shot, same pattern GuestList.js's
 // old designer already uses — image and text/link go out together in one
 // share intent. Wave 1, Task 4 originally shipped text-only here (no
@@ -53,7 +64,11 @@ export default function ToranInvites({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [preparing, setPreparing] = useState(false);
-  const [design, setDesign] = useState(DEFAULT_DESIGN);
+  // Wave 7 — starts unset (not DEFAULT_DESIGN) so a celebratory event with
+  // no real suggestion (any of the six new wedding traditions, or any
+  // non-wedding type) never silently pre-selects Toran. See the two
+  // effects below for how it does get set.
+  const [design, setDesign] = useState(null);
   const [partner1, setPartner1] = useState('');
   const [partner2, setPartner2] = useState('');
   const [hostedBy, setHostedBy] = useState('');
@@ -79,13 +94,30 @@ export default function ToranInvites({ route, navigation }) {
   const celebratory = isCelebratory(event?.event_type_slug);
   const allowedDesigns = celebratory ? CELEBRATORY_DESIGNS : SOLEMN_DESIGNS;
 
-  // Self-heals if the loaded design doesn't match this event's allowed set
-  // (e.g. event type changed after content was saved, or the default
-  // 'toran' state resolved before `event` finished loading).
+  // Corrects an already-chosen design that's no longer valid for this
+  // event's allowed set (e.g. saved as Toran, event type later edited to
+  // something solemn). Only acts once a design is actually chosen —
+  // doesn't run against the null "nothing picked yet" state, which the
+  // suggestion effect below owns.
   useEffect(() => {
-    if (!event) return;
+    if (!event || !design) return;
     if (!allowedDesigns.includes(design)) setDesign(allowedDesigns[0]);
   }, [event?.event_type_slug, design]);
+
+  // Wave 7, Task 3 — suggestion, not a default. Only fires for a fresh
+  // invite (nothing explicitly chosen yet, no saved content loaded).
+  // Solemn events auto-select Stillness (the only option — nothing to
+  // withhold when there's no real choice). DESIGN_SUGGESTIONS covers the
+  // one real case (Hindu wedding -> Toran). Everything else stays
+  // unselected — the picker shows a neutral "no suggestion" state instead
+  // of silently landing on a Hindu-coded design for a Nikah or any other
+  // event type nothing here leans toward.
+  useEffect(() => {
+    if (!event || design || contentSaved) return;
+    if (allowedDesigns.length === 1) { setDesign(allowedDesigns[0]); return; }
+    const suggested = DESIGN_SUGGESTIONS[event.event_type_slug];
+    if (suggested && allowedDesigns.includes(suggested)) setDesign(suggested);
+  }, [event?.event_type_slug, design, contentSaved, allowedDesigns.length]);
 
   useEffect(() => { load(); }, [eventId]);
 
@@ -295,57 +327,67 @@ export default function ToranInvites({ route, navigation }) {
               {!celebratory && (
                 <Text style={s.designNote}>Restricted to Stillness for this event type</Text>
               )}
+              {celebratory && !design && (
+                <Text style={s.designNote}>No suggested style yet — choose the one that fits</Text>
+              )}
             </View>
 
             {/* Doubles as the host's live preview and the capture target
                 sendInvite() screenshots — same CardWrapper-via-ViewShot
-                pattern GuestList.js's old designer already uses. */}
-            <View style={s.previewWrap}>
-              {Platform.OS !== 'web' && ViewShot ? (
-                <ViewShot ref={cardRef} options={{ format: 'jpg', quality: 0.92 }}>
-                  {design === 'stillness' ? (
-                    <StillnessCard
-                      nameLine1={subjectNameLine1}
-                      nameLine2={subjectNameLine2}
-                      years={subjectYears}
-                      detailLine1={detailLine1}
-                      detailLine2={detailLine2}
-                    />
-                  ) : (
-                    <ToranCoverCard
-                      design={design}
-                      eventName={event?.name}
-                      eventDate={event?.event_date}
-                      venue={event?.venue}
-                      partner1Name={partner1}
-                      partner2Name={partner2}
-                      hostedBy={hostedBy}
-                    />
-                  )}
-                </ViewShot>
-              ) : design === 'stillness' ? (
-                <StillnessCard
-                  nameLine1={subjectNameLine1}
-                  nameLine2={subjectNameLine2}
-                  years={subjectYears}
-                  detailLine1={detailLine1}
-                  detailLine2={detailLine2}
-                />
-              ) : (
-                <ToranCoverCard
-                  design={design}
-                  eventName={event?.name}
-                  eventDate={event?.event_date}
-                  venue={event?.venue}
-                  partner1Name={partner1}
-                  partner2Name={partner2}
-                  hostedBy={hostedBy}
-                />
-              )}
-            </View>
+                pattern GuestList.js's old designer already uses. Renders
+                nothing (not a silent Toran fallback) when no design is
+                chosen yet — Wave 7's "don't fake a suggestion" rule
+                applies to the preview just as much as the chip row. */}
+            {design && (
+              <View style={s.previewWrap}>
+                {Platform.OS !== 'web' && ViewShot ? (
+                  <ViewShot ref={cardRef} options={{ format: 'jpg', quality: 0.92 }}>
+                    {design === 'stillness' ? (
+                      <StillnessCard
+                        nameLine1={subjectNameLine1}
+                        nameLine2={subjectNameLine2}
+                        years={subjectYears}
+                        detailLine1={detailLine1}
+                        detailLine2={detailLine2}
+                      />
+                    ) : (
+                      <ToranCoverCard
+                        design={design}
+                        eventName={event?.name}
+                        eventDate={event?.event_date}
+                        venue={event?.venue}
+                        partner1Name={partner1}
+                        partner2Name={partner2}
+                        hostedBy={hostedBy}
+                      />
+                    )}
+                  </ViewShot>
+                ) : design === 'stillness' ? (
+                  <StillnessCard
+                    nameLine1={subjectNameLine1}
+                    nameLine2={subjectNameLine2}
+                    years={subjectYears}
+                    detailLine1={detailLine1}
+                    detailLine2={detailLine2}
+                  />
+                ) : (
+                  <ToranCoverCard
+                    design={design}
+                    eventName={event?.name}
+                    eventDate={event?.event_date}
+                    venue={event?.venue}
+                    partner1Name={partner1}
+                    partner2Name={partner2}
+                    hostedBy={hostedBy}
+                  />
+                )}
+              </View>
+            )}
 
             <View style={s.formCard}>
-              {design === 'stillness' ? (
+              {!design ? (
+                <Text style={s.emptyText}>Choose a design above to continue.</Text>
+              ) : design === 'stillness' ? (
                 <>
                   {/* No photo upload here at all, not even optional — the
                       absence is the design, per the reference. */}
@@ -446,11 +488,13 @@ export default function ToranInvites({ route, navigation }) {
                   />
                 </>
               )}
-              <TouchableOpacity style={s.saveBtn} onPress={saveContent} disabled={saving}>
-                {saving ? <ActivityIndicator color={theme.btnPrimaryText} /> : (
-                  <Text style={s.saveBtnText}>{contentSaved ? 'Update details' : 'Save details'}</Text>
-                )}
-              </TouchableOpacity>
+              {!!design && (
+                <TouchableOpacity style={s.saveBtn} onPress={saveContent} disabled={saving}>
+                  {saving ? <ActivityIndicator color={theme.btnPrimaryText} /> : (
+                    <Text style={s.saveBtnText}>{contentSaved ? 'Update details' : 'Save details'}</Text>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={s.statsRow}>
