@@ -12,6 +12,15 @@ Notifications.setNotificationHandler({
 });
 
 export async function registerForPushNotifications() {
+  // Web push was never actually built here — no VAPID key, no service
+  // worker to receive a background push. Device.isDevice alone doesn't
+  // exclude web (a real browser reports true, same as a physical phone),
+  // so without this it silently ran on every web login: a real "Allow
+  // notifications?" prompt for nothing, then getExpoPushTokenAsync()
+  // throwing on the missing vapidPublicKey (an unhandled rejection —
+  // this is what showed up as 40 Sentry events, not a blocking error).
+  if (Platform.OS === 'web') return null;
+
   if (!Device.isDevice) {
     console.log('Push notifications only work on real devices');
     return null;
