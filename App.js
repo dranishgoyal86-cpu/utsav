@@ -568,6 +568,7 @@ function App() {
     'TiroDevanagariHindi-Regular': require('./assets/fonts/TiroDevanagariHindi-Regular.ttf'),
     'Fraunces-SemiBold': require('./assets/fonts/Fraunces-SemiBold.ttf'),
     'Fraunces-LightItalic': require('./assets/fonts/Fraunces-LightItalic.ttf'),
+    'Fraunces-Bold': require('./assets/fonts/Fraunces-Bold.ttf'),
   });
 
   useEffect(() => {

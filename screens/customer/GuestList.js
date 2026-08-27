@@ -8,6 +8,7 @@ import { supabase } from '../../supabase';
 import LocationAutocomplete from '../../components/LocationAutocomplete';
 import SwipeableRow from '../../components/SwipeableRow';
 import GuestDetailModal, { timeAgo } from '../../components/GuestDetailModal';
+import NightBloomCard from '../../components/invite/NightBloomCard';
 // Deliberately NOT importing EVENT_TYPES from planLogic.js here — that now
 // reflects the eventTaxonomy.js 10-category system used by the Plan flow,
 // which doesn't line up with this file's own TEMPLATE_CATALOG keys (a
@@ -754,6 +755,45 @@ export default function GuestList({ route, navigation }) {
       showAlert('Error', err.message);
     } finally {
       setFunctionBudgetInputs(prev => { const next = { ...prev }; delete next[func.id]; return next; });
+    }
+  }
+
+  // Wave 9 — per-function design. null template_id (the default for every
+  // existing function) means "inherit the event's overall design" and
+  // renders as today's plain compact row on the guest invite page — this
+  // is purely additive, nothing here can change an existing function's
+  // current look unless the host actively picks something.
+  async function saveFunctionTemplate(func, templateId) {
+    try {
+      const { error } = await supabase.from('event_functions').update({ template_id: templateId }).eq('id', func.id);
+      if (error) throw error;
+      setEventFunctions(prev => prev.map(f => f.id === func.id ? { ...f, template_id: templateId } : f));
+    } catch (err) {
+      showAlert('Error', err.message);
+    }
+  }
+
+  // Headline override for a per-function design (e.g. Night Bloom) — same
+  // draft-while-editing/save-on-blur shape as saveFunctionBudget above.
+  // Blank/untouched falls back to the function's own name (see
+  // NightBloomCard.tsx on the guest-facing side), never a fixed default.
+  const [functionHeadlineInputs, setFunctionHeadlineInputs] = useState({});
+  function functionHeadlineInputValue(func) {
+    if (func.id in functionHeadlineInputs) return functionHeadlineInputs[func.id];
+    return func.headline_text || '';
+  }
+  async function saveFunctionHeadline(func) {
+    if (!(func.id in functionHeadlineInputs)) return;
+    const trimmed = functionHeadlineInputs[func.id].trim();
+    const value = trimmed === '' ? null : trimmed;
+    try {
+      const { error } = await supabase.from('event_functions').update({ headline_text: value }).eq('id', func.id);
+      if (error) throw error;
+      setEventFunctions(prev => prev.map(f => f.id === func.id ? { ...f, headline_text: value } : f));
+    } catch (err) {
+      showAlert('Error', err.message);
+    } finally {
+      setFunctionHeadlineInputs(prev => { const next = { ...prev }; delete next[func.id]; return next; });
     }
   }
 
@@ -4095,6 +4135,46 @@ export default function GuestList({ route, navigation }) {
                       onChangeText={v => setFunctionBudgetInputs(prev => ({ ...prev, [func.id]: v.replace(/[^0-9]/g, '') }))}
                       onBlur={() => saveFunctionBudget(func)}
                     />
+                    {/* Wave 9 — per-function design on the guest invite page.
+                        "Default" (null) is this function's current behavior
+                        and stays selected for every function that exists
+                        today — nothing changes until a host actively taps
+                        Night Bloom. */}
+                    <Text style={[s.fieldLabel, { marginTop: 10 }]}>Guest-page design</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                      <TouchableOpacity
+                        style={!func.template_id ? s.typeChipActive : s.typeChip}
+                        onPress={() => saveFunctionTemplate(func, null)}
+                      >
+                        <Text style={!func.template_id ? s.typeChipTextActive : s.typeChipText}>Default</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={func.template_id === 'nightbloom' ? s.typeChipActive : s.typeChip}
+                        onPress={() => saveFunctionTemplate(func, 'nightbloom')}
+                      >
+                        <Text style={func.template_id === 'nightbloom' ? s.typeChipTextActive : s.typeChipText}>Night Bloom</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {func.template_id === 'nightbloom' && (
+                      <>
+                        <TextInput
+                          style={[s.input, { marginTop: 8, fontSize: 13, paddingVertical: 8 }]}
+                          placeholder={`Headline (optional — defaults to "${func.name}")`}
+                          placeholderTextColor={theme.textSecondary}
+                          value={functionHeadlineInputValue(func)}
+                          onChangeText={v => setFunctionHeadlineInputs(prev => ({ ...prev, [func.id]: v }))}
+                          onBlur={() => saveFunctionHeadline(func)}
+                        />
+                        <View style={{ marginTop: 10, alignItems: 'center' }}>
+                          <NightBloomCard
+                            name={func.name}
+                            date={func.date}
+                            time={func.time}
+                            headlineText={functionHeadlineInputValue(func)}
+                          />
+                        </View>
+                      </>
+                    )}
                   </View>
                   <TouchableOpacity onPress={() => removeFunction(func)} style={{ padding: 6 }}>
                     <Trash size={16} color={theme.textSecondary} />

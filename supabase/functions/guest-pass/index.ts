@@ -282,7 +282,7 @@ Deno.serve(async (req) => {
         // project's established Supabase convention.
         const { data: functionRows, error: functionsError } = await supabaseAdmin
           .from("event_functions")
-          .select("id, name, date, time, sort_order")
+          .select("id, name, date, time, sort_order, template_id, headline_text")
           .in("id", functionIds)
           .order("sort_order", { ascending: true });
         if (functionsError) return json({ error: functionsError.message }, 500);
@@ -301,6 +301,8 @@ Deno.serve(async (req) => {
           date: f.date,
           time: f.time,
           status: statusByFunctionId.get(f.id) || "pending",
+          templateId: f.template_id || null,
+          headlineText: f.headline_text || null,
         }));
       }
 
