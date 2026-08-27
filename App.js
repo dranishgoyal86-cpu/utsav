@@ -566,6 +566,8 @@ function App() {
     'Manrope-Regular': require('./assets/fonts/Manrope-Regular.ttf'),
     'Manrope-SemiBold': require('./assets/fonts/Manrope-SemiBold.ttf'),
     'TiroDevanagariHindi-Regular': require('./assets/fonts/TiroDevanagariHindi-Regular.ttf'),
+    'Fraunces-SemiBold': require('./assets/fonts/Fraunces-SemiBold.ttf'),
+    'Fraunces-LightItalic': require('./assets/fonts/Fraunces-LightItalic.ttf'),
   });
 
   useEffect(() => {

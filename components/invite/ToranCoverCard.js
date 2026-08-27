@@ -12,11 +12,12 @@ import { resolveTheme } from '../../lib/inviteThemes';
 // same design. Static capture target for react-native-view-shot, same as
 // every other card this app already screenshots for sharing.
 //
-// Wave 5: branches on `design` (Toran's original arch layout vs
-// Kalamkari's double-border frame) — colours/connector/kicker text all
-// come from inviteThemes, nothing hardcoded per-design in this file except
-// the two structural layouts themselves (they're genuinely different
-// shapes, not just different colours of the same shape).
+// Wave 5/8: branches on `design`. Toran (arch) and Kalamkari (bloom) share
+// one centred flow (genuinely similar compositions, colours/text differ).
+// Wave 8's Ivory (minimal) gets its own return block instead of more
+// ternaries threaded through that shared flow — left-aligned, enormous
+// type, a date/venue row are a different composition, not a variant of
+// the same one.
 export default function ToranCoverCard({
   design = 'toran',
   eventName,
@@ -25,11 +26,43 @@ export default function ToranCoverCard({
   partner1Name,
   partner2Name,
   hostedBy,
+  kickerText, // Wave 8: host override for Ivory's kicker; ignored by other designs
 }) {
   const theme = resolveTheme(design);
   const twoNames = !!(partner1Name && partner2Name);
   const singleName = partner1Name && !partner2Name ? partner1Name : !partner1Name ? eventName : null;
   const dateText = formatDate(eventDate);
+
+  if (theme.motif === 'minimal') {
+    const kicker = kickerText || theme.kicker;
+    return (
+      <View style={[s.card, s.ivoryCard, { backgroundColor: theme.colors.bg }]}>
+        <HairRule width={40} color={theme.colors.accent} />
+        <Text style={[s.ivoryKicker, { color: theme.colors.dim }]}>{kicker}</Text>
+
+        {twoNames ? (
+          <>
+            <Text style={[s.ivoryName, { color: theme.colors.ink }]}>{partner1Name}</Text>
+            <Text style={[s.ivoryConnector, { color: theme.colors.ink }]}>{theme.connector}</Text>
+            <Text style={[s.ivoryName, { color: theme.colors.ink }]}>{partner2Name}</Text>
+          </>
+        ) : (
+          <Text style={[s.ivoryName, { color: theme.colors.ink }]}>{singleName}</Text>
+        )}
+
+        <View style={s.ivoryDividerWrap}>
+          <HairRule width={288} color={theme.colors.line} />
+        </View>
+
+        {/* Stacked, not side-by-side — matches the web card's fix after
+            live rendering showed the reference's date-left/venue-right
+            row colliding with this app's real venue data (full
+            addresses, not short names). */}
+        {dateText ? <Text style={[s.ivoryDate, { color: theme.colors.dateColor }]}>{dateText}</Text> : null}
+        {venue ? <Text style={[s.ivoryVenue, { color: theme.colors.dim }]}>{venue}</Text> : null}
+      </View>
+    );
+  }
 
   const content = (
     <>
@@ -113,4 +146,15 @@ const s = StyleSheet.create({
   date: { fontFamily: 'Manrope-SemiBold', fontSize: 10.5, letterSpacing: 2, textAlign: 'center' },
   venue: { fontFamily: 'Manrope-Regular', fontSize: 9.5, letterSpacing: 1, marginTop: 6, textAlign: 'center' },
   bottomArchWrap: { marginTop: 'auto', marginBottom: 20 },
+
+  // Wave 8 — Ivory. Left-aligned (opts out of s.card's centred
+  // alignItems), enormous type is the entire visual statement per the
+  // reference — generous empty space, no motif, no border.
+  ivoryCard: { alignItems: 'flex-start', justifyContent: 'center', paddingHorizontal: 16 },
+  ivoryKicker: { fontFamily: 'Manrope-SemiBold', fontSize: 9.5, letterSpacing: 4.5, marginTop: 14, textTransform: 'uppercase' },
+  ivoryName: { fontFamily: 'Fraunces-SemiBold', fontSize: 32, letterSpacing: -1.3, marginTop: 8, lineHeight: 38 },
+  ivoryConnector: { fontFamily: 'Fraunces-LightItalic', fontSize: 15, marginTop: 2, marginBottom: 2 },
+  ivoryDividerWrap: { marginTop: 22, marginBottom: 14 },
+  ivoryDate: { fontFamily: 'Manrope-SemiBold', fontSize: 10.5, letterSpacing: 1.2 },
+  ivoryVenue: { fontFamily: 'Manrope-Regular', fontSize: 10, letterSpacing: 1, marginTop: 6, flexShrink: 1 },
 });

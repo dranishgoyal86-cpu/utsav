@@ -321,9 +321,10 @@ Deno.serve(async (req) => {
       let subjectYears: string | null = null;
       let detailLine1: string | null = null;
       let detailLine2: string | null = null;
+      let kickerText: string | null = null;
       const { data: contentRow, error: contentError } = await supabaseAdmin
         .from("event_invite_content")
-        .select("template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote, subject_name_line1, subject_name_line2, subject_years, detail_line1, detail_line2")
+        .select("template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote, subject_name_line1, subject_name_line2, subject_years, detail_line1, detail_line2, kicker_text")
         .eq("event_id", pass.event_id)
         .maybeSingle();
       if (!contentError && contentRow) {
@@ -338,6 +339,7 @@ Deno.serve(async (req) => {
         subjectYears = contentRow.subject_years || null;
         detailLine1 = contentRow.detail_line1 || null;
         detailLine2 = contentRow.detail_line2 || null;
+        kickerText = contentRow.kicker_text || null;
       }
 
       // has_outstation_guests gates whether the travel form is worth
@@ -363,6 +365,7 @@ Deno.serve(async (req) => {
           hostedBy,
           couplePhotoUrl,
           coupleQuote,
+          kickerText,
           subjectNameLine1,
           subjectNameLine2,
           subjectYears,

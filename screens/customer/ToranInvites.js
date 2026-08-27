@@ -15,8 +15,11 @@ import StillnessCard from '../../components/invite/StillnessCard';
 import { DEFAULT_DESIGN } from '../../lib/inviteThemes';
 import { isCelebratory } from '../../lib/eventTypeNames';
 
-const DESIGN_LABELS = { toran: 'Toran', kalamkari: 'Kalamkari', stillness: 'Stillness' };
-const CELEBRATORY_DESIGNS = ['toran', 'kalamkari'];
+const DESIGN_LABELS = { toran: 'Toran', kalamkari: 'Kalamkari', stillness: 'Stillness', ivory: 'Ivory' };
+// Wave 8 — Ivory joins Kalamkari as a second neutral, non-Hindu-coded
+// option. No entry in DESIGN_SUGGESTIONS below (same as Kalamkari) —
+// available, never suggested toward any specific event type.
+const CELEBRATORY_DESIGNS = ['toran', 'kalamkari', 'ivory'];
 const SOLEMN_DESIGNS = ['stillness'];
 
 // Wave 7 — suggestion, not gating. Every event type in CELEBRATORY_DESIGNS
@@ -79,6 +82,7 @@ export default function ToranInvites({ route, navigation }) {
   const [subjectYears, setSubjectYears] = useState('');
   const [detailLine1, setDetailLine1] = useState('');
   const [detailLine2, setDetailLine2] = useState('');
+  const [kickerText, setKickerText] = useState(''); // Wave 8 — Ivory only
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [contentSaved, setContentSaved] = useState(false);
   const [guests, setGuests] = useState([]);
@@ -128,7 +132,7 @@ export default function ToranInvites({ route, navigation }) {
 
       const { data: contentRow } = await supabase
         .from('event_invite_content')
-        .select('template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote, subject_name_line1, subject_name_line2, subject_years, detail_line1, detail_line2')
+        .select('template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote, subject_name_line1, subject_name_line2, subject_years, detail_line1, detail_line2, kicker_text')
         .eq('event_id', eventId)
         .maybeSingle();
 
@@ -144,6 +148,7 @@ export default function ToranInvites({ route, navigation }) {
         setSubjectYears(contentRow.subject_years || '');
         setDetailLine1(contentRow.detail_line1 || '');
         setDetailLine2(contentRow.detail_line2 || '');
+        setKickerText(contentRow.kicker_text || '');
         setContentSaved(true);
       } else if (user && isCelebratory(event?.event_type_slug)) {
         // Pre-fill from the one place this codebase already remembers a
@@ -186,6 +191,7 @@ export default function ToranInvites({ route, navigation }) {
       // stale, so switching designs never leaves orphaned data behind
       // (e.g. old partner names surviving under a Stillness invite).
       const isStillness = design === 'stillness';
+      const isIvory = design === 'ivory';
       const { error } = await supabase.from('event_invite_content').upsert(
         {
           event_id: eventId,
@@ -201,6 +207,7 @@ export default function ToranInvites({ route, navigation }) {
           subject_years: isStillness ? (subjectYears.trim() || null) : null,
           detail_line1: isStillness ? (detailLine1.trim() || null) : null,
           detail_line2: isStillness ? (detailLine2.trim() || null) : null,
+          kicker_text: isIvory ? (kickerText.trim() || null) : null,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'event_id' }
@@ -359,6 +366,7 @@ export default function ToranInvites({ route, navigation }) {
                         partner1Name={partner1}
                         partner2Name={partner2}
                         hostedBy={hostedBy}
+                        kickerText={kickerText}
                       />
                     )}
                   </ViewShot>
@@ -379,6 +387,7 @@ export default function ToranInvites({ route, navigation }) {
                     partner1Name={partner1}
                     partner2Name={partner2}
                     hostedBy={hostedBy}
+                    kickerText={kickerText}
                   />
                 )}
               </View>
@@ -434,6 +443,18 @@ export default function ToranInvites({ route, navigation }) {
                 </>
               ) : (
                 <>
+                  {design === 'ivory' && (
+                    <>
+                      <Text style={s.label}>Kicker text (optional)</Text>
+                      <TextInput
+                        style={s.input}
+                        value={kickerText}
+                        onChangeText={setKickerText}
+                        placeholder="e.g. YOU'RE INVITED"
+                        placeholderTextColor={theme.textTertiary}
+                      />
+                    </>
+                  )}
                   <Text style={s.label}>Couple photo (optional)</Text>
                   <TouchableOpacity style={s.photoPicker} onPress={pickCouplePhoto} disabled={uploadingPhoto}>
                     {uploadingPhoto ? (
