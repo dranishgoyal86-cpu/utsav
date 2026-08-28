@@ -29,21 +29,31 @@ export default function ToranCoverCard({
   hostedBy,
   kickerText, // Wave 8: host override for Ivory's kicker; ignored by other designs
   headlineText, // Wave 10: host override for Diya's headline; ignored by other designs
+  // Wave 11 — per-function mode. Toran/Kalamkari/Ivory/Stillness keep the
+  // couple/subject identity and add these as new content; Diya has no
+  // couple to protect, so these instead drive its existing kicker/headline
+  // exactly like Night Bloom already does.
+  functionName,
+  functionDate,
+  functionTime,
 }) {
   const theme = resolveTheme(design);
   const twoNames = !!(partner1Name && partner2Name);
   const singleName = partner1Name && !partner2Name ? partner1Name : !partner1Name ? eventName : null;
-  const dateText = formatDate(eventDate);
+  const isFunctionCard = !!functionName;
+  const dateText = isFunctionCard
+    ? [functionDate && formatDate(functionDate), functionTime].filter(Boolean).join(' · ')
+    : formatDate(eventDate);
 
   // Wave 10 — Diya, the first non-wedding design. No couple/connector at
   // all (see the reference: "Diya doesn't have a couple") — its own
   // return block, same reasoning as Ivory above: a genuinely different
   // composition (rangoli top, diya row bottom, single headline), not a
   // variant of the arch/bloom flow. Neither the kicker nor the headline
-  // ships a fixed default — both fall back to the event's own real name.
+  // ships a fixed default — both fall back to the real name in scope.
   if (theme.motif === 'diya') {
-    const kicker = (kickerText || eventName || '').toUpperCase();
-    const headline = headlineText || eventName;
+    const kicker = (kickerText || functionName || eventName || '').toUpperCase();
+    const headline = headlineText || functionName || eventName;
     return (
       <View style={[s.card, s.diyaCard, { backgroundColor: theme.colors.bg }]}>
         <Rangoli color={theme.colors.accent} />
@@ -78,6 +88,12 @@ export default function ToranCoverCard({
         ) : (
           <Text style={[s.ivoryName, { color: theme.colors.ink }]}>{singleName}</Text>
         )}
+
+        {/* Wave 11 — which function this card is for, when in per-function
+            mode. New line, not a replacement of the kicker above. */}
+        {isFunctionCard ? (
+          <Text style={[s.ivoryFunctionName, { color: theme.colors.accent }]}>{functionName.toUpperCase()}</Text>
+        ) : null}
 
         <View style={s.ivoryDividerWrap}>
           <HairRule width={288} color={theme.colors.line} />
@@ -130,6 +146,13 @@ export default function ToranCoverCard({
       ) : (
         <Text style={[s.name, { color: theme.colors.ink }]}>{singleName}</Text>
       )}
+
+      {/* Wave 11 — which function this card is for, when in per-function
+          mode. New line, not a replacement of the Sanskrit/families kicker
+          above. */}
+      {isFunctionCard ? (
+        <Text style={[s.functionNameTag, { color: theme.colors.accent }]}>{functionName.toUpperCase()}</Text>
+      ) : null}
 
       <View style={s.hairlineWrap}>
         <HairRule width={140} color={theme.colors.line} />
@@ -194,4 +217,8 @@ const s = StyleSheet.create({
   diyaKicker: { fontFamily: 'Manrope-SemiBold', fontSize: 9, letterSpacing: 3.6, marginTop: 14, textAlign: 'center' },
   diyaHeadline: { fontFamily: 'CormorantGaramond-SemiBold', fontSize: 30, marginTop: 10, textAlign: 'center' },
   diyaRowWrap: { marginTop: 'auto', marginBottom: 18 },
+
+  // Wave 11 — the new "which function" line, per-function mode only.
+  functionNameTag: { fontFamily: 'Manrope-SemiBold', fontSize: 10, letterSpacing: 2, marginTop: 8, textAlign: 'center', textTransform: 'uppercase' },
+  ivoryFunctionName: { fontFamily: 'Manrope-SemiBold', fontSize: 9.5, letterSpacing: 2, marginTop: 10, textTransform: 'uppercase' },
 });

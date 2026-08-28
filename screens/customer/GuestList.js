@@ -9,6 +9,9 @@ import LocationAutocomplete from '../../components/LocationAutocomplete';
 import SwipeableRow from '../../components/SwipeableRow';
 import GuestDetailModal, { timeAgo } from '../../components/GuestDetailModal';
 import NightBloomCard from '../../components/invite/NightBloomCard';
+import ToranCoverCard from '../../components/invite/ToranCoverCard';
+import StillnessCard from '../../components/invite/StillnessCard';
+import { isCelebratory } from '../../lib/eventTypeNames';
 // Deliberately NOT importing EVENT_TYPES from planLogic.js here — that now
 // reflects the eventTaxonomy.js 10-category system used by the Plan flow,
 // which doesn't line up with this file's own TEMPLATE_CATALOG keys (a
@@ -24,6 +27,19 @@ const INVITE_STYLE_TYPES = [
   { id: 'babyshower', label: 'Baby Shower', icon: '🍼' },
   { id: 'anniversary', label: 'Anniversary', icon: '❤️' },
   { id: 'other', label: 'Other', icon: '🎉' },
+];
+
+// Wave 11 — per-function guest-page designs. 'stillness' is filtered out
+// of this list at render time unless the event's own type is already
+// non-celebratory (isCelebratory() check, same one ToranInvites.js's
+// whole-event picker gates on) — never independently offered per function.
+const FUNCTION_DESIGN_OPTIONS = [
+  { id: 'toran', label: 'Toran' },
+  { id: 'kalamkari', label: 'Kalamkari' },
+  { id: 'ivory', label: 'Ivory' },
+  { id: 'stillness', label: 'Stillness' },
+  { id: 'diya', label: 'Diya' },
+  { id: 'nightbloom', label: 'Night Bloom' },
 ];
 import { callEdgeFunction, renameEvent, showAlert, confirmDestructive, confirmAction, deleteEventCascade, toWhatsappNumber, resolveGuestPartySize, getSignedGuestDocumentUrl } from '../../helpers';
 import { buildHotelGuestListText, buildHotelGuestListPdfHtml } from '../../hotelGuestListTemplate';
@@ -628,6 +644,24 @@ export default function GuestList({ route, navigation }) {
       });
   }, [event?.id]);
 
+  // Wave 11 — per-function design assignment needs the EVENT's own
+  // identity (couple names / hosted-by / subject name / the event's own
+  // design) to render an accurate live preview for Toran/Kalamkari/Ivory/
+  // Stillness (they keep the couple/subject identity per-function, unlike
+  // Night Bloom/Diya). Two separate queries, this project's convention —
+  // not a join. Same "may not exist yet" defensive shape as everything
+  // else on this screen.
+  useEffect(() => {
+    if (!event?.id) return;
+    supabase.from('event_invite_content')
+      .select('template_id, partner_1_name, partner_2_name, hosted_by, subject_name_line1, subject_name_line2, subject_years')
+      .eq('event_id', event.id).maybeSingle()
+      .then(({ data, error }) => {
+        if (error) { console.log('event_invite_content fetch skipped:', error.message); setEventInviteContent(null); return; }
+        setEventInviteContent(data || null);
+      });
+  }, [event?.id]);
+
   // event_accommodations may not exist yet on this database (see
   // supabase/migrations/outstation_travel.sql — printed, not applied
   // automatically) — same "silently look like zero, never an error" shape
@@ -797,6 +831,50 @@ export default function GuestList({ route, navigation }) {
     }
   }
 
+  // Wave 11 — live preview for whichever design is assigned to a function.
+  // Toran/Kalamkari/Ivory/Stillness pull the event's own couple/subject
+  // identity from eventInviteContent (fetched above) since they keep that
+  // identity per-function; Night Bloom/Diya only ever need the function's
+  // own data. Returns null for 'default' (nothing new to preview — the
+  // function just inherits whatever the event's own design already shows).
+  function renderFunctionDesignPreview(func) {
+    if (!func.template_id) return null;
+    if (func.template_id === 'nightbloom') {
+      return (
+        <NightBloomCard name={func.name} date={func.date} time={func.time} headlineText={functionHeadlineInputValue(func)} />
+      );
+    }
+    if (func.template_id === 'stillness') {
+      return (
+        <StillnessCard
+          nameLine1={eventInviteContent?.subject_name_line1}
+          nameLine2={eventInviteContent?.subject_name_line2}
+          years={eventInviteContent?.subject_years}
+          functionName={func.name}
+          functionDate={func.date}
+          functionTime={func.time}
+        />
+      );
+    }
+    // toran / kalamkari / ivory / diya all go through the same card, same
+    // as their whole-event preview already does.
+    return (
+      <ToranCoverCard
+        design={func.template_id}
+        eventName={event?.name}
+        eventDate={event?.event_date}
+        venue={event?.venue}
+        partner1Name={eventInviteContent?.partner_1_name}
+        partner2Name={eventInviteContent?.partner_2_name}
+        hostedBy={eventInviteContent?.hosted_by}
+        headlineText={func.template_id === 'diya' ? functionHeadlineInputValue(func) : undefined}
+        functionName={func.name}
+        functionDate={func.date}
+        functionTime={func.time}
+      />
+    );
+  }
+
   async function addFunction(name, sourceSubEvent) {
     const trimmed = (name || '').trim();
     if (!trimmed) return;
@@ -937,6 +1015,7 @@ export default function GuestList({ route, navigation }) {
   // ids], fetched separately and merged in JS (two-query convention, and
   // this is a many-to-many join table, not a column on either side).
   const [eventFunctions, setEventFunctions] = useState([]);
+  const [eventInviteContent, setEventInviteContent] = useState(null);
   const [eventAccommodations, setEventAccommodations] = useState([]);
   // invitee_id -> [{ id, name, govt_id_doc_path }] — sub-records only (per
   // the confirmed design), not separate event_invitees rows.
@@ -4135,45 +4214,49 @@ export default function GuestList({ route, navigation }) {
                       onChangeText={v => setFunctionBudgetInputs(prev => ({ ...prev, [func.id]: v.replace(/[^0-9]/g, '') }))}
                       onBlur={() => saveFunctionBudget(func)}
                     />
-                    {/* Wave 9 — per-function design on the guest invite page.
-                        "Default" (null) is this function's current behavior
-                        and stays selected for every function that exists
-                        today — nothing changes until a host actively taps
-                        Night Bloom. */}
+                    {/* Wave 9/11 — per-function design on the guest invite
+                        page. "Default" (null) is this function's current
+                        behavior and stays selected for every function that
+                        exists today — nothing changes until a host actively
+                        picks something. Stillness only ever appears here
+                        when the EVENT's own type is already non-celebratory
+                        — same isCelebratory() check the whole-event picker
+                        (ToranInvites.js) itself gates on, not a new,
+                        separate mechanism. */}
                     <Text style={[s.fieldLabel, { marginTop: 10 }]}>Guest-page design</Text>
-                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
                       <TouchableOpacity
                         style={!func.template_id ? s.typeChipActive : s.typeChip}
                         onPress={() => saveFunctionTemplate(func, null)}
                       >
                         <Text style={!func.template_id ? s.typeChipTextActive : s.typeChipText}>Default</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={func.template_id === 'nightbloom' ? s.typeChipActive : s.typeChip}
-                        onPress={() => saveFunctionTemplate(func, 'nightbloom')}
-                      >
-                        <Text style={func.template_id === 'nightbloom' ? s.typeChipTextActive : s.typeChipText}>Night Bloom</Text>
-                      </TouchableOpacity>
+                      {FUNCTION_DESIGN_OPTIONS
+                        .filter(opt => opt.id !== 'stillness' || !isCelebratory(event?.event_type_slug))
+                        .map(opt => (
+                          <TouchableOpacity
+                            key={opt.id}
+                            style={func.template_id === opt.id ? s.typeChipActive : s.typeChip}
+                            onPress={() => saveFunctionTemplate(func, opt.id)}
+                          >
+                            <Text style={func.template_id === opt.id ? s.typeChipTextActive : s.typeChipText}>{opt.label}</Text>
+                          </TouchableOpacity>
+                        ))}
                     </View>
-                    {func.template_id === 'nightbloom' && (
-                      <>
-                        <TextInput
-                          style={[s.input, { marginTop: 8, fontSize: 13, paddingVertical: 8 }]}
-                          placeholder={`Headline (optional — defaults to "${func.name}")`}
-                          placeholderTextColor={theme.textSecondary}
-                          value={functionHeadlineInputValue(func)}
-                          onChangeText={v => setFunctionHeadlineInputs(prev => ({ ...prev, [func.id]: v }))}
-                          onBlur={() => saveFunctionHeadline(func)}
-                        />
-                        <View style={{ marginTop: 10, alignItems: 'center' }}>
-                          <NightBloomCard
-                            name={func.name}
-                            date={func.date}
-                            time={func.time}
-                            headlineText={functionHeadlineInputValue(func)}
-                          />
-                        </View>
-                      </>
+                    {(func.template_id === 'nightbloom' || func.template_id === 'diya') && (
+                      <TextInput
+                        style={[s.input, { marginTop: 8, fontSize: 13, paddingVertical: 8 }]}
+                        placeholder={`Headline (optional — defaults to "${func.name}")`}
+                        placeholderTextColor={theme.textSecondary}
+                        value={functionHeadlineInputValue(func)}
+                        onChangeText={v => setFunctionHeadlineInputs(prev => ({ ...prev, [func.id]: v }))}
+                        onBlur={() => saveFunctionHeadline(func)}
+                      />
+                    )}
+                    {func.template_id && (
+                      <View style={{ marginTop: 10, alignItems: 'center' }}>
+                        {renderFunctionDesignPreview(func)}
+                      </View>
                     )}
                   </View>
                   <TouchableOpacity onPress={() => removeFunction(func)} style={{ padding: 6 }}>
