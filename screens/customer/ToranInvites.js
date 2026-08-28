@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, TextInput, Platform, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, TextInput, Platform, Image, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PaperPlaneTilt, CheckCircle, Camera } from 'phosphor-react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -14,6 +14,11 @@ import ToranCoverCard from '../../components/invite/ToranCoverCard';
 import StillnessCard from '../../components/invite/StillnessCard';
 import { DEFAULT_DESIGN } from '../../lib/inviteThemes';
 import { isCelebratory } from '../../lib/eventTypeNames';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import InviteDesignerDesktop from '../../components/desktop/InviteDesignerDesktop';
+
+// Wave 13 — same shared breakpoint every desktop screen in this app uses.
+const DESKTOP_BREAKPOINT = 768;
 
 const DESIGN_LABELS = { toran: 'Toran', kalamkari: 'Kalamkari', stillness: 'Stillness', ivory: 'Ivory', diya: 'Diya' };
 // Wave 8 — Ivory joins Kalamkari as a second neutral, non-Hindu-coded
@@ -80,6 +85,8 @@ export default function ToranInvites({ route, navigation }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && windowWidth >= DESKTOP_BREAKPOINT;
   const { event } = useEventContext(eventId);
 
   const [loading, setLoading] = useState(true);
@@ -332,6 +339,32 @@ export default function ToranInvites({ route, navigation }) {
         <AppHeader title="Invite designer" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
         <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
       </SafeAreaView>
+    );
+  }
+
+  // Wave 13 — desktop shell + the new form-plus-live-preview pattern. Same
+  // "everything above runs unchanged, only the returned JSX branches" shape
+  // as every other desktop screen this wave. Per-function design
+  // assignment (GuestList.js's Functions modal) is deliberately not
+  // duplicated here — see InviteDesignerDesktop.js's own comment.
+  if (isDesktopWeb) {
+    return (
+      <DesktopEventShell activeItem="invites" event={event} navigation={navigation}>
+        <InviteDesignerDesktop
+          design={design} setDesign={setDesign} allowedDesigns={allowedDesigns} celebratory={celebratory} designLabels={DESIGN_LABELS}
+          partner1={partner1} setPartner1={setPartner1} partner2={partner2} setPartner2={setPartner2}
+          hostedBy={hostedBy} setHostedBy={setHostedBy}
+          couplePhotoUrl={couplePhotoUrl} pickCouplePhoto={pickCouplePhoto} uploadingPhoto={uploadingPhoto}
+          coupleQuote={coupleQuote} setCoupleQuote={setCoupleQuote}
+          subjectNameLine1={subjectNameLine1} setSubjectNameLine1={setSubjectNameLine1}
+          subjectNameLine2={subjectNameLine2} setSubjectNameLine2={setSubjectNameLine2}
+          subjectYears={subjectYears} setSubjectYears={setSubjectYears}
+          detailLine1={detailLine1} setDetailLine1={setDetailLine1} detailLine2={detailLine2} setDetailLine2={setDetailLine2}
+          kickerText={kickerText} setKickerText={setKickerText} headlineText={headlineText} setHeadlineText={setHeadlineText}
+          saving={saving} saveContent={saveContent} contentSaved={contentSaved}
+          eventName={event?.name} eventDate={event?.event_date} venue={event?.venue}
+        />
+      </DesktopEventShell>
     );
   }
 

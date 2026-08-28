@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, ScrollView, FlatList, Linking, KeyboardAvoidingView, Platform
+  View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, ScrollView, FlatList, Linking, KeyboardAvoidingView, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
@@ -15,6 +15,11 @@ import SwipeableRow from '../../components/SwipeableRow';
 import { registerTourTarget } from '../../lib/tourTargets';
 import { useTour } from '../../hooks/useTour';
 import CoachMarkTour from '../../components/CoachMarkTour';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import ChecklistTable from '../../components/desktop/ChecklistTable';
+
+// Wave 13 — same shared breakpoint every desktop screen in this app uses.
+const DESKTOP_BREAKPOINT = 768;
 
 // 3 steps, not the full 3-concept list verbatim. Step 1's investigation
 // found `possibly_outdated` is genuinely data-dependent — it only renders
@@ -211,6 +216,9 @@ export default function EventTodo({ route, navigation }) {
   const { event: routeEvent, todoId, forceTour } = route.params || {};
   const { theme } = useTheme();
   const s = styles(theme);
+
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && windowWidth >= DESKTOP_BREAKPOINT;
 
   const eventTodoTour = useTour('eventtodo_intro');
   useEffect(() => {
@@ -851,6 +859,18 @@ export default function EventTodo({ route, navigation }) {
           />
         )}
       </SafeAreaView>
+    );
+  }
+
+  // Wave 13 — desktop shell + real checklist table. Same isDesktopWeb
+  // branch shape as GuestList.js/GiftStickers.js — everything above (all
+  // this screen's own state/effects/handlers, including toggleTodo below)
+  // runs unchanged regardless of platform; this only branches the JSX.
+  if (isDesktopWeb) {
+    return (
+      <DesktopEventShell activeItem="checklist" event={event} navigation={navigation}>
+        <ChecklistTable todos={todos} onToggle={toggleTodo} />
+      </DesktopEventShell>
     );
   }
 

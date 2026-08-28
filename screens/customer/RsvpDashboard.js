@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
@@ -7,6 +7,11 @@ import { useEventContext } from '../../hooks/useEventContext';
 import { useCapabilities } from '../../hooks/useCapabilities';
 import { isEnabled } from '../../lib/capabilities';
 import AppHeader from '../../components/AppHeader';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import RsvpDashboardDesktop from '../../components/desktop/RsvpDashboardDesktop';
+
+// Wave 13 — same shared breakpoint every desktop screen in this app uses.
+const DESKTOP_BREAKPOINT = 768;
 
 // Wave 2, Task 3 — read-only, no new table. Aggregates event_functions +
 // event_invitee_functions + event_invitee_function_rsvps in JS (this
@@ -19,6 +24,8 @@ export default function RsvpDashboard({ route, navigation }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
   const { event } = useEventContext(eventId);
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && windowWidth >= DESKTOP_BREAKPOINT;
 
   const [loading, setLoading] = useState(true);
   const [totalInvited, setTotalInvited] = useState(0);
@@ -52,8 +59,13 @@ export default function RsvpDashboard({ route, navigation }) {
       setTotalInvited((invitees || []).length);
       setTotalResponded((invitees || []).filter((g) => !!g.rsvp_status).length);
 
+      // template_id added Wave 13 — the desktop dashboard colour-links each
+      // function's progress bar to its own real assigned design (or the
+      // event's own design, when null) via lib/functionDesignColors.js.
+      // Mobile's own render never reads this field, so its output is
+      // unchanged.
       const { data: functions, error: functionsErr } = await supabase
-        .from('event_functions').select('id, name, date, time')
+        .from('event_functions').select('id, name, date, time, template_id')
         .eq('event_id', eventId).order('sort_order', { ascending: true });
       if (functionsErr) throw functionsErr;
 
@@ -149,6 +161,20 @@ export default function RsvpDashboard({ route, navigation }) {
         <AppHeader title="RSVP dashboard" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
         <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
       </SafeAreaView>
+    );
+  }
+
+  // Wave 13 — desktop shell + the new stats/progress pattern. Same
+  // "everything above runs unchanged, only the JSX branches" shape as
+  // every other desktop screen this wave.
+  if (isDesktopWeb) {
+    return (
+      <DesktopEventShell activeItem="rsvp" event={event} navigation={navigation}>
+        <RsvpDashboardDesktop
+          totalInvited={totalInvited} totalResponded={totalResponded} functionRows={functionRows}
+          stickerCount={stickerCount} stickerTotal={stickerTotal} notedCount={notedCount} notedTotal={notedTotal}
+        />
+      </DesktopEventShell>
     );
   }
 

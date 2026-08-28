@@ -3,12 +3,11 @@ import { View, Text, TouchableOpacity, TextInput, StyleSheet, Alert } from 'reac
 import { MagnifyingGlass, CaretUp, CaretDown } from 'phosphor-react-native';
 import { resolveGuestPartySize } from '../../helpers';
 import { functionDesignColor } from '../../lib/functionDesignColors';
+// Wave 13 — now the shared palette every desktop screen uses (was a local,
+// slightly-different-from-the-shell literal here before; unified so the
+// sidebar and this table are provably the same maroon, not two close ones).
+import { MAROON, GOLD, OK, OK_BG, WAIT, WAIT_BG, NO, NO_BG, LINE, LINE_SOFT, MUTED, TEXT, CARD, EYEBROW } from '../../lib/desktopTheme';
 
-const MAROON = '#5A1526';
-const GOLD = '#E8A020';
-const OK = '#3E7D45', OK_BG = '#EAF3E9';
-const WAIT = '#BD7A1E', WAIT_BG = '#FBF0DC';
-const NO = '#B3453A', NO_BG = '#FBEAE7';
 const PAGE_SIZE = 15;
 
 function initials(name) {
@@ -257,14 +256,14 @@ function SortHeader({ label, k, sortKey, sortDir, onPress, style }) {
   return (
     <TouchableOpacity style={[s.headCellWrap, style]} onPress={() => onPress(k)}>
       <Text style={[s.headCell, active && s.headCellActive]}>{label}</Text>
-      {active && <Icon size={11} color="#B57A16" weight="bold" style={{ marginLeft: 3 }} />}
+      {active && <Icon size={11} color={EYEBROW} weight="bold" style={{ marginLeft: 3 }} />}
     </TouchableOpacity>
   );
 }
 
 const s = StyleSheet.create({
   pagehead: { marginBottom: 20 },
-  eyebrow: { fontSize: 11, letterSpacing: 1.4, textTransform: 'uppercase', color: '#B57A16', fontWeight: '700', marginBottom: 4 },
+  eyebrow: { fontSize: 11, letterSpacing: 1.4, textTransform: 'uppercase', color: EYEBROW, fontWeight: '700', marginBottom: 4 },
   h1: { fontFamily: 'Fraunces-SemiBold', fontSize: 28, color: MAROON },
   statsRow: { flexDirection: 'row', gap: 14, marginBottom: 20 },
   stat: { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#EFE4D2', borderRadius: 16, padding: 16 },

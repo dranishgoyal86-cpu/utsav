@@ -4,7 +4,7 @@ import {
   Users, PaperPlaneTilt, ChartBar, CheckSquare, Gift, QrCode, CalendarCheck, GearSix,
 } from 'phosphor-react-native';
 import TornArch from '../invite/motifs/TornArch';
-import { inviteThemes } from '../../lib/inviteThemes';
+import { MAROON, MAROON_DEEP, GOLD, GOLD_SOFT } from '../../lib/desktopTheme';
 
 // Wave 12 — desktop event-workspace shell. Same isDesktopWeb-gated
 // tabBar-swap idea ProviderERP.js's DesktopSidebar established (the only
@@ -15,20 +15,10 @@ import { inviteThemes } from '../../lib/inviteThemes';
 // into — GuestList/ToranInvites/RsvpDashboard/etc. are sibling
 // Stack.Screen pushes, confirmed in Wave 12's own investigation).
 //
-// Chrome colours are Toran's real tokens (inviteThemes.toran), not a
-// second "shell maroon" — this shell is meant to read as this app's own
-// warm/wedding identity, and Toran is the app's default design, so its
-// bg IS the real "Utsav maroon." No token exists for a *second*, darker
-// gradient stop, so MAROON_DEEP is a literal, documented exception — see
-// the Task 0 colour-sourcing rule this wave (function TAG colours must
-// trace to inviteThemes/NightBloomCard; this is the shell's own chrome,
-// a different, smaller concern the brief didn't ask to be token-perfect).
-// toran.gradient is exactly this — the real two-stop maroon gradient
-// ToranCoverCard.js already uses for its own card background — reused
-// here rather than picking a second, undocumented "deep maroon" literal.
-const [MAROON, MAROON_DEEP] = inviteThemes.toran.gradient; // ['#6E1A2E', '#2E0713']
-const GOLD = inviteThemes.toran.colors.accent; // '#D4A03C' — same token used for line/accent
-const GOLD_SOFT = '#F4C563';
+// Wave 13 — chrome colours now come from lib/desktopTheme.js (shared
+// across every desktop screen this wave adds), which itself sources
+// MAROON/GOLD from inviteThemes.toran — see that file for the full
+// reasoning on why MAROON_DEEP/GOLD_SOFT are the two literal exceptions.
 
 const NAV_ITEMS = [
   { section: 'Manage', key: 'guests', label: 'Guests', icon: Users, screen: 'GuestList' },

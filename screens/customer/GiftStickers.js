@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, ActivityIndicator, Platform, Alert, KeyboardAvoidingView
+  View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, ActivityIndicator, Platform, Alert, KeyboardAvoidingView, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
@@ -14,6 +14,12 @@ import { useEventCapabilities } from '../../hooks/useEventCapabilities';
 import { isEnabled } from '../../lib/capabilities';
 import CapabilityBlocked from '../../components/CapabilityBlocked';
 import AppHeader from '../../components/AppHeader';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import GiftTable from '../../components/desktop/GiftTable';
+
+// Wave 13 — same shared breakpoint every desktop screen in this app uses
+// (ProviderERP.js / GuestList.js).
+const DESKTOP_BREAKPOINT = 768;
 
 // Barcode scanning uses expo-camera's built-in CameraView/barcodeScannerSettings
 // API — already installed (~57.0.3), already in app.json's plugins, and
@@ -54,6 +60,10 @@ export default function GiftStickers({ route, navigation }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
 
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && windowWidth >= DESKTOP_BREAKPOINT;
+  const [event, setEvent] = useState(null);
+
   const [mode, setMode] = useState('list'); // list | scan | bind | reveal
   const [stickers, setStickers] = useState([]);
   const [guests, setGuests] = useState([]);
@@ -78,6 +88,17 @@ export default function GiftStickers({ route, navigation }) {
   const scanLockRef = useRef(false);
 
   useEffect(() => { fetchStickers(); fetchGuests(); fetchHostId(); }, []);
+
+  // Wave 13 — the desktop shell's sidebar header needs the event's real
+  // name/date; this screen never fetched the full row before (only
+  // host_id, above). Unconditional, matching this app's own convention.
+  useEffect(() => {
+    supabase.from('events').select('*').eq('id', eventId).maybeSingle()
+      .then(({ data, error }) => {
+        if (error) { console.log('event fetch skipped:', error.message); return; }
+        setEvent(data || null);
+      });
+  }, [eventId]);
 
   // owner_user_id on a NEW event_invitees row must be the event's HOST, not
   // whoever's session created it — the current session could be a delegate
@@ -111,8 +132,13 @@ export default function GiftStickers({ route, navigation }) {
 
   async function fetchGuests() {
     try {
+      // Wave 13 — widened to include the desktop Gift table's "noted on
+      // profile" source + reciprocation flag; the bind/reveal flows below
+      // only ever needed id/name/phone, so those three stay untouched.
       const { data, error } = await supabase
-        .from('event_invitees').select('id, name, phone').eq('event_id', eventId);
+        .from('event_invitees')
+        .select('id, name, phone, gift_type, gift_amount, gift_note, return_gift_given')
+        .eq('event_id', eventId);
       if (error) throw error;
       setGuests(data || []);
     } catch (err) {
@@ -126,6 +152,24 @@ export default function GiftStickers({ route, navigation }) {
     .filter(st => st.guest_id && (st.gift_type === 'cash' || st.gift_type === 'upi'))
     .reduce((sum, st) => sum + (st.amount || 0), 0);
   const boundStickers = stickers.filter(st => st.guest_id);
+
+  // Wave 13 — grouped by guest for the desktop GiftTable (a guest can
+  // have more than one bound sticker).
+  const giftStickersByGuest = {};
+  boundStickers.forEach(st => {
+    if (!giftStickersByGuest[st.guest_id]) giftStickersByGuest[st.guest_id] = [];
+    giftStickersByGuest[st.guest_id].push(st);
+  });
+
+  async function toggleReciprocation(guest) {
+    const next = !guest.return_gift_given;
+    setGuests(prev => prev.map(g => g.id === guest.id ? { ...g, return_gift_given: next } : g));
+    const { error } = await supabase.from('event_invitees').update({ return_gift_given: next }).eq('id', guest.id);
+    if (error) {
+      console.log('toggleReciprocation error:', error.message);
+      setGuests(prev => prev.map(g => g.id === guest.id ? { ...g, return_gift_given: !next } : g));
+    }
+  }
 
   // ── Print a new sheet of 65 numbered stickers ──
   function confirmPrintSheet() {
@@ -474,6 +518,17 @@ export default function GiftStickers({ route, navigation }) {
           </View>
         </View>
       </SafeAreaView>
+    );
+  }
+
+  // Wave 13 — desktop shell, list mode only (scan/bind/reveal are native-
+  // camera flows, meaningless on desktop web — CameraView is already
+  // stubbed to a plain View there, per this file's own top-of-file note).
+  if (isDesktopWeb && mode === 'list') {
+    return (
+      <DesktopEventShell activeItem="gifts" event={event} guestCount={guests.length} navigation={navigation}>
+        <GiftTable guests={guests} giftStickersByGuest={giftStickersByGuest} onToggleReciprocation={toggleReciprocation} />
+      </DesktopEventShell>
     );
   }
 
