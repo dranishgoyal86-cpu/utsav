@@ -20,7 +20,12 @@ import { View, Text, StyleSheet } from 'react-native';
 
 import { LinearGradient } from 'expo-linear-gradient';
 
-const NB = {
+// Exported (Wave 12) so anything needing "the Night Bloom colour" — the
+// desktop guest-list's function tags, specifically — reads it from here
+// rather than re-hardcoding a second, driftable copy. NB.violet is the
+// single representative pick (the gradient's first stop) since Night
+// Bloom's real kicker fill is a 3-stop gradient with no one scalar colour.
+export const NB = {
   bg: '#0C0A12',
   violet: '#9066FF',
   pink: '#FF4F9E',

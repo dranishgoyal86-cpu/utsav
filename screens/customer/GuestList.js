@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, Modal, ActivityIndicator, ScrollView, Share, Platform, Image, ImageBackground, Linking, KeyboardAvoidingView
+  View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, Modal, ActivityIndicator, ScrollView, Share, Platform, Image, ImageBackground, Linking, KeyboardAvoidingView, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
@@ -12,6 +12,13 @@ import NightBloomCard from '../../components/invite/NightBloomCard';
 import ToranCoverCard from '../../components/invite/ToranCoverCard';
 import StillnessCard from '../../components/invite/StillnessCard';
 import { isCelebratory } from '../../lib/eventTypeNames';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import GuestTable from '../../components/desktop/GuestTable';
+
+// Wave 12 — same breakpoint/pattern as ProviderERP.js's own desktop
+// sidebar (the only other place in this app that does this) — one shared
+// constant, not a second independent threshold.
+const DESKTOP_BREAKPOINT = 768;
 // Deliberately NOT importing EVENT_TYPES from planLogic.js here — that now
 // reflects the eventTaxonomy.js 10-category system used by the Plan flow,
 // which doesn't line up with this file's own TEMPLATE_CATALOG keys (a
@@ -456,6 +463,16 @@ export default function GuestList({ route, navigation }) {
   const { theme } = useTheme();
   const s = styles(theme);
 
+  // Wave 12 — desktop shell. Same Platform.OS + useWindowDimensions gate
+  // as ProviderERP.js's own (the only other desktop-shell code in this
+  // app) — false on native and on any web window under the breakpoint,
+  // so nothing below this changes for either of those.
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && windowWidth >= DESKTOP_BREAKPOINT;
+  const [currentUserName, setCurrentUserName] = useState(null);
+  const [functionRsvpMap, setFunctionRsvpMap] = useState({}); // invitee_id -> {function_id: status}
+  const [giftStickersByGuest, setGiftStickersByGuest] = useState({}); // guest_id -> [{amount, gift_type, item_description}]
+
   // First-time-on-this-screen tour, independent of the core-loop tour and
   // every other screen's own tour — its own tour_key, its own
   // user_tour_progress row.
@@ -661,6 +678,37 @@ export default function GuestList({ route, navigation }) {
         setEventInviteContent(data || null);
       });
   }, [event?.id]);
+
+  // Wave 12 — gift_stickers is a real, separate, unsynced-with-
+  // event_invitees.gift_type/gift_amount source (confirmed live — same
+  // finding RsvpDashboard.js's own gift card already documented). Read
+  // here so the desktop guest table can show both sources honestly
+  // labeled rather than picking one, same discipline as that screen.
+  useEffect(() => {
+    if (!event?.id) return;
+    supabase.from('gift_stickers').select('guest_id, amount, gift_type, item_description').eq('event_id', event.id).not('guest_id', 'is', null)
+      .then(({ data, error }) => {
+        if (error) { console.log('gift_stickers fetch skipped:', error.message); setGiftStickersByGuest({}); return; }
+        const map = {};
+        (data || []).forEach(g => {
+          if (!map[g.guest_id]) map[g.guest_id] = [];
+          map[g.guest_id].push(g);
+        });
+        setGiftStickersByGuest(map);
+      });
+  }, [event?.id]);
+
+  // Wave 12 — the desktop sidebar's own header (avatar + name), same
+  // "who's using this screen" role ProviderERP.js's DesktopSidebar header
+  // already fills on the provider side.
+  useEffect(() => {
+    if (!userId) return;
+    supabase.from('users').select('name').eq('id', userId).maybeSingle()
+      .then(({ data, error }) => {
+        if (error) { console.log('user name fetch skipped:', error.message); return; }
+        setCurrentUserName(data?.name || null);
+      });
+  }, [userId]);
 
   // event_accommodations may not exist yet on this database (see
   // supabase/migrations/outstation_travel.sql — printed, not applied
@@ -1031,6 +1079,37 @@ export default function GuestList({ route, navigation }) {
   const [newFunctionName, setNewFunctionName] = useState('');
   const [suggestedFunctionNames, setSuggestedFunctionNames] = useState([]);
   const [savingFunction, setSavingFunction] = useState(false);
+
+  // Wave 12 — desktop guest table needs per-guest, per-function RSVP status
+  // (event_invitee_function_rsvps) — GuestList.js never needed this before
+  // today (guestFunctionMap above is membership only, no status). Fetched
+  // unconditionally (not gated on isDesktopWeb) matching every other fetch
+  // on this screen's own convention — cheap, and keeps this hook-order
+  // unconditional regardless of platform.
+  //
+  // Placed here (after eventFunctions' own useState above), not next to
+  // this screen's other Wave 12 fetches further up the file — this hit a
+  // real TDZ crash during verification (the exact bug class the very
+  // first investigation of this project's whole invite-design-system arc
+  // found in this same file): [eventFunctions] as a dependency-array
+  // literal is evaluated synchronously at the useEffect() call site, so
+  // it genuinely needs eventFunctions' const declaration to already have
+  // run — unlike a plain read inside a callback body, which is deferred
+  // and safe regardless of textual order.
+  useEffect(() => {
+    if (eventFunctions.length === 0) { setFunctionRsvpMap({}); return; }
+    const functionIds = eventFunctions.map(f => f.id);
+    supabase.from('event_invitee_function_rsvps').select('invitee_id, function_id, status').in('function_id', functionIds)
+      .then(({ data, error }) => {
+        if (error) { console.log('event_invitee_function_rsvps fetch skipped:', error.message); setFunctionRsvpMap({}); return; }
+        const map = {};
+        (data || []).forEach(r => {
+          if (!map[r.invitee_id]) map[r.invitee_id] = {};
+          map[r.invitee_id][r.function_id] = r.status;
+        });
+        setFunctionRsvpMap(map);
+      });
+  }, [eventFunctions]);
 
   // Import from contacts — bulk (add several new guests at once)
   const [contactsModal, setContactsModal] = useState(false);
@@ -3002,6 +3081,57 @@ export default function GuestList({ route, navigation }) {
           </KeyboardAvoidingView>
         </Modal>
       </SafeAreaView>
+    );
+  }
+
+  // Wave 12 — desktop shell + real guest table, gated strictly to
+  // isDesktopWeb. Everything above this point (all the state/effects/
+  // fetches this screen already had, plus the three new Wave 12 ones)
+  // still runs exactly the same regardless of platform — this only
+  // branches which JSX gets returned. The mobile return below is
+  // completely unreached, and unmodified, when this branch fires.
+  if (isDesktopWeb) {
+    return (
+      <>
+        <DesktopEventShell
+          activeItem="guests"
+          event={event}
+          guestCount={guests.length}
+          currentUserName={currentUserName}
+          navigation={navigation}
+        >
+          <GuestTable
+            guests={guests}
+            eventFunctions={eventFunctions}
+            guestFunctionMap={guestFunctionMap}
+            functionRsvpMap={functionRsvpMap}
+            giftStickersByGuest={giftStickersByGuest}
+            onOpenGuest={g => { setDetailGuest(g); if (g.info_changed_at) clearInfoChangedFlag(g.id); }}
+          />
+        </DesktopEventShell>
+        {/* Same real edit modal mobile uses (rendered a second time below,
+            in the mobile-only tree that's unreached from here) — reusing
+            it rather than building a second guest-detail UI, per Layer 1's
+            "existing screens render inside the shell unmodified" rule. */}
+        <GuestDetailModal
+          visible={!!detailGuest}
+          guest={detailGuest}
+          event={event}
+          navigation={navigation}
+          theme={theme}
+          onClose={() => setDetailGuest(null)}
+          onSave={saveGuestDetails}
+          onShareInvite={shareInviteToGuest}
+          onSendPass={sendPassToGuest}
+          onSendThankYou={sendThankYou}
+          onMarkArrived={markGuestArrived}
+          eventFunctions={eventFunctions}
+          guestFunctionIds={detailGuest ? (guestFunctionMap[detailGuest.id] || []) : []}
+          onToggleFunction={toggleGuestFunction}
+          eventAccommodations={eventAccommodations}
+          accompanying={detailGuest ? (guestAccompanying[detailGuest.id] || []) : []}
+        />
+      </>
     );
   }
 
