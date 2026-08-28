@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import TornArch from './motifs/TornArch';
 import HairRule from './motifs/HairRule';
 import { KalamkariFrame } from './motifs/Bloom';
+import { Rangoli, DiyaRow } from './motifs/Diya';
 import { resolveTheme } from '../../lib/inviteThemes';
 
 // Native equivalent of the marketing site's cover components — same
@@ -27,11 +28,39 @@ export default function ToranCoverCard({
   partner2Name,
   hostedBy,
   kickerText, // Wave 8: host override for Ivory's kicker; ignored by other designs
+  headlineText, // Wave 10: host override for Diya's headline; ignored by other designs
 }) {
   const theme = resolveTheme(design);
   const twoNames = !!(partner1Name && partner2Name);
   const singleName = partner1Name && !partner2Name ? partner1Name : !partner1Name ? eventName : null;
   const dateText = formatDate(eventDate);
+
+  // Wave 10 — Diya, the first non-wedding design. No couple/connector at
+  // all (see the reference: "Diya doesn't have a couple") — its own
+  // return block, same reasoning as Ivory above: a genuinely different
+  // composition (rangoli top, diya row bottom, single headline), not a
+  // variant of the arch/bloom flow. Neither the kicker nor the headline
+  // ships a fixed default — both fall back to the event's own real name.
+  if (theme.motif === 'diya') {
+    const kicker = (kickerText || eventName || '').toUpperCase();
+    const headline = headlineText || eventName;
+    return (
+      <View style={[s.card, s.diyaCard, { backgroundColor: theme.colors.bg }]}>
+        <Rangoli color={theme.colors.accent} />
+        <Text style={[s.diyaKicker, { color: theme.colors.accent }]}>{kicker}</Text>
+        {hostedBy ? <Text style={[s.hostedBy, { color: theme.colors.dim }]}>{hostedBy}</Text> : null}
+        <Text style={[s.diyaHeadline, { color: theme.colors.ink }]}>{headline}</Text>
+        <View style={s.hairlineWrap}>
+          <HairRule width={140} color={theme.colors.line} />
+        </View>
+        {dateText ? <Text style={[s.date, { color: theme.colors.dateColor }]}>{dateText}</Text> : null}
+        {venue ? <Text style={[s.venue, { color: theme.colors.dim }]}>{venue}</Text> : null}
+        <View style={s.diyaRowWrap}>
+          <DiyaRow />
+        </View>
+      </View>
+    );
+  }
 
   if (theme.motif === 'minimal') {
     const kicker = kickerText || theme.kicker;
@@ -157,4 +186,12 @@ const s = StyleSheet.create({
   ivoryDividerWrap: { marginTop: 22, marginBottom: 14 },
   ivoryDate: { fontFamily: 'Manrope-SemiBold', fontSize: 10.5, letterSpacing: 1.2 },
   ivoryVenue: { fontFamily: 'Manrope-Regular', fontSize: 10, letterSpacing: 1, marginTop: 6, flexShrink: 1 },
+
+  // Wave 10 — Diya. Centred like Toran/Kalamkari (s.card's default
+  // alignItems), but its own headline/kicker sizing — no name/connector
+  // styles apply here at all.
+  diyaCard: { justifyContent: 'flex-start' },
+  diyaKicker: { fontFamily: 'Manrope-SemiBold', fontSize: 9, letterSpacing: 3.6, marginTop: 14, textAlign: 'center' },
+  diyaHeadline: { fontFamily: 'CormorantGaramond-SemiBold', fontSize: 30, marginTop: 10, textAlign: 'center' },
+  diyaRowWrap: { marginTop: 'auto', marginBottom: 18 },
 });

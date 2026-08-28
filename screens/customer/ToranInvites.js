@@ -15,11 +15,16 @@ import StillnessCard from '../../components/invite/StillnessCard';
 import { DEFAULT_DESIGN } from '../../lib/inviteThemes';
 import { isCelebratory } from '../../lib/eventTypeNames';
 
-const DESIGN_LABELS = { toran: 'Toran', kalamkari: 'Kalamkari', stillness: 'Stillness', ivory: 'Ivory' };
+const DESIGN_LABELS = { toran: 'Toran', kalamkari: 'Kalamkari', stillness: 'Stillness', ivory: 'Ivory', diya: 'Diya' };
 // Wave 8 — Ivory joins Kalamkari as a second neutral, non-Hindu-coded
 // option. No entry in DESIGN_SUGGESTIONS below (same as Kalamkari) —
 // available, never suggested toward any specific event type.
-const CELEBRATORY_DESIGNS = ['toran', 'kalamkari', 'ivory'];
+// Wave 10 — Diya joins the celebratory set too (housewarming/religious-
+// event/festival-fair are all celebratory:true per eventTypeNames.js), NOT
+// a third gated bucket alongside SOLEMN_DESIGNS — it's still offered
+// alongside Toran/Kalamkari/Ivory for any celebratory event, just suggested
+// more strongly for its three real occasions below.
+const CELEBRATORY_DESIGNS = ['toran', 'kalamkari', 'ivory', 'diya'];
 const SOLEMN_DESIGNS = ['stillness'];
 
 // Wave 7 — suggestion, not gating. Every event type in CELEBRATORY_DESIGNS
@@ -31,7 +36,20 @@ const SOLEMN_DESIGNS = ['stillness'];
 // celebratory type — neither Toran nor Kalamkari leans toward any of
 // them, so no suggestion is made rather than silently defaulting to a
 // Hindu-coded design.
-const DESIGN_SUGGESTIONS = { 'hindu-wedding': 'toran' };
+//
+// Wave 10 — Diya suggested for its three real occasions. There is no
+// dedicated "puja" slug in the live taxonomy (confirmed live: zero events
+// use one) — religious-event is the real slug that covers it, same way
+// festival-fair covers Diwali/other festivals (GuestList.js's own DM_STYLES
+// comment already notes nothing in the taxonomy distinguishes a Diwali
+// party from any other festival-fair). griha-pravesh (the old event_types
+// table's slug) is stale/unused — housewarming is the real, live one.
+const DESIGN_SUGGESTIONS = {
+  'hindu-wedding': 'toran',
+  'housewarming': 'diya',
+  'religious-event': 'diya',
+  'festival-fair': 'diya',
+};
 
 // react-native-share + react-native-view-shot, same pattern GuestList.js's
 // old designer already uses — image and text/link go out together in one
@@ -82,7 +100,8 @@ export default function ToranInvites({ route, navigation }) {
   const [subjectYears, setSubjectYears] = useState('');
   const [detailLine1, setDetailLine1] = useState('');
   const [detailLine2, setDetailLine2] = useState('');
-  const [kickerText, setKickerText] = useState(''); // Wave 8 — Ivory only
+  const [kickerText, setKickerText] = useState(''); // Wave 8 — Ivory; Wave 10 — also Diya
+  const [headlineText, setHeadlineText] = useState(''); // Wave 10 — Diya only
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [contentSaved, setContentSaved] = useState(false);
   const [guests, setGuests] = useState([]);
@@ -132,7 +151,7 @@ export default function ToranInvites({ route, navigation }) {
 
       const { data: contentRow } = await supabase
         .from('event_invite_content')
-        .select('template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote, subject_name_line1, subject_name_line2, subject_years, detail_line1, detail_line2, kicker_text')
+        .select('template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote, subject_name_line1, subject_name_line2, subject_years, detail_line1, detail_line2, kicker_text, headline_text')
         .eq('event_id', eventId)
         .maybeSingle();
 
@@ -149,6 +168,7 @@ export default function ToranInvites({ route, navigation }) {
         setDetailLine1(contentRow.detail_line1 || '');
         setDetailLine2(contentRow.detail_line2 || '');
         setKickerText(contentRow.kicker_text || '');
+        setHeadlineText(contentRow.headline_text || '');
         setContentSaved(true);
       } else if (user && isCelebratory(event?.event_type_slug)) {
         // Pre-fill from the one place this codebase already remembers a
@@ -192,22 +212,27 @@ export default function ToranInvites({ route, navigation }) {
       // (e.g. old partner names surviving under a Stillness invite).
       const isStillness = design === 'stillness';
       const isIvory = design === 'ivory';
+      // Wave 10 — Diya has no couple either (see the reference: "Diya
+      // doesn't have a couple"), same no-partner-fields shape as Stillness,
+      // just still celebratory/hosted_by-bearing unlike a memorial.
+      const isDiya = design === 'diya';
       const { error } = await supabase.from('event_invite_content').upsert(
         {
           event_id: eventId,
           host_id: user.id,
           template_id: design,
-          partner_1_name: isStillness ? null : (partner1.trim() || null),
-          partner_2_name: isStillness ? null : (partner2.trim() || null),
+          partner_1_name: (isStillness || isDiya) ? null : (partner1.trim() || null),
+          partner_2_name: (isStillness || isDiya) ? null : (partner2.trim() || null),
           hosted_by: isStillness ? null : (hostedBy.trim() || null),
-          couple_photo_url: isStillness ? null : couplePhotoUrl,
-          couple_quote: isStillness ? null : (coupleQuote.trim() || null),
+          couple_photo_url: (isStillness || isDiya) ? null : couplePhotoUrl,
+          couple_quote: (isStillness || isDiya) ? null : (coupleQuote.trim() || null),
           subject_name_line1: isStillness ? (subjectNameLine1.trim() || null) : null,
           subject_name_line2: isStillness ? (subjectNameLine2.trim() || null) : null,
           subject_years: isStillness ? (subjectYears.trim() || null) : null,
           detail_line1: isStillness ? (detailLine1.trim() || null) : null,
           detail_line2: isStillness ? (detailLine2.trim() || null) : null,
-          kicker_text: isIvory ? (kickerText.trim() || null) : null,
+          kicker_text: (isIvory || isDiya) ? (kickerText.trim() || null) : null,
+          headline_text: isDiya ? (headlineText.trim() || null) : null,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'event_id' }
@@ -367,6 +392,7 @@ export default function ToranInvites({ route, navigation }) {
                         partner2Name={partner2}
                         hostedBy={hostedBy}
                         kickerText={kickerText}
+                        headlineText={headlineText}
                       />
                     )}
                   </ViewShot>
@@ -388,6 +414,7 @@ export default function ToranInvites({ route, navigation }) {
                     partner2Name={partner2}
                     hostedBy={hostedBy}
                     kickerText={kickerText}
+                    headlineText={headlineText}
                   />
                 )}
               </View>
@@ -438,6 +465,38 @@ export default function ToranInvites({ route, navigation }) {
                     value={detailLine2}
                     onChangeText={setDetailLine2}
                     placeholder="e.g. Venue / address"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                </>
+              ) : design === 'diya' ? (
+                // Wave 10 — Diya's own branch, not the generic couple-shaped
+                // one below. No couple photo, no quote, no partner names —
+                // per the reference, forcing those onto a housewarming/puja/
+                // festival invite would be the same mistake this project
+                // already caught for every other non-wedding occasion.
+                <>
+                  <Text style={s.label}>Kicker text (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={kickerText}
+                    onChangeText={setKickerText}
+                    placeholder={`Defaults to "${(event?.name || '').toUpperCase()}"`}
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                  <Text style={s.label}>Headline text (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={headlineText}
+                    onChangeText={setHeadlineText}
+                    placeholder={`Defaults to "${event?.name || ''}"`}
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                  <Text style={s.label}>Hosted by (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={hostedBy}
+                    onChangeText={setHostedBy}
+                    placeholder="e.g. The Sharma family"
                     placeholderTextColor={theme.textTertiary}
                   />
                 </>
