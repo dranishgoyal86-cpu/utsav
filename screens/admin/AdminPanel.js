@@ -641,14 +641,29 @@ function makeStyles(theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.bg },
 
-    // Header
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12, backgroundColor: theme.text },
-    backBtn: { width: 48, height: 36, justifyContent: 'center' },
-    backIcon: { fontSize: 22, color: theme.bg },
-    headerTitle: { fontSize: 18, fontWeight: '700', color: theme.bg },
-    headerSub: { fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
-    logoutBtn: { backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 7 },
-    logoutText: { color: theme.bg, fontSize: 13, fontWeight: '500' },
+    // Header — headerSub/logoutBtn/logoutText were still colored for this
+    // screen's OLD custom header bar (backgroundColor: theme.text, a dark
+    // near-black strip), from before this screen was migrated to the
+    // shared AppHeader component. AppHeader has no dark background of its
+    // own — it just sits on this screen's own light `container` background
+    // — so light-on-light text here was genuinely invisible (not just low
+    // contrast): logoutText's color was theme.bg (white in light mode) on
+    // a barely-there translucent-white button, on a white header. header/
+    // backBtn/backIcon/headerTitle were the rest of that old header's own
+    // styles — confirmed dead (grepped, no longer referenced anywhere in
+    // this file's JSX) — removed instead of left as a trap for the same
+    // mistake again. logoutBtn now matches AppHeader's own searchBtn
+    // convention (cardBg/border/text) sitting right next to it in the same
+    // row — a pairing the theme system always keeps correctly contrasted
+    // in both light and dark mode, rather than a second hand-picked colour
+    // that can silently stop matching its background.
+    headerSub: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
+    logoutBtn: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+      height: 38, borderRadius: 16, paddingHorizontal: 14,
+      backgroundColor: theme.cardBg, borderWidth: 1, borderColor: theme.border,
+    },
+    logoutText: { color: theme.text, fontSize: 13, fontWeight: '600' },
 
     // Stats
     statsRow: { flexDirection: 'row', gap: 8, padding: 12 },
