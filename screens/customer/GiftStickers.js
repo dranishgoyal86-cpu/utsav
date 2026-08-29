@@ -63,6 +63,7 @@ export default function GiftStickers({ route, navigation }) {
   const { width: windowWidth } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && windowWidth >= DESKTOP_BREAKPOINT;
   const [event, setEvent] = useState(null);
+  const [currentUserName, setCurrentUserName] = useState(null);
 
   const [mode, setMode] = useState('list'); // list | scan | bind | reveal
   const [stickers, setStickers] = useState([]);
@@ -99,6 +100,21 @@ export default function GiftStickers({ route, navigation }) {
         setEvent(data || null);
       });
   }, [eventId]);
+
+  // Wave 13 follow-up — the desktop sidebar's footer needs the CURRENT
+  // session's own name (not the event's host — a delegate viewing this
+  // screen should see their own name), same role GuestList.js's own
+  // currentUserName fetch already fills there.
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase.from('users').select('name').eq('id', user.id).maybeSingle()
+        .then(({ data, error }) => {
+          if (error) { console.log('user name fetch skipped:', error.message); return; }
+          setCurrentUserName(data?.name || null);
+        });
+    });
+  }, []);
 
   // owner_user_id on a NEW event_invitees row must be the event's HOST, not
   // whoever's session created it — the current session could be a delegate
@@ -526,7 +542,7 @@ export default function GiftStickers({ route, navigation }) {
   // stubbed to a plain View there, per this file's own top-of-file note).
   if (isDesktopWeb && mode === 'list') {
     return (
-      <DesktopEventShell activeItem="gifts" event={event} guestCount={guests.length} navigation={navigation}>
+      <DesktopEventShell activeItem="gifts" event={event} guestCount={guests.length} currentUserName={currentUserName} navigation={navigation}>
         <GiftTable guests={guests} giftStickersByGuest={giftStickersByGuest} onToggleReciprocation={toggleReciprocation} />
       </DesktopEventShell>
     );

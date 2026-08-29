@@ -263,6 +263,8 @@ export default function EventTodo({ route, navigation }) {
   const [eventsList, setEventsList] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(!routeEvent);
   const [userId, setUserId] = useState(null);
+  const [currentUserName, setCurrentUserName] = useState(null);
+  const [guestCount, setGuestCount] = useState(null);
 
   const [todos, setTodos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -320,6 +322,26 @@ export default function EventTodo({ route, navigation }) {
       }
     });
   }, []);
+
+  // Wave 13 follow-up — desktop sidebar footer/event-card, same
+  // currentUserName/guestCount role GuestList.js's shell already has.
+  useEffect(() => {
+    if (!userId) return;
+    supabase.from('users').select('name').eq('id', userId).maybeSingle()
+      .then(({ data, error }) => {
+        if (error) { console.log('user name fetch skipped:', error.message); return; }
+        setCurrentUserName(data?.name || null);
+      });
+  }, [userId]);
+
+  useEffect(() => {
+    if (!event?.id) { setGuestCount(null); return; }
+    supabase.from('event_invitees').select('id', { count: 'exact', head: true }).eq('event_id', event.id)
+      .then(({ count, error }) => {
+        if (error) { console.log('guest count fetch skipped:', error.message); return; }
+        setGuestCount(count ?? null);
+      });
+  }, [event?.id]);
 
   async function fetchMyEvents(uid) {
     try {
@@ -868,7 +890,7 @@ export default function EventTodo({ route, navigation }) {
   // runs unchanged regardless of platform; this only branches the JSX.
   if (isDesktopWeb) {
     return (
-      <DesktopEventShell activeItem="checklist" event={event} navigation={navigation}>
+      <DesktopEventShell activeItem="checklist" event={event} guestCount={guestCount} currentUserName={currentUserName} navigation={navigation}>
         <ChecklistTable todos={todos} onToggle={toggleTodo} />
       </DesktopEventShell>
     );

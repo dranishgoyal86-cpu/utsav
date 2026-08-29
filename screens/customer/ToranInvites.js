@@ -113,7 +113,22 @@ export default function ToranInvites({ route, navigation }) {
   const [contentSaved, setContentSaved] = useState(false);
   const [guests, setGuests] = useState([]);
   const [passes, setPasses] = useState([]);
+  const [currentUserName, setCurrentUserName] = useState(null);
   const cardRef = useRef(null);
+
+  // Wave 13 follow-up — desktop sidebar footer, same currentUserName role
+  // GuestList.js's shell already has. This screen has no userId state of
+  // its own (uses inline getUser() calls elsewhere), so fetched directly.
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase.from('users').select('name').eq('id', user.id).maybeSingle()
+        .then(({ data, error }) => {
+          if (error) { console.log('user name fetch skipped:', error.message); return; }
+          setCurrentUserName(data?.name || null);
+        });
+    });
+  }, []);
 
   // Wave 6 (Stillness) — Task 1's gating decision (Option A, restricted):
   // an event already marked non-celebratory only ever gets Stillness
@@ -347,9 +362,13 @@ export default function ToranInvites({ route, navigation }) {
   // as every other desktop screen this wave. Per-function design
   // assignment (GuestList.js's Functions modal) is deliberately not
   // duplicated here — see InviteDesignerDesktop.js's own comment.
+  // guests here excludes declined guests (this screen's own load() query
+  // filters .neq('rsvp_status','no'), for its "ready to send" list) — a
+  // real, non-fabricated count, just not identical in definition to
+  // GuestList.js's total invited.
   if (isDesktopWeb) {
     return (
-      <DesktopEventShell activeItem="invites" event={event} navigation={navigation}>
+      <DesktopEventShell activeItem="invites" event={event} guestCount={guests.length} currentUserName={currentUserName} navigation={navigation}>
         <InviteDesignerDesktop
           design={design} setDesign={setDesign} allowedDesigns={allowedDesigns} celebratory={celebratory} designLabels={DESIGN_LABELS}
           partner1={partner1} setPartner1={setPartner1} partner2={partner2} setPartner2={setPartner2}

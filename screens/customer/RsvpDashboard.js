@@ -30,6 +30,21 @@ export default function RsvpDashboard({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [totalInvited, setTotalInvited] = useState(0);
   const [totalResponded, setTotalResponded] = useState(0);
+  const [currentUserName, setCurrentUserName] = useState(null);
+
+  // Wave 13 follow-up — desktop sidebar footer, same currentUserName role
+  // GuestList.js's shell already has. This screen has no userId state of
+  // its own (read-only dashboard, never needed one before).
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase.from('users').select('name').eq('id', user.id).maybeSingle()
+        .then(({ data, error }) => {
+          if (error) { console.log('user name fetch skipped:', error.message); return; }
+          setCurrentUserName(data?.name || null);
+        });
+    });
+  }, []);
   const [functionRows, setFunctionRows] = useState([]);
   const [stickerCount, setStickerCount] = useState(0);
   const [stickerTotal, setStickerTotal] = useState(0);
@@ -169,7 +184,7 @@ export default function RsvpDashboard({ route, navigation }) {
   // every other desktop screen this wave.
   if (isDesktopWeb) {
     return (
-      <DesktopEventShell activeItem="rsvp" event={event} navigation={navigation}>
+      <DesktopEventShell activeItem="rsvp" event={event} guestCount={totalInvited} currentUserName={currentUserName} navigation={navigation}>
         <RsvpDashboardDesktop
           totalInvited={totalInvited} totalResponded={totalResponded} functionRows={functionRows}
           stickerCount={stickerCount} stickerTotal={stickerTotal} notedCount={notedCount} notedTotal={notedTotal}
