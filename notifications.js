@@ -360,6 +360,32 @@ export async function notifyAccountSuspended(userId, reason) {
   }
 }
 
+// No real outbound-email mechanism exists anywhere in this codebase --
+// confirmed by grepping for Resend/SendGrid/nodemailer/SMTP and by reading
+// every existing "notify a user of something" edge function/reminder job
+// (birthday-wishes, rsvp-reminders, todo-reminders): every one of them
+// writes to `notifications` + an Expo push, none send email. Following
+// that same established pattern rather than building a new email pipeline
+// blind (no provider account/API key exists to build one against -- same
+// credential-blocked shape as the Razorpay/SMS-OTP gaps in CLAUDE.md).
+export async function notifyImportCategoryMismatch(userId, excludedCount, categoryLabel) {
+  const { data: user } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', userId)
+    .single();
+
+  const title = 'Some imported services need a category change';
+  const body = excludedCount === 1
+    ? `1 imported service didn't match your account's category (${categoryLabel}). Review it in the import summary.`
+    : `${excludedCount} imported services didn't match your account's category (${categoryLabel}). Review them in the import summary.`;
+
+  await saveNotificationToDb(userId, title, body, { type: 'import_category_mismatch' });
+  if (user?.push_token) {
+    await sendPushNotification(user.push_token, title, body);
+  }
+}
+
 export async function notifyAccountReactivated(userId) {
   const { data: user } = await supabase
     .from('users')

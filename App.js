@@ -118,6 +118,7 @@ import InboxScreen from './screens/customer/InboxScreen';
 import NotificationsScreen from './screens/customer/NotificationsScreen';
 import ProviderERP from './screens/provider/ProviderERP';
 import AddServiceScreen from './screens/provider/AddServiceScreen';
+import BulkImportServices from './screens/provider/BulkImportServices';
 import PortfolioScreen from './screens/provider/PortfolioScreen';
 import AvailabilityScreen from './screens/provider/AvailabilityScreen';
 import VerificationScreen from './screens/provider/VerificationScreen';
@@ -477,6 +478,7 @@ function MainApp() {
             <Stack.Screen name="DelegateRedeem" component={DelegateRedeem} />
             <Stack.Screen name="GuestPass" component={GuestPassScreen} />
             <Stack.Screen name="AddService" component={AddServiceScreen} />
+            <Stack.Screen name="BulkImportServices" component={BulkImportServices} />
             <Stack.Screen name="Portfolio" component={PortfolioScreen} />
             <Stack.Screen name="Availability" component={AvailabilityScreen} />
             <Stack.Screen name="Verification" component={VerificationScreen} />

@@ -1456,9 +1456,14 @@ function ServicesScreen({ navigation }) {
     <SafeAreaView style={s.container}>
       <View style={s.pageHeader}>
         <Text style={s.pageTitle}>My services</Text>
-        <TouchableOpacity style={s.addBtn} onPress={() => navigation.navigate('AddService')}>
-          <Text style={s.addBtnText}>+ Add new</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity style={s.importBtn} onPress={() => navigation.navigate('BulkImportServices')}>
+            <Text style={s.importBtnText}>📄 Import</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.addBtn} onPress={() => navigation.navigate('AddService')}>
+            <Text style={s.addBtnText}>+ Add new</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }}>
@@ -1477,6 +1482,9 @@ function ServicesScreen({ navigation }) {
             <Text style={s.emptyText}>Add your first service to start receiving bookings</Text>
             <TouchableOpacity style={s.emptyBtn} onPress={() => navigation.navigate('AddService')}>
               <Text style={s.emptyBtnText}>+ Add your first service</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('BulkImportServices')}>
+              <Text style={s.importFromSpreadsheetLink}>or import from a spreadsheet →</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1850,6 +1858,7 @@ function makeStyles(theme) {
     emptyText: { fontSize: 13, color: theme.textSecondary, textAlign: 'center', lineHeight: 20 },
     emptyBtn: { marginTop: 18, backgroundColor: theme.btnPrimary, borderRadius: 16, paddingHorizontal: 24, paddingVertical: 13 },
     emptyBtnText: { color: theme.btnPrimaryText, fontSize: 14, fontWeight: '700' },
+    importFromSpreadsheetLink: { marginTop: 14, fontSize: 12.5, color: theme.accent, fontWeight: '600' },
 
     pageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14 },
     pageTitle: { fontSize: 26, fontWeight: '700', color: theme.text, letterSpacing: -0.3 },
@@ -1977,6 +1986,8 @@ function makeStyles(theme) {
 
     addBtn: { backgroundColor: theme.btnPrimary, borderRadius: 12, paddingHorizontal: 15, paddingVertical: 9 },
     addBtnText: { color: theme.btnPrimaryText, fontSize: 12, fontWeight: '700' },
+    importBtn: { backgroundColor: theme.cardBg, borderRadius: 12, paddingHorizontal: 15, paddingVertical: 9, borderWidth: 0.5, borderColor: theme.border },
+    importBtnText: { color: theme.text, fontSize: 12, fontWeight: '700' },
 
     periodToggle: { flexDirection: 'row', backgroundColor: theme.cardBg, borderRadius: 12, padding: 3, gap: 2, borderWidth: 0.5, borderColor: theme.border },
     periodBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9 },

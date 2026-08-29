@@ -99,6 +99,7 @@
       "expo-contacts",
       "expo-media-library",
       "expo-image-picker",
+      "expo-document-picker",
       [
         "expo-notifications",
         {
