@@ -7,7 +7,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
 import AppHeader from '../../components/AppHeader';
-import { showAlert, confirmAction } from '../../helpers';
+import { showAlert, confirmAction, callEdgeFunction } from '../../helpers';
 import { parseCSV } from '../../lib/csvParser';
 import { parseExcel } from '../../lib/excelParser';
 import { TARGET_FIELDS, guessMapping } from '../../lib/bulkImportFields';
@@ -227,6 +227,25 @@ export default function BulkImportServices({ navigation }) {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user?.id) {
           await notifyImportCategoryMismatch(session.user.id, mismatchedRows.length, effectiveLock || 'your account');
+        }
+        // Real email, on top of the in-app notification -- via the new
+        // supabase/functions/send-email edge function (AWS SES). Wrapped
+        // non-fatal: this account's underlying AWS IAM user currently has
+        // no ses:SendEmail permission (confirmed live -- see the send-email
+        // function's own comment and this feature's report), so this call
+        // is expected to fail until that's granted in the AWS console. The
+        // import itself has already succeeded by this point either way.
+        if (session?.user?.email) {
+          try {
+            const rowList = mismatchedRows.slice(0, 20).map(r => `<li>${r.title} — ${r.chosenCategory}</li>`).join('');
+            await callEdgeFunction('send-email', {
+              to: session.user.email,
+              subject: `${mismatchedRows.length} imported service${mismatchedRows.length === 1 ? '' : 's'} need a category change`,
+              html: `<p>Your spreadsheet import added ${imported} service${imported === 1 ? '' : 's'}, but ${mismatchedRows.length} row${mismatchedRows.length === 1 ? '' : 's'} didn't match your account's category (${effectiveLock || 'not yet set'}):</p><ul>${rowList}</ul><p>Open the import summary in the app to apply for Event Planner status or set up a second business for these.</p>`,
+            });
+          } catch (emailErr) {
+            console.log('send-email non-fatal error:', emailErr.message);
+          }
         }
       }
 
