@@ -1,7 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Users, PaperPlaneTilt, ChartBar, CheckSquare, Gift, QrCode, CalendarCheck, GearSix,
+  Compass, Users, PaperPlaneTilt, ChartBar, CheckSquare, Gift, QrCode, CalendarCheck, GearSix,
 } from 'phosphor-react-native';
 import TornArch from '../invite/motifs/TornArch';
 import { MAROON, MAROON_DEEP, GOLD, GOLD_SOFT } from '../../lib/desktopTheme';
@@ -21,6 +21,11 @@ import { MAROON, MAROON_DEEP, GOLD, GOLD_SOFT } from '../../lib/desktopTheme';
 // reasoning on why MAROON_DEEP/GOLD_SOFT are the two literal exceptions.
 
 const NAV_ITEMS = [
+  // Overview links to PlanView (the event's real plan document -- P1-P5
+  // checklist, budget, event details), Batch B's real finding: nothing in
+  // this shell pointed back at it before, even though it's the natural
+  // "home" of an event's own workspace, one level up from Guests.
+  { section: 'Manage', key: 'overview', label: 'Overview', icon: Compass, screen: 'PlanView' },
   { section: 'Manage', key: 'guests', label: 'Guests', icon: Users, screen: 'GuestList' },
   { section: 'Manage', key: 'invites', label: 'Invites', icon: PaperPlaneTilt, screen: 'ToranInvites' },
   { section: 'Manage', key: 'rsvp', label: 'RSVP dashboard', icon: ChartBar, screen: 'RsvpDashboard' },

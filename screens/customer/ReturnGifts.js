@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, FlatList, Modal, ActivityIndicator, Platform, KeyboardAvoidingView
+  View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, FlatList, Modal, ActivityIndicator, Platform, KeyboardAvoidingView, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Sharing from 'expo-sharing';
@@ -13,6 +13,12 @@ import { useEventCapabilities } from '../../hooks/useEventCapabilities';
 import { isEnabled } from '../../lib/capabilities';
 import CapabilityBlocked from '../../components/CapabilityBlocked';
 import AppHeader from '../../components/AppHeader';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import { useEventShellData } from '../../hooks/useEventShellData';
+import { SectionEyebrow } from '../../components/desktop/DesktopKit';
+import { TEXT } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 // CSV export needs a real file (so the host can open it in Excel/Sheets),
 // which is a native-only capability in this codebase's established
@@ -55,6 +61,9 @@ export default function ReturnGifts({ route, navigation }) {
   const { eventId } = route.params;
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
+  const { event, guestCount, currentUserName } = useEventShellData(eventId);
 
   const [guests, setGuests] = useState([]);
   const [gifts, setGifts] = useState([]);
@@ -317,11 +326,11 @@ export default function ReturnGifts({ route, navigation }) {
   // computes for every screen, just reused here for the header text.
   const headerLabel = capabilities.byKey.return_gifts?.label || 'Return gifts';
 
-  return (
-    <SafeAreaView style={s.container}>
-      <AppHeader title={headerLabel} onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
-
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+  // Same content either way -- real tier-assignment/reciprocity logic, so
+  // shared rather than duplicated a second time (same call as PlanView.js/
+  // GatePass.js/BookingsScreen.js).
+  const body = (
+    <>
         {tiers.length === 0 ? (
           <View style={s.card}>
             <Text style={s.cardTitle}>Set up return gift tiers</Text>
@@ -445,8 +454,11 @@ export default function ReturnGifts({ route, navigation }) {
             </View>
           </>
         )}
-      </ScrollView>
+    </>
+  );
 
+  const modalsEl = (
+    <>
       {/* ── Tier/status picker ── */}
       <Modal visible={!!pickerGuestId} transparent animationType="fade" onRequestClose={closePicker}>
         <View style={s.overlay}>
@@ -513,6 +525,27 @@ export default function ReturnGifts({ route, navigation }) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+    </>
+  );
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopEventShell activeItem="gifts" event={event} guestCount={guestCount} currentUserName={currentUserName} navigation={navigation}>
+        <SectionEyebrow>GIFTS</SectionEyebrow>
+        <Text style={ds.title}>{headerLabel}</Text>
+        <View style={ds.body}>{body}</View>
+        {modalsEl}
+      </DesktopEventShell>
+    );
+  }
+
+  return (
+    <SafeAreaView style={s.container}>
+      <AppHeader title={headerLabel} onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        {body}
+      </ScrollView>
+      {modalsEl}
     </SafeAreaView>
   );
 }
@@ -607,3 +640,10 @@ function makeStyles(theme) {
     },
   });
 }
+
+// Desktop: title chrome only -- `body`'s real tier/reciprocity logic keeps
+// its proven mobile styling (`s`), same trade-off as PlanView/GatePass.
+const ds = StyleSheet.create({
+  title: { fontFamily: 'Fraunces-SemiBold', fontSize: 24, color: TEXT, marginTop: 2, marginBottom: 20 },
+  body: { maxWidth: 720 },
+});

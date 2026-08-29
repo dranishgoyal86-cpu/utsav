@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Modal, TextInput, Linking, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Modal, TextInput, Linking, KeyboardAvoidingView, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PencilSimple } from 'phosphor-react-native';
 import { useTheme } from '../../ThemeContext';
@@ -12,6 +12,10 @@ import { useEventCapabilities } from '../../hooks/useEventCapabilities';
 import SlotField, { slotApplies, slotFilled, slotDisplayValue, SLOT_LABELS } from '../../components/SlotField';
 import AppHeader from '../../components/AppHeader';
 import { resolveInviteDesignColors } from './GuestList';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import { CARD, LINE, TEXT } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 // Warmer, celebration-framed language in place of the old raw P1-P5 labels —
 // display text only. The 'P1'-'P5' keys themselves stay unchanged: they're
@@ -48,9 +52,30 @@ export default function PlanView({ route, navigation }) {
   const { eventId } = route.params;
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const { resolved, estimates, progress, allocation, event, venue, resolvedByFunction, itemHandledByName, loading, error, refresh } = useEventPlan(eventId);
   const capabilities = useEventCapabilities(eventId);
   const entryControl = capabilities.entryControl;
+
+  // Threaded into DesktopEventShell the same way GuestList/EventTodo/
+  // GiftStickers/ToranInvites/RsvpDashboard already do -- real name/count,
+  // never the shell's own "Host"/"0" placeholders.
+  const [currentUserName, setCurrentUserName] = useState('');
+  const [guestCount, setGuestCount] = useState(0);
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { data } = await supabase.from('users').select('name').eq('id', session.user.id).maybeSingle();
+      if (data?.name) setCurrentUserName(data.name);
+    })();
+  }, []);
+  useEffect(() => {
+    if (!eventId) return;
+    supabase.from('event_invitees').select('id', { count: 'exact', head: true }).eq('event_id', eventId)
+      .then(({ count }) => setGuestCount(count || 0));
+  }, [eventId]);
 
   // Palette reuse from the host's own saved invite design (Step 2) — most
   // recent design for this event, if any. Falls back to the neutral
@@ -231,29 +256,16 @@ export default function PlanView({ route, navigation }) {
   const detailsOpen = openSections.details !== undefined ? openSections.details : pendingSoftSlots.length > 0;
   const detailsEditing = detailsEditingOverride !== undefined ? detailsEditingOverride : pendingSoftSlots.length > 0;
 
-  return (
-    <SafeAreaView style={s.container}>
-      {/* AppHeader sits outside the padded ScrollView on purpose — it has
-          its own horizontal padding, and s.scroll already applies padding:20
-          to everything below it (the title/meta/venue block, unchanged). */}
-      <AppHeader
-        theme={theme}
-        navigation={navigation}
-        onBack={() => navigation.goBack()}
-        eventId={event.id}
-        rightActions={[
-          <TouchableOpacity key="guests" onPress={() => navigation.navigate('GuestList', { event })} style={s.calendarBtn}>
-            <Text style={s.calendarBtnText}>👥</Text>
-          </TouchableOpacity>,
-          ...(event.event_date ? [
-            <TouchableOpacity key="calendar" onPress={addToGoogleCalendar} style={s.calendarBtn}>
-              <Text style={s.calendarBtnText}>📅</Text>
-            </TouchableOpacity>,
-          ] : []),
-        ]}
-      />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
-
+  // Same content either way -- desktop wraps it in DesktopEventShell
+  // (Batch B's real "Overview" nav entry, see DesktopEventShell.js), mobile
+  // keeps its own AppHeader+ScrollView unchanged. Kept as a single JSX
+  // value rather than duplicating this ~260-line P1-P5/budget/details tree
+  // a second time for desktop -- same "extract, don't duplicate" call as
+  // BookingsScreen.js's renderBookingContent, for the same reason: this is
+  // real planning/budget logic, not just presentation, and a second
+  // hand-written copy is exactly how the two would quietly drift apart.
+  const body = (
+    <>
         {/* ── Countdown hero (Step 4) — the emotional anchor the screen
             currently lacks. Only shown for a real, future date; a past event
             (isPast) or one with no date set yet has nothing to count down to,
@@ -515,30 +527,84 @@ export default function PlanView({ route, navigation }) {
         )}
 
         <View style={{ height: 60 }} />
-      </ScrollView>
+    </>
+  );
 
-      <Modal visible={renameModal} transparent animationType="fade" onRequestClose={() => setRenameModal(false)}>
-        <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={s.modal}>
-            <Text style={s.modalTitle}>Rename event</Text>
-            <TextInput
-              style={s.modalInput}
-              value={renameInput}
-              onChangeText={setRenameInput}
-              placeholder="Event name"
-              placeholderTextColor={theme.textTertiary}
-            />
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-              <TouchableOpacity style={s.modalCancelBtn} onPress={() => setRenameModal(false)}>
-                <Text style={s.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.modalSaveBtn} onPress={saveRename} disabled={saving}>
-                {saving ? <ActivityIndicator color={theme.btnPrimaryText} /> : <Text style={s.modalSaveText}>Save</Text>}
-              </TouchableOpacity>
-            </View>
+  const renameModalEl = (
+    <Modal visible={renameModal} transparent animationType="fade" onRequestClose={() => setRenameModal(false)}>
+      <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={s.modal}>
+          <Text style={s.modalTitle}>Rename event</Text>
+          <TextInput
+            style={s.modalInput}
+            value={renameInput}
+            onChangeText={setRenameInput}
+            placeholder="Event name"
+            placeholderTextColor={theme.textTertiary}
+          />
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+            <TouchableOpacity style={s.modalCancelBtn} onPress={() => setRenameModal(false)}>
+              <Text style={s.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.modalSaveBtn} onPress={saveRename} disabled={saving}>
+              {saving ? <ActivityIndicator color={theme.btnPrimaryText} /> : <Text style={s.modalSaveText}>Save</Text>}
+            </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopEventShell
+        activeItem="overview"
+        event={event}
+        guestCount={guestCount}
+        currentUserName={currentUserName}
+        navigation={navigation}
+      >
+        <View style={ds.quickActions}>
+          <TouchableOpacity style={ds.quickBtn} onPress={() => navigation.navigate('GuestList', { event })}>
+            <Text style={ds.quickBtnText}>👥 Guests</Text>
+          </TouchableOpacity>
+          {event.event_date && (
+            <TouchableOpacity style={ds.quickBtn} onPress={addToGoogleCalendar}>
+              <Text style={ds.quickBtnText}>📅 Add to calendar</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={ds.body}>{body}</View>
+        {renameModalEl}
+      </DesktopEventShell>
+    );
+  }
+
+  return (
+    <SafeAreaView style={s.container}>
+      {/* AppHeader sits outside the padded ScrollView on purpose — it has
+          its own horizontal padding, and s.scroll already applies padding:20
+          to everything below it (the title/meta/venue block, unchanged). */}
+      <AppHeader
+        theme={theme}
+        navigation={navigation}
+        onBack={() => navigation.goBack()}
+        eventId={event.id}
+        rightActions={[
+          <TouchableOpacity key="guests" onPress={() => navigation.navigate('GuestList', { event })} style={s.calendarBtn}>
+            <Text style={s.calendarBtnText}>👥</Text>
+          </TouchableOpacity>,
+          ...(event.event_date ? [
+            <TouchableOpacity key="calendar" onPress={addToGoogleCalendar} style={s.calendarBtn}>
+              <Text style={s.calendarBtnText}>📅</Text>
+            </TouchableOpacity>,
+          ] : []),
+        ]}
+      />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+        {body}
+      </ScrollView>
+      {renameModalEl}
     </SafeAreaView>
   );
 }
@@ -698,3 +764,14 @@ function makeStyles(theme) {
     modalSaveText: { fontSize: 13, fontWeight: '700', color: theme.btnPrimaryText },
   });
 }
+
+// Desktop: same "frame reskin, keep proven content" trade-off as
+// BookingsScreen.js -- `body` above renders unchanged with its own `s`
+// (mobile-theme) styles; only the outer chrome (quick actions row, max
+// width) is new.
+const ds = StyleSheet.create({
+  quickActions: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  quickBtn: { backgroundColor: CARD, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, borderWidth: 1, borderColor: LINE },
+  quickBtnText: { fontSize: 13, fontWeight: '600', color: TEXT },
+  body: { maxWidth: 720 },
+});

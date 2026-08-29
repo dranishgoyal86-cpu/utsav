@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'phosphor-react-native';
 import { useTheme } from '../../ThemeContext';
@@ -8,6 +8,12 @@ import { showAlert, resolveGuestPartySize } from '../../helpers';
 import { insertGuestPassesWithRetry } from '../../lib/capabilities';
 import { useEventContext } from '../../hooks/useEventContext';
 import AppHeader from '../../components/AppHeader';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import { useEventShellData } from '../../hooks/useEventShellData';
+import { StatCard, SectionEyebrow } from '../../components/desktop/DesktopKit';
+import { MAROON, WAIT, CARD, LINE, TEXT, MUTED } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 // Issues one gate pass per guest who doesn't already have one — idempotent,
 // re-running only fills gaps (new guests added since the last run). Reached
@@ -17,7 +23,10 @@ export default function PassIssue({ route, navigation }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const { event, update } = useEventContext(eventId);
+  const { guestCount, currentUserName } = useEventShellData(eventId);
 
   const [loading, setLoading] = useState(true);
   const [issuing, setIssuing] = useState(false);
@@ -81,6 +90,56 @@ export default function PassIssue({ route, navigation }) {
     } finally {
       setIssuing(false);
     }
+  }
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopEventShell activeItem="gatepasses" event={event} guestCount={guestCount} currentUserName={currentUserName} navigation={navigation}>
+        <View style={ds.headerRow}>
+          <View>
+            <SectionEyebrow>ENTRY MANAGEMENT</SectionEyebrow>
+            <Text style={ds.title}>Issue passes</Text>
+          </View>
+          <TouchableOpacity
+            style={[ds.primaryBtn, missingGuests.length === 0 && { opacity: 0.5 }]}
+            onPress={issueMissing}
+            disabled={issuing || missingGuests.length === 0}
+          >
+            {issuing ? <ActivityIndicator color="#fff" /> : (
+              <Text style={ds.primaryBtnText}>
+                {missingGuests.length === 0 ? 'All passes issued' : `Issue ${missingGuests.length} pass${missingGuests.length === 1 ? '' : 'es'}`}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+        ) : (
+          <>
+            <View style={ds.statsRow}>
+              <StatCard value={passes.length} label="ALREADY ISSUED" color={MAROON} />
+              <StatCard value={missingGuests.length} label="STILL TO ISSUE" color={WAIT} />
+            </View>
+
+            {missingGuests.length === 0 ? (
+              <View style={ds.emptyCard}><Text style={ds.emptyText}>Every guest already has a pass.</Text></View>
+            ) : (
+              <View style={ds.grid}>
+                {missingGuests.map(item => (
+                  <View key={item.id} style={ds.guestRow}>
+                    <Text style={ds.guestName}>{item.name}</Text>
+                    {item.entry_type === 'household' ? (
+                      <Text style={ds.guestMeta}>🏠 {item.household_size || 1} people</Text>
+                    ) : item.plus_ones > 0 ? <Text style={ds.guestMeta}>+{item.plus_ones}</Text> : null}
+                  </View>
+                ))}
+              </View>
+            )}
+          </>
+        )}
+      </DesktopEventShell>
+    );
   }
 
   return (
@@ -168,3 +227,17 @@ function makeStyles(theme) {
     btnDisabled: { opacity: 0.5 },
   });
 }
+
+const ds = StyleSheet.create({
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 22 },
+  title: { fontFamily: 'Fraunces-SemiBold', fontSize: 24, color: TEXT, marginTop: 2 },
+  primaryBtn: { backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 18, paddingVertical: 13 },
+  primaryBtnText: { color: '#fff', fontSize: 13.5, fontWeight: '700' },
+  statsRow: { flexDirection: 'row', gap: 14, marginBottom: 24, maxWidth: 440 },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 40, alignItems: 'center' },
+  emptyText: { fontSize: 13.5, color: MUTED },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  guestRow: { width: 260, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: CARD, borderRadius: 12, borderWidth: 1, borderColor: LINE, paddingHorizontal: 14, paddingVertical: 12 },
+  guestName: { fontSize: 13.5, fontWeight: '600', color: TEXT },
+  guestMeta: { fontSize: 12, color: MUTED },
+});

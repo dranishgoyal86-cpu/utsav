@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -13,6 +13,12 @@ import AppHeader from '../../components/AppHeader';
 import { registerTourTarget } from '../../lib/tourTargets';
 import { useTour } from '../../hooks/useTour';
 import CoachMarkTour from '../../components/CoachMarkTour';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import { useEventShellData } from '../../hooks/useEventShellData';
+import { SectionEyebrow } from '../../components/desktop/DesktopKit';
+import { TEXT } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 // Deliberately just 2 steps, not padded to match other tours' step counts.
 // Step 1's investigation found this screen's action area is a genuine
@@ -57,6 +63,9 @@ export default function GatePass({ route, navigation }) {
   const { eventId, forceTour } = route.params;
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
+  const { event, guestCount, currentUserName } = useEventShellData(eventId);
   const capabilities = useEventCapabilities(eventId);
   const entryControl = capabilities.entryControl;
 
@@ -135,16 +144,11 @@ export default function GatePass({ route, navigation }) {
 
   const progressPct = counts.issued > 0 ? Math.round((counts.checkedIn / counts.issued) * 100) : 0;
 
-  return (
-    <SafeAreaView style={s.container}>
-      <AppHeader
-        title="Gate pass"
-        onBack={() => navigation.goBack()}
-        theme={theme}
-        navigation={navigation}
-        eventId={eventId}
-      />
-
+  // Real 3-way capability branch (see this file's own top comment) --
+  // shared between mobile and desktop rather than duplicated, same
+  // "extract, don't duplicate" call as PlanView.js/BookingsScreen.js.
+  const body = (
+    <>
       {capabilities.loading ? (
         <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
       ) : !entryControl || entryControl.capability_key === 'no_entry_control' ? (
@@ -221,13 +225,40 @@ export default function GatePass({ route, navigation }) {
           )}
         </>
       )}
+    </>
+  );
 
-      <CoachMarkTour
-        visible={gatePassTour.isTourActive}
-        steps={GATEPASS_TOUR_STEPS}
-        onComplete={gatePassTour.markComplete}
-        onSkip={gatePassTour.markComplete}
+  const tourEl = (
+    <CoachMarkTour
+      visible={gatePassTour.isTourActive}
+      steps={GATEPASS_TOUR_STEPS}
+      onComplete={gatePassTour.markComplete}
+      onSkip={gatePassTour.markComplete}
+    />
+  );
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopEventShell activeItem="gatepasses" event={event} guestCount={guestCount} currentUserName={currentUserName} navigation={navigation}>
+        <SectionEyebrow>ENTRY MANAGEMENT</SectionEyebrow>
+        <Text style={ds.title}>Gate pass</Text>
+        <View style={ds.body}>{body}</View>
+        {tourEl}
+      </DesktopEventShell>
+    );
+  }
+
+  return (
+    <SafeAreaView style={s.container}>
+      <AppHeader
+        title="Gate pass"
+        onBack={() => navigation.goBack()}
+        theme={theme}
+        navigation={navigation}
+        eventId={eventId}
       />
+      {body}
+      {tourEl}
     </SafeAreaView>
   );
 }
@@ -264,3 +295,10 @@ function makeStyles(theme) {
     actionBtnText: { fontSize: 14, fontWeight: '600', color: theme.text },
   });
 }
+
+// Desktop: title chrome only -- `body`'s real 3-way capability branch keeps
+// its proven mobile styling (`s`), same trade-off as PlanView/Bookings.
+const ds = StyleSheet.create({
+  title: { fontFamily: 'Fraunces-SemiBold', fontSize: 24, color: TEXT, marginTop: 2, marginBottom: 20 },
+  body: { maxWidth: 520 },
+});

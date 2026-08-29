@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, Dimensions, Modal, TextInput, RefreshControl, ScrollView, Share, KeyboardAvoidingView, Platform
+  View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, Dimensions, Modal, TextInput, RefreshControl, ScrollView, Share, KeyboardAvoidingView, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
@@ -17,6 +17,7 @@ import SwipeableRow from '../../components/SwipeableRow';
 import SyncIndicator from '../../components/SyncIndicator';
 import { enqueue, drain } from '../../lib/uploadQueue';
 import AppHeader from '../../components/AppHeader';
+import { MAROON, GOLD, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
 
 function generateInviteCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -24,11 +25,20 @@ function generateInviteCode() {
 
 const { width } = Dimensions.get('window');
 const IMG_SIZE = (width - 52) / 3;
+const DESKTOP_BREAKPOINT = 768;
+const DESKTOP_IMG_SIZE = 180;
 
 export default function AlbumDetailScreen({ route, navigation }) {
   const { album, userId } = route.params;
   const { theme } = useTheme();
   const s = styles(theme);
+  const { width: winWidth } = useWindowDimensions();
+  // No natural sidebar context here (AlbumDetail is reached from the Albums
+  // tab but, like GuestList/EventTodo/etc., is registered as a sibling
+  // Stack.Screen, not nested inside CustomerTabs' Tab.Navigator -- the
+  // desktop sidebar disappears the moment you push into it). Standalone
+  // centered/wide layout, no shell, per the same reasoning as ProfileScreen.
+  const isDesktopWeb = Platform.OS === 'web' && winWidth >= DESKTOP_BREAKPOINT;
 
   const [media, setMedia] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -315,6 +325,151 @@ export default function AlbumDetailScreen({ route, navigation }) {
     );
   }
 
+  const faceMatchEl = event?.rekognition_collection_id ? (
+    <View style={isDesktopWeb ? ds.faceMatchCard : s.faceMatchCard}>
+      <View style={{ flex: 1 }}>
+        <Text style={isDesktopWeb ? ds.faceMatchCardTitle : s.faceMatchCardTitle}>🤳 Guest face-matching is on</Text>
+        <View style={s.inviteCodeRow}>
+          <Text style={isDesktopWeb ? ds.inviteCodeLabel : s.inviteCodeLabel}>Code:</Text>
+          <Text style={isDesktopWeb ? ds.inviteCode : s.inviteCode}>{event.invite_code}</Text>
+        </View>
+      </View>
+      <TouchableOpacity style={isDesktopWeb ? ds.faceMatchBtn : s.faceMatchBtn} onPress={shareInviteCode}>
+        <ShareNetwork size={15} color={isDesktopWeb ? TEXT : theme.text} />
+        <Text style={isDesktopWeb ? ds.faceMatchBtnText : s.faceMatchBtnText}>Share</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={isDesktopWeb ? ds.faceMatchBtn : s.faceMatchBtn} onPress={() => navigation.navigate('GuestList', { event })}>
+        <Users size={15} color={isDesktopWeb ? TEXT : theme.text} />
+        <Text style={isDesktopWeb ? ds.faceMatchBtnText : s.faceMatchBtnText}>Guests</Text>
+      </TouchableOpacity>
+    </View>
+  ) : isOwner ? (
+    <TouchableOpacity
+      style={isDesktopWeb ? ds.enableFaceMatchCard : s.enableFaceMatchCard}
+      onPress={enableFaceMatching}
+      disabled={enablingFaceMatch}
+    >
+      <Users size={18} color={isDesktopWeb ? MAROON : theme.accent} />
+      <Text style={isDesktopWeb ? ds.enableFaceMatchText : s.enableFaceMatchText}>
+        {enablingFaceMatch ? 'Enabling…' : 'Enable guest face-matching for this album'}
+      </Text>
+      {enablingFaceMatch && <ActivityIndicator size="small" color={isDesktopWeb ? MAROON : theme.accent} />}
+    </TouchableOpacity>
+  ) : null;
+
+  const shareModalEl = (
+    <Modal visible={shareModal} transparent animationType="slide" onRequestClose={() => setShareModal(false)}>
+      <KeyboardAvoidingView style={[s.overlay, isDesktopWeb && { justifyContent: 'center' }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[s.modal, isDesktopWeb && ds.modalDesktop]}>
+          <View style={s.modalHeader}>
+            <Text style={s.modalTitle}>Share Album</Text>
+            <TouchableOpacity onPress={() => setShareModal(false)}>
+              <X size={20} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={s.shareRow}>
+            <TextInput
+              style={[s.input, { flex: 1 }]}
+              placeholder="Enter email address"
+              placeholderTextColor={theme.subtext}
+              value={shareEmail}
+              onChangeText={setShareEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            <TouchableOpacity style={s.shareBtn} onPress={shareWithUser} disabled={sharing}>
+              {sharing ? (
+                <ActivityIndicator size="small" color={theme.bg} />
+              ) : (
+                <Check size={18} color={theme.bg} />
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {sharedWith.length > 0 && (
+            <>
+              <Text style={s.sharedLabel}>Shared with</Text>
+              {sharedWith.map(u => (
+                <SwipeableRow key={u.id} onDelete={() => confirmRemoveShare(u)}>
+                  <View style={s.sharedUser}>
+                    <Text style={s.sharedName}>{u.name}</Text>
+                    <Text style={s.sharedEmail}>{u.email}</Text>
+                  </View>
+                </SwipeableRow>
+              ))}
+            </>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+
+  if (isDesktopWeb) {
+    return (
+      <View style={ds.page}>
+        <View style={ds.scroll}>
+          <View style={ds.headerRow}>
+            <View style={{ flex: 1 }}>
+              <TouchableOpacity onPress={() => navigation.goBack()}><Text style={ds.backLink}>← Albums</Text></TouchableOpacity>
+              <Text style={ds.title}>{album.name}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <SyncIndicator />
+              {isOwner && event && (
+                <TouchableOpacity onPress={() => navigation.navigate('AlbumModeration', { eventId: event.id, isHost: true })} style={ds.iconBtn}>
+                  <SlidersHorizontal size={18} color={TEXT} />
+                </TouchableOpacity>
+              )}
+              {isOwner && (
+                <TouchableOpacity onPress={() => setShareModal(true)} style={ds.iconBtn}>
+                  <UserPlus size={18} color={TEXT} />
+                </TouchableOpacity>
+              )}
+              {event && (
+                <TouchableOpacity onPress={() => navigation.navigate('CameraCapture', { eventId: event.id })} style={ds.iconBtn}>
+                  <Camera size={18} color={TEXT} />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={pickAndUpload} style={ds.primaryIconBtn} disabled={uploading}>
+                {uploading ? <ActivityIndicator size="small" color="#fff" /> : <Plus size={18} color="#fff" />}
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {faceMatchEl}
+
+          {loading ? (
+            <View style={{ paddingVertical: 60, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+          ) : media.length === 0 ? (
+            <View style={ds.emptyCard}>
+              <Text style={{ fontSize: 40 }}>📷</Text>
+              <Text style={ds.emptyTitle}>No media yet</Text>
+              <Text style={ds.emptySub}>Click + to add photos or videos</Text>
+            </View>
+          ) : (
+            <View style={ds.grid}>
+              {media.map(item => (
+                <View key={item.id} style={ds.mediaItem}>
+                  <Image source={{ uri: item.media_url }} style={ds.mediaImg} />
+                  {item.media_type === 'video' && (
+                    <View style={s.videoBadge}><Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>▶</Text></View>
+                  )}
+                  {isOwner && (
+                    <TouchableOpacity style={s.mediaDeleteBtn} onPress={() => deleteMedia(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Trash size={12} color="#FFF" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+        {shareModalEl}
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={s.container}>
       {/* Header */}
@@ -354,37 +509,7 @@ export default function AlbumDetailScreen({ route, navigation }) {
         ]}
       />
 
-      {event?.rekognition_collection_id ? (
-        <View style={s.faceMatchCard}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.faceMatchCardTitle}>🤳 Guest face-matching is on</Text>
-            <View style={s.inviteCodeRow}>
-              <Text style={s.inviteCodeLabel}>Code:</Text>
-              <Text style={s.inviteCode}>{event.invite_code}</Text>
-            </View>
-          </View>
-          <TouchableOpacity style={s.faceMatchBtn} onPress={shareInviteCode}>
-            <ShareNetwork size={15} color={theme.text} />
-            <Text style={s.faceMatchBtnText}>Share</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.faceMatchBtn} onPress={() => navigation.navigate('GuestList', { event })}>
-            <Users size={15} color={theme.text} />
-            <Text style={s.faceMatchBtnText}>Guests</Text>
-          </TouchableOpacity>
-        </View>
-      ) : isOwner ? (
-        <TouchableOpacity
-          style={s.enableFaceMatchCard}
-          onPress={enableFaceMatching}
-          disabled={enablingFaceMatch}
-        >
-          <Users size={18} color={theme.accent} />
-          <Text style={s.enableFaceMatchText}>
-            {enablingFaceMatch ? 'Enabling…' : 'Enable guest face-matching for this album'}
-          </Text>
-          {enablingFaceMatch && <ActivityIndicator size="small" color={theme.accent} />}
-        </TouchableOpacity>
-      ) : null}
+      {faceMatchEl}
 
       {loading ? (
         <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
@@ -406,52 +531,7 @@ export default function AlbumDetailScreen({ route, navigation }) {
         />
       )}
 
-      {/* Share Modal */}
-      <Modal visible={shareModal} transparent animationType="slide" onRequestClose={() => setShareModal(false)}>
-        <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={s.modal}>
-            <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>Share Album</Text>
-              <TouchableOpacity onPress={() => setShareModal(false)}>
-                <X size={20} color={theme.text} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={s.shareRow}>
-              <TextInput
-                style={[s.input, { flex: 1 }]}
-                placeholder="Enter email address"
-                placeholderTextColor={theme.subtext}
-                value={shareEmail}
-                onChangeText={setShareEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-              <TouchableOpacity style={s.shareBtn} onPress={shareWithUser} disabled={sharing}>
-                {sharing ? (
-                  <ActivityIndicator size="small" color={theme.bg} />
-                ) : (
-                  <Check size={18} color={theme.bg} />
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {sharedWith.length > 0 && (
-              <>
-                <Text style={s.sharedLabel}>Shared with</Text>
-                {sharedWith.map(u => (
-                  <SwipeableRow key={u.id} onDelete={() => confirmRemoveShare(u)}>
-                    <View style={s.sharedUser}>
-                      <Text style={s.sharedName}>{u.name}</Text>
-                      <Text style={s.sharedEmail}>{u.email}</Text>
-                    </View>
-                  </SwipeableRow>
-                ))}
-              </>
-            )}
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      {shareModalEl}
     </SafeAreaView>
   );
 }
@@ -531,4 +611,33 @@ const styles = theme => StyleSheet.create({
   },
   sharedName: { fontSize: 14, fontWeight: '600', color: theme.text },
   sharedEmail: { fontSize: 12, color: theme.subtext },
+});
+
+// Desktop: standalone (no shell) centered/wide layout -- colours from
+// lib/desktopTheme.js only. Share modal reused unchanged, just width-capped
+// (modalDesktop) same as ProfileScreen's own bottom-sheet-to-floating-card
+// treatment.
+const ds = StyleSheet.create({
+  page: { flex: 1, backgroundColor: CREAM },
+  scroll: { padding: 32, maxWidth: 1100, width: '100%', alignSelf: 'center' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 },
+  backLink: { fontSize: 12.5, fontWeight: '600', color: MAROON, marginBottom: 6 },
+  title: { fontFamily: 'Fraunces-SemiBold', fontSize: 24, color: TEXT },
+  iconBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: CARD, borderWidth: 1, borderColor: LINE, alignItems: 'center', justifyContent: 'center' },
+  primaryIconBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: MAROON, alignItems: 'center', justifyContent: 'center' },
+  faceMatchCard: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20, padding: 14, backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: LINE },
+  faceMatchCardTitle: { fontSize: 13, fontWeight: '700', color: TEXT },
+  inviteCodeLabel: { fontSize: 12, color: MUTED },
+  inviteCode: { fontSize: 13, fontWeight: '700', color: MAROON, letterSpacing: 1 },
+  faceMatchBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: CREAM, borderWidth: 1, borderColor: LINE },
+  faceMatchBtnText: { fontSize: 12, fontWeight: '600', color: TEXT },
+  enableFaceMatchCard: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20, padding: 14, backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: MAROON, borderStyle: 'dashed' },
+  enableFaceMatchText: { flex: 1, fontSize: 13, fontWeight: '700', color: MAROON },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', gap: 6 },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT },
+  emptySub: { fontSize: 13, color: MUTED },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  mediaItem: { width: DESKTOP_IMG_SIZE, height: DESKTOP_IMG_SIZE, borderRadius: 12, overflow: 'hidden', position: 'relative', backgroundColor: CARD },
+  mediaImg: { width: '100%', height: '100%', resizeMode: 'cover' },
+  modalDesktop: { maxWidth: 480, width: '100%', alignSelf: 'center', borderRadius: 22, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
 });

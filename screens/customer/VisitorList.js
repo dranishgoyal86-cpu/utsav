@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, ActivityIndicator, Share, Platform, KeyboardAvoidingView
+  View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, ActivityIndicator, Share, Platform, KeyboardAvoidingView, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
@@ -16,6 +16,12 @@ import { useEventContext } from '../../hooks/useEventContext';
 import { isEnabled } from '../../lib/capabilities';
 import CapabilityBlocked from '../../components/CapabilityBlocked';
 import AppHeader from '../../components/AppHeader';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import { useEventShellData } from '../../hooks/useEventShellData';
+import { StatCard, WarmInput, SectionEyebrow } from '../../components/desktop/DesktopKit';
+import { MAROON, WAIT, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 const INCLUDE_OPTIONS = [
   { key: 'confirmed', label: 'Confirmed only' },
@@ -34,6 +40,9 @@ export default function VisitorList({ route, navigation }) {
   const { eventId } = route.params;
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
+  const { guestCount, currentUserName } = useEventShellData(eventId);
 
   const { event, update, loading: eventLoading, error: eventError } = useEventContext(eventId);
 
@@ -225,6 +234,90 @@ export default function VisitorList({ route, navigation }) {
   }
   if (!capabilities.loading && !isEnabled(capabilities, 'society_gate_pass')) {
     return <CapabilityBlocked navigation={navigation} />;
+  }
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopEventShell activeItem="gatepasses" event={event} guestCount={guestCount} currentUserName={currentUserName} navigation={navigation}>
+        <SectionEyebrow>ENTRY MANAGEMENT</SectionEyebrow>
+        <Text style={ds.title}>Visitor list</Text>
+
+        {guests.length > 0 && (
+          <View style={ds.statsRow}>
+            <StatCard value={confirmedCount} label="CONFIRMED" color={MAROON} />
+            <StatCard value={pendingCount} label="PENDING" color={WAIT} />
+            <StatCard value={guests.length} label="TOTAL" color={MUTED} />
+          </View>
+        )}
+
+        <View style={ds.twoPane}>
+          {/* ── Form pane ── */}
+          <View style={ds.formPane}>
+            <View style={ds.formCard}>
+              <Text style={ds.cardTitle}>Society details</Text>
+              <Text style={ds.cardHint}>Fill this in once — it's saved on this event and reused every time you generate a list.</Text>
+
+              <Text style={ds.fieldLabel}>Society name *</Text>
+              <WarmInput placeholder="e.g. Oberoi Springs" value={societyName} onChangeText={setSocietyName} />
+
+              <Text style={ds.fieldLabel}>Flat number *</Text>
+              <WarmInput placeholder="e.g. B-704" value={flatNumber} onChangeText={setFlatNumber} style={{ marginTop: 8 }} />
+
+              <Text style={ds.fieldLabel}>Venue address (optional)</Text>
+              <WarmInput placeholder="Full address for guests unfamiliar with the area" value={venueAddress} onChangeText={setVenueAddress} style={{ marginTop: 8 }} />
+
+              <Text style={ds.fieldLabel}>Entry window (optional)</Text>
+              <View style={[ds.rowGap, { marginTop: 8 }]}>
+                <WarmInput placeholder="6:00 PM" value={entryStart} onChangeText={setEntryStart} style={{ flex: 1 }} />
+                <Text style={ds.toText}>to</Text>
+                <WarmInput placeholder="11:00 PM" value={entryEnd} onChangeText={setEntryEnd} style={{ flex: 1 }} />
+              </View>
+
+              <Text style={ds.fieldLabel}>Guard / RWA phone (optional)</Text>
+              <WarmInput placeholder="Where the list gets sent" value={guardPhone} onChangeText={setGuardPhone} keyboardType="phone-pad" style={{ marginTop: 8 }} />
+
+              <TouchableOpacity style={ds.saveBtn} onPress={saveSocietyDetails} disabled={savingDetails}>
+                {savingDetails ? <ActivityIndicator color="#fff" /> : <Text style={ds.saveBtnText}>Save details</Text>}
+              </TouchableOpacity>
+            </View>
+
+            {guests.length > 0 && (
+              <View style={ds.formCard}>
+                <Text style={ds.cardTitle}>Include on the list</Text>
+                <View style={ds.chipsWrap}>
+                  {INCLUDE_OPTIONS.map(opt => (
+                    <TouchableOpacity key={opt.key} style={[ds.chip, includeFilter === opt.key && ds.chipActive]} onPress={() => setIncludeFilter(opt.key)}>
+                      <Text style={[ds.chipText, includeFilter === opt.key && ds.chipTextActive]}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TouchableOpacity style={[ds.saveBtn, actionsDisabled && { opacity: 0.5 }]} onPress={handleShareWhatsApp} disabled={actionsDisabled || sharing}>
+                  {sharing ? <ActivityIndicator color="#fff" /> : <Text style={ds.saveBtnText}>Share on WhatsApp</Text>}
+                </TouchableOpacity>
+                <View style={ds.rowGap}>
+                  <TouchableOpacity style={[ds.secondaryBtn, actionsDisabled && { opacity: 0.5 }]} onPress={handleCopyText} disabled={actionsDisabled || copying}>
+                    {copying ? <ActivityIndicator color={TEXT} /> : <Text style={ds.secondaryBtnText}>Copy text</Text>}
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[ds.secondaryBtn, actionsDisabled && { opacity: 0.5 }]} onPress={handleDownloadPdf} disabled={actionsDisabled || generatingPdf}>
+                    {generatingPdf ? <ActivityIndicator color={TEXT} /> : <Text style={ds.secondaryBtnText}>Download PDF</Text>}
+                  </TouchableOpacity>
+                </View>
+                {!detailsComplete && <Text style={ds.disabledHint}>Fill in society name and flat number above to enable sharing.</Text>}
+              </View>
+            )}
+          </View>
+
+          {/* ── Live preview pane ── */}
+          <View style={ds.previewPane}>
+            <Text style={ds.cardTitle}>Preview — exactly what gets sent</Text>
+            <ScrollView style={ds.previewBox}>
+              <Text style={ds.previewText}>{previewText}</Text>
+            </ScrollView>
+          </View>
+        </View>
+      </DesktopEventShell>
+    );
   }
 
   return (
@@ -420,3 +513,31 @@ function makeStyles(theme) {
     disabledHint: { fontSize: 12, color: theme.textSecondary, textAlign: 'center' },
   });
 }
+
+// Desktop: real form+preview two-pane reskin (same pattern as the invite
+// designer), colours from lib/desktopTheme.js only.
+const ds = StyleSheet.create({
+  title: { fontFamily: 'Fraunces-SemiBold', fontSize: 24, color: TEXT, marginTop: 2, marginBottom: 20 },
+  statsRow: { flexDirection: 'row', gap: 14, marginBottom: 22, maxWidth: 640 },
+  twoPane: { flexDirection: 'row', gap: 20, alignItems: 'flex-start' },
+  formPane: { width: 420, gap: 16 },
+  previewPane: { flex: 1, backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: LINE, padding: 20 },
+  formCard: { backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: LINE, padding: 18 },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: TEXT, fontFamily: 'Manrope-SemiBold', marginBottom: 4 },
+  cardHint: { fontSize: 12.5, color: MUTED, lineHeight: 18, marginBottom: 8 },
+  fieldLabel: { fontSize: 12, fontWeight: '700', color: MUTED, marginTop: 12, marginBottom: 6 },
+  rowGap: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  toText: { fontSize: 13, color: MUTED },
+  saveBtn: { backgroundColor: MAROON, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 16 },
+  saveBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  secondaryBtn: { flex: 1, backgroundColor: CREAM, borderRadius: 14, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: LINE },
+  secondaryBtnText: { fontSize: 13, fontWeight: '700', color: TEXT },
+  disabledHint: { fontSize: 11.5, color: MUTED, textAlign: 'center', marginTop: 10 },
+  chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  chip: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 14, backgroundColor: CREAM, borderWidth: 1, borderColor: LINE },
+  chipActive: { backgroundColor: MAROON, borderColor: MAROON },
+  chipText: { fontSize: 12.5, fontWeight: '600', color: MUTED },
+  chipTextActive: { color: '#fff' },
+  previewBox: { maxHeight: 460 },
+  previewText: { fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontSize: 12.5, color: TEXT, lineHeight: 19 },
+});

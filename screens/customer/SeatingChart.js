@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -10,6 +10,12 @@ import { showAlert, resolveGuestPartySize } from '../../helpers';
 import { autoAssignTables } from '../../seatingLogic';
 import { buildSeatingChartHtml } from '../../seatingChartTemplate';
 import AppHeader from '../../components/AppHeader';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import { useEventShellData } from '../../hooks/useEventShellData';
+import { SectionEyebrow } from '../../components/desktop/DesktopKit';
+import { MAROON, GOLD, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 // No new event_tables table — a "table" is just an integer guests share via
 // event_invitees.table_number. Tap-to-assign, not drag-and-drop: this
@@ -21,6 +27,9 @@ export default function SeatingChart({ route, navigation }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
+  const { event, guestCount, currentUserName } = useEventShellData(eventId);
   const [guests, setGuests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
@@ -121,6 +130,99 @@ export default function SeatingChart({ route, navigation }) {
       <SafeAreaView style={s.container}>
         <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
       </SafeAreaView>
+    );
+  }
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopEventShell activeItem="guests" event={event} guestCount={guestCount} currentUserName={currentUserName} navigation={navigation}>
+        <View style={ds.headerRow}>
+          <View>
+            <SectionEyebrow>SEATING</SectionEyebrow>
+            <Text style={ds.title}>Seating chart</Text>
+          </View>
+          <TouchableOpacity style={ds.printBtn} onPress={handlePrint} disabled={printing || tableNumbers.length === 0}>
+            {printing ? <ActivityIndicator color="#fff" /> : <Text style={ds.printBtnText}>🖨️ Print seating chart</Text>}
+          </TouchableOpacity>
+        </View>
+
+        {confirmedGuests.length === 0 ? (
+          <View style={ds.emptyCard}>
+            <Text style={ds.emptyText}>No confirmed guests yet — seating only covers guests who RSVP'd yes.</Text>
+          </View>
+        ) : (
+          <>
+            {unassigned.length > 0 && (
+              <View style={ds.section}>
+                <View style={ds.sectionHeaderRow}>
+                  <Text style={ds.sectionTitle}>Unassigned ({unassigned.length})</Text>
+                  <TouchableOpacity onPress={handleAutoAssign} disabled={assigning}>
+                    {assigning ? <ActivityIndicator size="small" color={MAROON} /> : (
+                      <Text style={ds.autoBtnText}>✨ Auto-arrange by group</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+                <View style={ds.chipsWrap}>
+                  {unassigned.map(g => (
+                    <TouchableOpacity key={g.id} style={ds.guestChip} onPress={() => setPickerGuest(g)}>
+                      {g.is_vip ? <Star size={11} color={GOLD} weight="fill" /> : null}
+                      <Text style={ds.guestChipText}>{g.name}{g.entry_type === 'household' ? ` 🏠${g.household_size || 1}` : (g.plus_ones > 0 ? ` +${g.plus_ones}` : '')}</Text>
+                      {g.tag ? <Text style={ds.guestChipTag}>{g.tag}</Text> : null}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            <View style={ds.tablesGrid}>
+              {tableNumbers.map(n => {
+                const tableGuests = confirmedGuests.filter(g => g.table_number === n);
+                const seatCount = tableGuests.reduce((sum, g) => sum + resolveGuestPartySize(g), 0);
+                return (
+                  <View key={n} style={ds.tableCard}>
+                    <Text style={ds.sectionTitle}>Table {n} · {seatCount} seat{seatCount !== 1 ? 's' : ''}</Text>
+                    <View style={ds.chipsWrap}>
+                      {tableGuests.map(g => (
+                        <View key={g.id} style={ds.tableGuestChip}>
+                          {g.is_vip ? <Star size={11} color={GOLD} weight="fill" /> : null}
+                          <Text style={ds.guestChipText}>{g.name}{g.entry_type === 'household' ? ` 🏠${g.household_size || 1}` : (g.plus_ones > 0 ? ` +${g.plus_ones}` : '')}</Text>
+                          <TouchableOpacity onPress={() => unassignFromTable(g.id)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                            <X size={12} color={MUTED} />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        )}
+
+        <Modal visible={!!pickerGuest} transparent animationType="fade" onRequestClose={() => setPickerGuest(null)}>
+          <View style={s.overlay}>
+            <View style={s.modal}>
+              <View style={s.modalHeader}>
+                <Text style={s.modalTitle}>{pickerGuest?.name}</Text>
+                <TouchableOpacity onPress={() => setPickerGuest(null)}>
+                  <X size={20} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+              <Text style={s.modalHint}>Assign to a table</Text>
+              <View style={s.chipsWrap}>
+                {tableNumbers.map(n => (
+                  <TouchableOpacity key={n} style={s.tableChip} onPress={() => assignToTable(pickerGuest.id, n)}>
+                    <Text style={s.tableChipText}>Table {n}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity style={[s.tableChip, s.tableChipNew]} onPress={() => assignToTable(pickerGuest.id, maxTable + 1)}>
+                  <Text style={s.tableChipNewText}>+ New table ({maxTable + 1})</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </DesktopEventShell>
     );
   }
 
@@ -269,3 +371,26 @@ function makeStyles(theme) {
     tableChipNewText: { fontSize: 13, fontWeight: '700', color: theme.accent },
   });
 }
+
+// Desktop styles -- colours from lib/desktopTheme.js only. The table
+// picker modal reuses the mobile `s` styles unchanged (a small, low-risk
+// overlay, same reasoning as AlbumsScreen's create-album modal).
+const ds = StyleSheet.create({
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 22 },
+  title: { fontFamily: 'Fraunces-SemiBold', fontSize: 24, color: TEXT, marginTop: 2 },
+  printBtn: { backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 18, paddingVertical: 12 },
+  printBtnText: { color: '#fff', fontSize: 13.5, fontWeight: '700' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 40, alignItems: 'center' },
+  emptyText: { fontSize: 13.5, color: MUTED, textAlign: 'center', lineHeight: 20 },
+  section: { marginBottom: 22 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  sectionTitle: { fontSize: 14.5, fontWeight: '700', color: TEXT, fontFamily: 'Manrope-SemiBold' },
+  autoBtnText: { fontSize: 12.5, fontWeight: '700', color: MAROON },
+  chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  guestChip: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: CARD, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: LINE },
+  guestChipText: { fontSize: 12.5, fontWeight: '600', color: TEXT },
+  guestChipTag: { fontSize: 10.5, color: MUTED },
+  tableGuestChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: CREAM, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: LINE },
+  tablesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  tableCard: { width: 320, backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: LINE, padding: 16, gap: 10 },
+});

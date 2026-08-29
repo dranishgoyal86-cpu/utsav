@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SvgXml } from 'react-native-svg';
 import QRCode from 'qrcode-svg';
@@ -13,6 +13,11 @@ import { buildPassCardHtml } from '../../gatePassTemplate';
 import { useEventContext } from '../../hooks/useEventContext';
 import { PUBLIC_WEB_URL } from '../../config';
 import AppHeader from '../../components/AppHeader';
+import DesktopEventShell from '../../components/desktop/DesktopEventShell';
+import { useEventShellData } from '../../hooks/useEventShellData';
+import { MAROON } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 // 'utsav.app' isn't a real domain this project owns (see linking.js) — was
 // previously baked in here uncorrected, meaning every printed/shared pass's
@@ -33,6 +38,9 @@ export default function PassCard({ route, navigation }) {
   const { eventId, passId } = route.params;
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
+  const { event: shellEventRow, guestCount, currentUserName } = useEventShellData(eventId);
   const { context, event: eventRow } = useEventContext(eventId);
 
   const [pass, setPass] = useState(null);
@@ -105,28 +113,45 @@ export default function PassCard({ route, navigation }) {
     );
   }
 
+  // Same card either way -- single QR pass, real "simple/centered" fit per
+  // the brief's own guardrail, not forced into list/table or stats.
+  const cardEl = (
+    <View style={s.card}>
+      <Text style={s.guestName}>{guest?.name || 'Guest'}</Text>
+      {pass.party_size > 1 ? <Text style={s.partySize}>Party of {pass.party_size}</Text> : null}
+      {venueLabel ? <Text style={s.where}>{venueLabel}</Text> : null}
+      {venueAddress ? <Text style={s.whereSub}>{venueAddress}</Text> : null}
+      {context?.dateLabel ? (
+        <Text style={s.when}>{context.dateLabel}{entryWindow ? ` · ${entryWindow}` : ''}</Text>
+      ) : null}
+      <Text style={s.code}>{pass.pass_code}</Text>
+      <View style={s.qrBox}>
+        <SvgXml xml={qrSvgString} width={160} height={160} />
+      </View>
+      {pass.status === 'checked_in' ? (
+        <Text style={s.checkedInBadge}>✓ Checked in{pass.arrived_count > 1 ? ` · ${pass.arrived_count} arrived` : ''}</Text>
+      ) : null}
+    </View>
+  );
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopEventShell activeItem="gatepasses" event={shellEventRow} guestCount={guestCount} currentUserName={currentUserName} navigation={navigation}>
+        <View style={ds.centerWrap}>
+          {cardEl}
+          <TouchableOpacity style={ds.primaryBtn} onPress={share} disabled={sharing}>
+            {sharing ? <ActivityIndicator color="#fff" /> : <Text style={ds.primaryBtnText}>Share pass</Text>}
+          </TouchableOpacity>
+        </View>
+      </DesktopEventShell>
+    );
+  }
+
   return (
     <SafeAreaView style={s.container}>
       <AppHeader title="Gate pass" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
 
-      <View style={s.scroll}>
-        <View style={s.card}>
-          <Text style={s.guestName}>{guest?.name || 'Guest'}</Text>
-          {pass.party_size > 1 ? <Text style={s.partySize}>Party of {pass.party_size}</Text> : null}
-          {venueLabel ? <Text style={s.where}>{venueLabel}</Text> : null}
-          {venueAddress ? <Text style={s.whereSub}>{venueAddress}</Text> : null}
-          {context?.dateLabel ? (
-            <Text style={s.when}>{context.dateLabel}{entryWindow ? ` · ${entryWindow}` : ''}</Text>
-          ) : null}
-          <Text style={s.code}>{pass.pass_code}</Text>
-          <View style={s.qrBox}>
-            <SvgXml xml={qrSvgString} width={160} height={160} />
-          </View>
-          {pass.status === 'checked_in' ? (
-            <Text style={s.checkedInBadge}>✓ Checked in{pass.arrived_count > 1 ? ` · ${pass.arrived_count} arrived` : ''}</Text>
-          ) : null}
-        </View>
-      </View>
+      <View style={s.scroll}>{cardEl}</View>
 
       <View style={s.bottomBar}>
         <TouchableOpacity style={s.primaryBtn} onPress={share} disabled={sharing}>
@@ -167,3 +192,12 @@ function makeStyles(theme) {
     primaryBtnText: { fontSize: 15, fontWeight: '700', color: theme.btnPrimaryText },
   });
 }
+
+// Desktop: the pass card itself keeps its proven mobile styling (`s.card`,
+// gold-bordered as before via theme.accent); only centered wider and the
+// share button restyled to match the shell's own maroon accent.
+const ds = StyleSheet.create({
+  centerWrap: { alignItems: 'center', paddingTop: 20 },
+  primaryBtn: { backgroundColor: MAROON, borderRadius: 16, paddingVertical: 15, paddingHorizontal: 40, alignItems: 'center', marginTop: 20 },
+  primaryBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
+});
