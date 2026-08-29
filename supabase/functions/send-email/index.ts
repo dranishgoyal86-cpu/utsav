@@ -35,6 +35,17 @@ const supabaseAdmin = createClient(
 
 const FROM_ADDRESS = "Utsav <contact@theutsavapp.com>";
 
+// Deliberately its own constant, not Deno.env.get("AWS_REGION") -- that
+// secret exists for Rekognition's benefit (index-face/search-face/
+// create-collection), an unrelated service that happens to also run in
+// ap-south-1 today. SES identities are verified per-region, and
+// contact@theutsavapp.com's verification lives specifically in
+// ap-south-1 (confirmed live -- the SES error this function actually hit
+// during testing named this exact region in its resource ARN). Borrowing
+// AWS_REGION would make this function's correctness depend on nobody ever
+// repointing Rekognition to a different region for its own reasons.
+const SES_REGION = "ap-south-1";
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -58,7 +69,7 @@ Deno.serve(async (req) => {
     }
 
     const client = new SESv2Client({
-      region: Deno.env.get("AWS_REGION") ?? "ap-south-1",
+      region: SES_REGION,
       credentials: {
         accessKeyId: Deno.env.get("AWS_ACCESS_KEY_ID")!,
         secretAccessKey: Deno.env.get("AWS_SECRET_ACCESS_KEY")!,
