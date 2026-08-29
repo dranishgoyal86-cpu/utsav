@@ -14,12 +14,21 @@
 // purpose-named callers around a shared primitive -- but only the
 // bulk-import category-mismatch follow-up calls it today.
 //
-// NOTE: whether this actually delivers depends on AWS SES account state
-// this environment cannot inspect from here (sandbox mode limits sending
-// to only verified recipient addresses; the theutsavapp.com sending domain
-// needs its own SES domain verification + DKIM records). A live send was
-// attempted during verification and its exact result is reported rather
-// than assumed either way -- see the report, not just this comment.
+// Confirmed live end-to-end: a real send returned 200 with a genuine SES
+// MessageId (not just a clean HTTP response -- SES itself accepted and
+// queued the message). What actually fixed it, diagnosed from the literal
+// IAM error text across several rounds rather than guessed at: the IAM
+// policy's Resource region has to match SES_REGION below exactly -- a
+// region mismatch produces the identical "not authorized" wording as a
+// genuinely missing grant, which is what made this look stuck for a
+// while. (One earlier attempt against us-east-1 also hit a separate
+// address-vs-domain ARN distinction -- IAM checked the specific
+// contact@... identity there, not just the parent domain -- but that
+// didn't end up mattering once the region itself was corrected to match
+// ap-south-1, where the domain-only grant was already sufficient.) If
+// this ever starts failing again, check the exact resource + region named
+// in the error against the current IAM policy before assuming the code
+// changed.
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { SESv2Client, SendEmailCommand } from "npm:@aws-sdk/client-sesv2@3.600.0";
 
@@ -37,13 +46,13 @@ const FROM_ADDRESS = "Utsav <contact@theutsavapp.com>";
 
 // Deliberately its own constant, not Deno.env.get("AWS_REGION") -- that
 // secret exists for Rekognition's benefit (index-face/search-face/
-// create-collection), an unrelated service that happens to also run in
-// ap-south-1 today. SES identities are verified per-region, and
-// contact@theutsavapp.com's verification lives specifically in
-// ap-south-1 (confirmed live -- the SES error this function actually hit
-// during testing named this exact region in its resource ARN). Borrowing
-// AWS_REGION would make this function's correctness depend on nobody ever
-// repointing Rekognition to a different region for its own reasons.
+// create-collection), an unrelated service run out of ap-south-1. SES
+// identities/policies are region-scoped, and this must always match
+// wherever the utsav-rekognition IAM user's SES grant is actually scoped
+// in the AWS console -- confirmed live to matter: a region mismatch here
+// produces the exact same "not authorized" error as a genuinely missing
+// grant, so this constant and the console's IAM policy region have to be
+// kept in sync by hand.
 const SES_REGION = "ap-south-1";
 
 Deno.serve(async (req) => {
