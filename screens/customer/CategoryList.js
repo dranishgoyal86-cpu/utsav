@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -8,6 +8,37 @@ import { useTheme } from '../../ThemeContext';
 import { useSavedProvider } from '../../hooks/useSavedProvider';
 import { getSubcategories, getCategoryIcon } from '../../serviceTemplates';
 import AppHeader from '../../components/AppHeader';
+import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
+import { MAROON, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
+
+function DesktopProviderCard({ provider, onPress }) {
+  const { isSaved, loading: saveLoading, toggleSave } = useSavedProvider(provider.id);
+  return (
+    <View style={ds.card}>
+      <TouchableOpacity style={{ flex: 1 }} onPress={onPress} activeOpacity={0.85}>
+        <View style={ds.cardTop}>
+          <View style={ds.avatar}><Text style={ds.avatarText}>{provider.users?.name?.[0] || '?'}</Text></View>
+          <TouchableOpacity style={ds.heartBtn} onPress={toggleSave} disabled={saveLoading}>
+            <Text style={{ fontSize: 15, color: isSaved ? '#E85D04' : MUTED }}>{isSaved ? '♥' : '♡'}</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={ds.cardName} numberOfLines={1}>{provider.users?.name}</Text>
+        <Text style={ds.cardMeta}>{provider.category} · {provider.city}</Text>
+        <View style={ds.ratingRow}>
+          <Text style={{ fontSize: 12 }}>⭐</Text>
+          <Text style={ds.rating}>{provider.rating?.toFixed(1) || 'New'}</Text>
+          <Text style={ds.reviews}>({provider.total_reviews || 0})</Text>
+          {provider.is_verified && <View style={ds.verifiedBadge}><Text style={ds.verifiedText}>✓ Verified</Text></View>}
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity style={ds.bookBtn} onPress={onPress}>
+        <Text style={ds.bookBtnText}>View →</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 function ProviderCard({ provider, onPress, theme }) {
   const { isSaved, loading: saveLoading, toggleSave } = useSavedProvider(provider.id);
@@ -50,6 +81,8 @@ export default function CategoryList({ navigation, route }) {
   const { category, city, eventType } = route.params || {};
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const subcategories = getSubcategories(category);
 
   const [selectedSub, setSelectedSub] = useState(null);
@@ -116,6 +149,42 @@ export default function CategoryList({ navigation, route }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopStandalonePage onBack={() => navigation.goBack()} title={`${getCategoryIcon(category)} ${category}`} maxWidth={1180}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginBottom: 22 }}>
+          <TouchableOpacity style={[ds.chip, selectedSub === null && ds.chipActive]} onPress={() => setSelectedSub(null)}>
+            <Text style={[ds.chipText, selectedSub === null && ds.chipTextActive]}>All</Text>
+          </TouchableOpacity>
+          {subcategories.map(sub => (
+            <TouchableOpacity key={sub} style={[ds.chip, selectedSub === sub && ds.chipActive]} onPress={() => setSelectedSub(sub === selectedSub ? null : sub)}>
+              <Text style={[ds.chipText, selectedSub === sub && ds.chipTextActive]}>{sub}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+        ) : providers.length === 0 ? (
+          <View style={ds.emptyCard}>
+            <Text style={{ fontSize: 30, marginBottom: 10 }}>🔍</Text>
+            <Text style={ds.emptyTitle}>No providers found{city ? ` in ${city}` : ''}</Text>
+            <Text style={ds.emptySub}>Check back soon as more providers join!</Text>
+          </View>
+        ) : (
+          <>
+            <Text style={ds.resultsCount}>{providers.length} provider{providers.length !== 1 ? 's' : ''} found</Text>
+            <View style={ds.grid}>
+              {providers.map(provider => (
+                <DesktopProviderCard key={provider.id} provider={provider} onPress={() => navigation.navigate('ProviderProfile', { provider })} />
+              ))}
+            </View>
+          </>
+        )}
+      </DesktopStandalonePage>
+    );
   }
 
   return (
@@ -228,3 +297,29 @@ function makeStyles(theme) {
     bookBtnText: { color: theme.btnPrimaryText, fontSize: 11.5, fontWeight: '700' },
   });
 }
+
+const ds = StyleSheet.create({
+  chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: CARD, borderWidth: 1, borderColor: LINE, marginRight: 10 },
+  chipActive: { backgroundColor: MAROON, borderColor: MAROON },
+  chipText: { fontSize: 12.5, color: MUTED, fontWeight: '600' },
+  chipTextActive: { color: '#fff' },
+  resultsCount: { fontSize: 12.5, color: MUTED, marginBottom: 14, fontWeight: '600' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
+  emptySub: { fontSize: 13, color: MUTED },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  card: { width: 250, backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: LINE, padding: 16 },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: MAROON, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 16, color: '#fff', fontWeight: '700' },
+  heartBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: CREAM, alignItems: 'center', justifyContent: 'center' },
+  cardName: { fontFamily: 'Fraunces-SemiBold', fontSize: 15, color: TEXT, marginBottom: 3 },
+  cardMeta: { fontSize: 12, color: MUTED, marginBottom: 8 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 12 },
+  rating: { fontSize: 12, fontWeight: '700', color: TEXT },
+  reviews: { fontSize: 11, color: MUTED },
+  verifiedBadge: { backgroundColor: CREAM, borderRadius: 7, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 2 },
+  verifiedText: { fontSize: 9.5, color: TEXT, fontWeight: '700' },
+  bookBtn: { backgroundColor: MAROON, borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
+  bookBtnText: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
+});

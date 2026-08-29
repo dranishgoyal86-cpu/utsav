@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
 import AppHeader from '../../components/AppHeader';
+import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
+import { MAROON, GOLD, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 function StarBar({ rating, count, total, theme }) {
   const width = total > 0 ? (count / total) * 100 : 0;
@@ -24,6 +28,8 @@ function StarBar({ rating, count, total, theme }) {
 export default function ProviderReviews({ route, navigation }) {
   const { providerId, providerName } = route.params;
   const { theme } = useTheme();
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ avg: 0, total: 0, breakdown: {} });
@@ -86,6 +92,60 @@ export default function ProviderReviews({ route, navigation }) {
 
   function renderStars(rating) {
     return '★'.repeat(rating) + '☆'.repeat(5 - rating);
+  }
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopStandalonePage onBack={() => navigation.goBack()} title={`Reviews · ${providerName}`} maxWidth={900}>
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+        ) : (
+          <>
+            {stats.total > 0 && (
+              <View style={ds.summaryCard}>
+                <View style={ds.summaryLeft}>
+                  <Text style={ds.avgRating}>{stats.avg}</Text>
+                  <Text style={ds.avgStars}>{'★'.repeat(Math.round(stats.avg))}{'☆'.repeat(5 - Math.round(stats.avg))}</Text>
+                  <Text style={ds.totalReviews}>{stats.total} reviews</Text>
+                </View>
+                <View style={{ flex: 1, justifyContent: 'center' }}>
+                  {[5, 4, 3, 2, 1].map(star => (
+                    <StarBar key={star} rating={star} count={stats.breakdown[star] || 0} total={stats.total} theme={{ textSecondary: MUTED, bgSecondary: CREAM, accent: GOLD }} />
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {reviews.length === 0 ? (
+              <View style={ds.emptyCard}>
+                <Text style={{ fontSize: 30, marginBottom: 10 }}>⭐</Text>
+                <Text style={ds.emptyTitle}>No reviews yet</Text>
+                <Text style={ds.emptySub}>Be the first to review after booking</Text>
+              </View>
+            ) : (
+              <View style={ds.grid}>
+                {reviews.map(review => (
+                  <View key={review.id} style={ds.reviewCard}>
+                    <View style={ds.reviewTop}>
+                      <View style={ds.reviewAvatar}><Text style={ds.reviewAvatarText}>{review.users?.name?.[0] || '?'}</Text></View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={ds.reviewerName}>{review.users?.name || 'Customer'}</Text>
+                        <Text style={ds.reviewDate}>{new Date(review.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+                      </View>
+                      <Text style={ds.reviewStars}>{renderStars(review.rating)}</Text>
+                    </View>
+                    {review.booking && (
+                      <Text style={ds.verifiedText}>✓ Verified booking · {review.booking.event_type}{review.booking.event_date ? ` · ${new Date(review.booking.event_date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}` : ''}</Text>
+                    )}
+                    {review.comment && <Text style={ds.reviewComment}>{review.comment}</Text>}
+                  </View>
+                ))}
+              </View>
+            )}
+          </>
+        )}
+      </DesktopStandalonePage>
+    );
   }
 
   return (
@@ -206,3 +266,24 @@ function makeStyles(theme) {
     reviewComment: { fontSize: 13, color: theme.textSecondary, lineHeight: 20 },
   });
 }
+
+const ds = StyleSheet.create({
+  summaryCard: { flexDirection: 'row', padding: 20, backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, gap: 20, marginBottom: 20 },
+  summaryLeft: { alignItems: 'center', justifyContent: 'center', minWidth: 90 },
+  avgRating: { fontFamily: 'Fraunces-SemiBold', fontSize: 42, color: TEXT, lineHeight: 46 },
+  avgStars: { fontSize: 15, color: GOLD, marginBottom: 4 },
+  totalReviews: { fontSize: 12, color: MUTED },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
+  emptySub: { fontSize: 13, color: MUTED },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  reviewCard: { width: 420, padding: 16, backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: LINE },
+  reviewTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 10 },
+  reviewAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: MAROON, alignItems: 'center', justifyContent: 'center' },
+  reviewAvatarText: { fontSize: 14, color: '#fff', fontWeight: '700' },
+  reviewerName: { fontSize: 13.5, fontWeight: '700', color: TEXT },
+  reviewDate: { fontSize: 11, color: MUTED },
+  reviewStars: { fontSize: 14, color: GOLD },
+  verifiedText: { fontSize: 11, fontWeight: '700', color: '#2E7D32', marginBottom: 8 },
+  reviewComment: { fontSize: 13, color: MUTED, lineHeight: 20 },
+});

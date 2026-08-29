@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
@@ -8,11 +8,17 @@ import { resolveMatchKey } from '../../vendorTaxonomy';
 import { eventTypeName } from '../../lib/eventTypeNames';
 import { getAvoidProviderIds } from '../../customerMemory';
 import AppHeader from '../../components/AppHeader';
+import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
+import { MAROON, CARD, LINE, TEXT, MUTED } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 export default function ItemDetail({ route, navigation }) {
   const { eventId, itemName, categorySlug, contextualLabel, basis, priceLow, priceHigh, quoteOnRequest } = route.params;
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [event, setEvent] = useState(null);
   const [savedPlanId, setSavedPlanId] = useState(null);
   const [providers, setProviders] = useState([]);
@@ -152,6 +158,48 @@ export default function ItemDetail({ route, navigation }) {
     ? 'Quote on request'
     : (priceLow != null ? `₹${priceLow.toLocaleString('en-IN')}–${priceHigh.toLocaleString('en-IN')}` : 'Price unavailable yet');
 
+  if (isDesktopWeb) {
+    return (
+      <DesktopStandalonePage onBack={() => navigation.goBack()} title={label} maxWidth={800}>
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+        ) : (
+          <>
+            <View style={ds.priceCard}>
+              <Text style={ds.priceValue}>{priceText}</Text>
+              {basis ? <Text style={ds.priceBasis}>{basis}</Text> : null}
+            </View>
+            <View style={ds.actionsRow}>
+              <TouchableOpacity style={ds.primaryBtn} onPress={findVendor}>
+                <Text style={ds.primaryBtnText}>Find a vendor</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[ds.secondaryBtn, alreadyArranged && { opacity: 0.5 }]} onPress={markArranged} disabled={arranging || alreadyArranged}>
+                {arranging ? <ActivityIndicator color={TEXT} size="small" /> : <Text style={ds.secondaryBtnText}>{alreadyArranged ? '✓ Arranged' : 'Mark as arranged'}</Text>}
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={ds.notifyBtn} onPress={notifyMe} disabled={notifying}>
+              {notifying ? <ActivityIndicator color={MAROON} size="small" /> : <Text style={ds.notifyBtnText}>🔔 Notify me when a new vendor is available</Text>}
+            </TouchableOpacity>
+
+            <Text style={ds.sectionLabel}>{providers.length > 0 ? `VENDORS IN THIS CATEGORY (${providers.length})` : 'NO VENDORS LISTED YET'}</Text>
+            {providers.length === 0 ? (
+              <Text style={ds.emptyText}>No vendors listed here yet — tap notify above and we'll tell you when one is.</Text>
+            ) : (
+              <View style={ds.grid}>
+                {providers.map(item => (
+                  <TouchableOpacity key={item.id} style={ds.providerCard} onPress={() => navigation.navigate('ProviderProfile', { providerId: item.id, savedPlanId })}>
+                    <Text style={ds.providerName}>{item.business_name || item.name || 'Unnamed provider'}</Text>
+                    <Text style={ds.providerMeta}>{item.city}{item.rating ? ` · ⭐ ${item.rating.toFixed(1)}` : ''}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </>
+        )}
+      </DesktopStandalonePage>
+    );
+  }
+
   return (
     <SafeAreaView style={s.container}>
       <AppHeader title={label} onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
@@ -242,3 +290,22 @@ function makeStyles(theme) {
     emptyText: { fontSize: 13, color: theme.textSecondary, textAlign: 'center', paddingVertical: 20, lineHeight: 19 },
   });
 }
+
+const ds = StyleSheet.create({
+  priceCard: { backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: LINE, padding: 20, marginBottom: 18, alignItems: 'center' },
+  priceValue: { fontFamily: 'Fraunces-SemiBold', fontSize: 24, color: TEXT, marginBottom: 6 },
+  priceBasis: { fontSize: 12.5, color: MUTED, textAlign: 'center' },
+  actionsRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  primaryBtn: { flex: 1, backgroundColor: MAROON, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  primaryBtnText: { color: '#fff', fontSize: 13.5, fontWeight: '700' },
+  secondaryBtn: { flex: 1, backgroundColor: CARD, borderWidth: 1, borderColor: LINE, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  secondaryBtnText: { color: TEXT, fontSize: 13.5, fontWeight: '700' },
+  notifyBtn: { paddingVertical: 12, alignItems: 'center', marginBottom: 20 },
+  notifyBtnText: { color: MAROON, fontSize: 13, fontWeight: '600' },
+  sectionLabel: { fontSize: 11, fontWeight: '700', color: MUTED, letterSpacing: 0.5, marginBottom: 10 },
+  emptyText: { fontSize: 13, color: MUTED, textAlign: 'center', paddingVertical: 20, lineHeight: 19 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  providerCard: { width: 240, backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: LINE, padding: 14 },
+  providerName: { fontSize: 14, fontWeight: '700', color: TEXT, marginBottom: 3 },
+  providerMeta: { fontSize: 12, color: MUTED },
+});

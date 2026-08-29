@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator
+  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -9,12 +9,18 @@ import { useFocusEffect } from '@react-navigation/native';
 import { confirmDestructive } from '../../helpers';
 import SwipeableRow from '../../components/SwipeableRow';
 import AppHeader from '../../components/AppHeader';
+import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
+import { MAROON, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 export default function SavedProviders({ navigation }) {
   const { theme } = useTheme();
   const [saved, setSaved] = useState([]);
   const [loading, setLoading] = useState(true);
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
 
   useFocusEffect(
     useCallback(() => { fetchSaved(); }, [])
@@ -78,6 +84,56 @@ export default function SavedProviders({ navigation }) {
         await supabase.from('saved_providers').delete().eq('id', savedId);
         setSaved(prev => prev.filter(s => s.id !== savedId));
       }
+    );
+  }
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopStandalonePage onBack={() => navigation.goBack()} title="Saved providers" maxWidth={900}>
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+        ) : saved.length === 0 ? (
+          <View style={ds.emptyCard}>
+            <Text style={{ fontSize: 40, marginBottom: 10 }}>🤍</Text>
+            <Text style={ds.emptyTitle}>No saved providers yet</Text>
+            <Text style={ds.emptySub}>Tap the ♡ heart on any provider card to save them for later</Text>
+            <TouchableOpacity style={ds.browseBtn} onPress={() => navigation.goBack()}>
+              <Text style={ds.browseBtnText}>Browse providers →</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <View style={ds.grid}>
+              {saved.map(item => {
+                const provider = item.providers;
+                const name = provider?.users?.name || 'Provider';
+                return (
+                  <View key={item.id} style={ds.card}>
+                    <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('ProviderProfile', { provider })} activeOpacity={0.85}>
+                      <View style={ds.cardTop}>
+                        <View style={ds.avatar}><Text style={ds.avatarText}>{name[0]}</Text></View>
+                        <View style={ds.heartBtn}><Text style={{ fontSize: 15, color: '#E85D04' }}>♥</Text></View>
+                      </View>
+                      <Text style={ds.name}>{name}</Text>
+                      <Text style={ds.meta}>{provider?.category} · {provider?.city}</Text>
+                      <View style={ds.ratingRow}>
+                        <Text style={{ fontSize: 12 }}>⭐</Text>
+                        <Text style={ds.rating}>{provider?.rating?.toFixed(1) || 'New'}</Text>
+                        <Text style={ds.reviews}>({provider?.total_reviews || 0})</Text>
+                        {provider?.is_verified && <View style={ds.verifiedBadge}><Text style={ds.verifiedText}>✓</Text></View>}
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={ds.unsaveBtn} onPress={() => handleUnsave(item.id, name)}>
+                      <Text style={ds.unsaveBtnText}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+            <Text style={ds.footerText}>{saved.length} saved provider{saved.length !== 1 ? 's' : ''}</Text>
+          </>
+        )}
+      </DesktopStandalonePage>
     );
   }
 
@@ -203,3 +259,27 @@ function makeStyles(theme) {
     footerText: { textAlign: 'center', fontSize: 12, color: theme.textTertiary, marginTop: 8, paddingBottom: 12 },
   });
 }
+
+const ds = StyleSheet.create({
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 17, color: TEXT, marginBottom: 8 },
+  emptySub: { fontSize: 13.5, color: MUTED, textAlign: 'center', lineHeight: 20, marginBottom: 20, maxWidth: 320 },
+  browseBtn: { backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 22, paddingVertical: 13 },
+  browseBtnText: { color: '#fff', fontSize: 13.5, fontWeight: '700' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  card: { width: 280, backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: LINE, padding: 16 },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: MAROON, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 16, color: '#fff', fontWeight: '700' },
+  heartBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: CREAM, alignItems: 'center', justifyContent: 'center' },
+  name: { fontFamily: 'Fraunces-SemiBold', fontSize: 15, color: TEXT, marginBottom: 3 },
+  meta: { fontSize: 12, color: MUTED, marginBottom: 8 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12 },
+  rating: { fontSize: 12, fontWeight: '700', color: TEXT },
+  reviews: { fontSize: 11, color: MUTED },
+  verifiedBadge: { backgroundColor: CREAM, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 2 },
+  verifiedText: { fontSize: 10, color: TEXT, fontWeight: '700' },
+  unsaveBtn: { paddingVertical: 10, borderRadius: 12, backgroundColor: CREAM, borderWidth: 1, borderColor: LINE, alignItems: 'center' },
+  unsaveBtnText: { fontSize: 12.5, color: MUTED, fontWeight: '600' },
+  footerText: { textAlign: 'center', fontSize: 12, color: MUTED, marginTop: 20 },
+});

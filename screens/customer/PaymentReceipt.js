@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, Share
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, Share, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -11,6 +11,9 @@ import { buildReceiptHtml } from '../../invoiceTemplate';
 import { showAlert } from '../../helpers';
 import { formatTimeLabel } from '../../lib/eventContext';
 import AppHeader from '../../components/AppHeader';
+import { CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 // expo-print's web implementation ignores whatever html/uri you pass it and
 // just calls window.print() on the CURRENT page (confirmed by reading
@@ -40,6 +43,8 @@ function openHtmlPreviewWeb(html, autoPrint) {
 export default function PaymentReceipt({ route, navigation }) {
   const { booking } = route.params;
   const { theme } = useTheme();
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [order, setOrder] = useState(null);
   const [billing, setBilling] = useState(null);
   const [customer, setCustomer] = useState(null);
@@ -196,7 +201,7 @@ export default function PaymentReceipt({ route, navigation }) {
   }
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
       <AppHeader title="Receipt" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
 
       {loading ? (
@@ -204,7 +209,7 @@ export default function PaymentReceipt({ route, navigation }) {
           <ActivityIndicator color={theme.accent} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 20 }}>
+        <ScrollView contentContainerStyle={isDesktopWeb ? ds.centerCol : { padding: 20 }}>
           <View style={s.card}>
             <View style={s.statusRow}>
               <View style={s.statusDot} />
@@ -337,3 +342,9 @@ function makeStyles(theme) {
     actionBtnText: { fontSize: 13, fontWeight: '700', color: theme.text },
   });
 }
+
+// Desktop: centers the exact same receipt card, per this screen's own
+// "simple/centered" classification -- doesn't restyle the content.
+const ds = StyleSheet.create({
+  centerCol: { maxWidth: 480, width: '100%', alignSelf: 'center', padding: 20, paddingTop: 32 },
+});

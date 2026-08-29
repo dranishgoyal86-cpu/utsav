@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator, Modal, ScrollView, KeyboardAvoidingView, Platform
+  View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator, Modal, ScrollView, KeyboardAvoidingView, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -8,6 +8,9 @@ import { useTheme } from '../../ThemeContext';
 import { useSavedProvider } from '../../hooks/useSavedProvider';
 import { CATEGORY_NAMES, getSubcategories, getCategoryIcon, getParentCategory } from '../../serviceTemplates';
 import AppHeader from '../../components/AppHeader';
+import { CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 const CITIES = ['Delhi', 'Mumbai', 'Bangalore', 'Chennai', 'Hyderabad'];
 
@@ -377,6 +380,11 @@ export default function SearchScreen({ navigation, route }) {
   const [searched, setSearched] = useState(false);
   const [query, setQuery] = useState('');
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  // Lightest-touch treatment (centered, not restyled) -- same call as
+  // CreateBookingScreen.js, this screen's own results list/filter modal
+  // are real, dense logic not worth a second bespoke reskin.
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
 
   // Arriving with a preset (e.g. "Browse Banquet Halls in Delhi" from the
   // event planner) pre-applies those filters — the existing debounced
@@ -563,11 +571,12 @@ export default function SearchScreen({ navigation, route }) {
   ];
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       {/* Header */}
       <AppHeader title="Search" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
 
+      <View style={[{ flex: 1 }, isDesktopWeb && ds.centerCol]}>
       {/* Search bar */}
       <View style={s.searchRow}>
         <View style={s.searchBox}>
@@ -692,6 +701,7 @@ export default function SearchScreen({ navigation, route }) {
           ListFooterComponent={<View style={{ height: 140 }} />}
         />
       )}
+      </View>
 
       {/* Filter modal */}
       <FilterModal
@@ -804,3 +814,7 @@ function makeStyles(theme) {
     toggleThumbActive: { transform: [{ translateX: 20 }] },
   });
 }
+
+const ds = StyleSheet.create({
+  centerCol: { width: '100%', maxWidth: 900, alignSelf: 'center' },
+});

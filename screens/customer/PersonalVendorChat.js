@@ -1,15 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, Share
+  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, Share, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
+import { CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 export default function PersonalVendorChat({ route, navigation }) {
   const { vendor } = route.params;
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  // Same centered-thread treatment as ChatScreen.js.
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -135,7 +141,7 @@ export default function PersonalVendorChat({ route, navigation }) {
   }
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={s.backIcon}>←</Text>
@@ -149,7 +155,7 @@ export default function PersonalVendorChat({ route, navigation }) {
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={[{ flex: 1 }, isDesktopWeb && ds.centerCol]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         {loading ? (
           <View style={s.centerBox}><ActivityIndicator color={theme.accent} /></View>
         ) : (
@@ -303,3 +309,7 @@ function makeStyles(theme) {
     confirmSendBtnText: { color: theme.btnPrimaryText, fontSize: 14, fontWeight: '700' },
   });
 }
+
+const ds = StyleSheet.create({
+  centerCol: { width: '100%', maxWidth: 720, alignSelf: 'center' },
+});

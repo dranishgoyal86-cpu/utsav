@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator
+  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -9,6 +9,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import SwipeableRow from '../../components/SwipeableRow';
 import { confirmDestructive } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
+import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
+import { MAROON, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 const NOTIFICATION_ICONS = {
   booking_confirmed: '✅',
@@ -31,6 +35,8 @@ export default function NotificationsScreen({ navigation }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
 
   useFocusEffect(
     useCallback(() => { fetchNotifications(); }, [])
@@ -164,6 +170,50 @@ export default function NotificationsScreen({ navigation }) {
     return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
   }
 
+  if (isDesktopWeb) {
+    return (
+      <DesktopStandalonePage
+        onBack={() => navigation.goBack()}
+        title="Notifications"
+        maxWidth={800}
+        right={notifications.length > 0 ? (
+          <TouchableOpacity onPress={clearAll}><Text style={ds.clearAllText}>Clear all</Text></TouchableOpacity>
+        ) : null}
+      >
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+        ) : notifications.length === 0 ? (
+          <View style={ds.emptyCard}>
+            <Text style={{ fontSize: 40, marginBottom: 10 }}>🔔</Text>
+            <Text style={ds.emptyTitle}>No notifications yet</Text>
+            <Text style={ds.emptySub}>Booking updates, messages and payment confirmations will appear here</Text>
+          </View>
+        ) : (
+          <View style={{ gap: 10 }}>
+            {notifications.map(item => (
+              <View key={item.id} style={ds.notifRowWrap}>
+                <TouchableOpacity style={[ds.notifCard, !item.is_read && ds.notifCardUnread]} onPress={() => handleNotificationPress(item)}>
+                  <View style={[ds.notifIconBox, !item.is_read && ds.notifIconBoxUnread]}>
+                    <Text style={{ fontSize: 20 }}>{NOTIFICATION_ICONS[item.data?.type] || '🔔'}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[ds.notifTitle, !item.is_read && ds.notifTitleBold]}>{item.title}</Text>
+                    <Text style={ds.notifBody}>{item.body}</Text>
+                    <Text style={ds.notifTime}>{formatTime(item.created_at)}</Text>
+                  </View>
+                  {!item.is_read && <View style={ds.unreadDot} />}
+                </TouchableOpacity>
+                <TouchableOpacity style={ds.deleteBtn} onPress={() => deleteNotification(item.id)}>
+                  <Text style={{ fontSize: 12, color: MUTED }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+      </DesktopStandalonePage>
+    );
+  }
+
   return (
     <SafeAreaView style={s.container}>
       <AppHeader
@@ -259,3 +309,21 @@ function makeStyles(theme) {
     unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accent, marginTop: 6, flexShrink: 0 },
   });
 }
+
+const ds = StyleSheet.create({
+  clearAllText: { fontSize: 13, fontWeight: '600', color: MAROON },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
+  emptySub: { fontSize: 13, color: MUTED, textAlign: 'center' },
+  notifRowWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  notifCard: { flex: 1, flexDirection: 'row', alignItems: 'flex-start', backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: LINE, paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
+  notifCardUnread: { borderColor: MAROON },
+  notifIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: CREAM, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  notifIconBoxUnread: { backgroundColor: MAROON + '14' },
+  notifTitle: { fontSize: 14, color: TEXT, marginBottom: 3, lineHeight: 20, fontWeight: '500' },
+  notifTitleBold: { fontWeight: '700' },
+  notifBody: { fontSize: 13, color: MUTED, lineHeight: 18, marginBottom: 5 },
+  notifTime: { fontSize: 11, color: MUTED },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: MAROON, marginTop: 6, flexShrink: 0 },
+  deleteBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: CREAM, alignItems: 'center', justifyContent: 'center' },
+});

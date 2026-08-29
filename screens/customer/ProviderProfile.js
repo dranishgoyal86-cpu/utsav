@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Share, Alert, Platform, Image, Linking
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Share, Alert, Platform, Image, Linking, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,12 +11,18 @@ import { useSavedProvider } from '../../hooks/useSavedProvider';
 import { useBlockedProvider } from '../../hooks/useBlockedProvider';
 import { packageHighlights, getCategoryIcon, getParentCategory, resolveParentCategory } from '../../serviceTemplates';
 import AppHeader from '../../components/AppHeader';
+import { CREAM } from '../../lib/desktopTheme';
 
 const CAROUSEL_CARD_WIDTH = 168;
+const DESKTOP_BREAKPOINT = 768;
 
 export default function ProviderProfile({ route, navigation }) {
   const { provider: initialProvider, providerId: deepLinkId, savedPlanId } = route.params || {};
   const { theme } = useTheme();
+  const { width } = useWindowDimensions();
+  // Lightest-touch treatment (centered, not restyled) -- same call as
+  // CreateBookingScreen.js/SearchScreen.js.
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [provider, setProvider] = useState(initialProvider || null);
   const [services, setServices] = useState([]);
   const [paymentTermsByService, setPaymentTermsByService] = useState({});
@@ -306,7 +312,7 @@ export default function ProviderProfile({ route, navigation }) {
   if (!provider) return null;
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
       {/* Header */}
       <AppHeader
         title="Provider profile"
@@ -325,7 +331,7 @@ export default function ProviderProfile({ route, navigation }) {
         ]}
       />
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={isDesktopWeb && ds.centerCol}>
 
         {/* Hero — Instagram-style profile header */}
         <View style={s.hero}>
@@ -709,6 +715,7 @@ export default function ProviderProfile({ route, navigation }) {
       {/* Bottom bar */}
       {isUnclaimed ? (
         <View style={[s.bottomBar, { paddingBottom: 16 + insets.bottom }]}>
+          <View style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }, isDesktopWeb && ds.bottomBarInner]}>
           <View style={s.priceHint}>
             <Text style={s.priceHintLabel}>Own this business?</Text>
             <Text style={s.priceHintValue}>It's free to claim</Text>
@@ -716,9 +723,11 @@ export default function ProviderProfile({ route, navigation }) {
           <TouchableOpacity style={s.bookNowBtn} onPress={goToClaim}>
             <Text style={s.bookNowText}>Claim now</Text>
           </TouchableOpacity>
+          </View>
         </View>
       ) : (
         <View style={[s.bottomBar, { paddingBottom: 16 + insets.bottom }]}>
+          <View style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }, isDesktopWeb && ds.bottomBarInner]}>
           <View style={s.priceHint}>
             <Text style={s.priceHintLabel}>Starting from</Text>
             <Text style={s.priceHintValue}>
@@ -744,6 +753,7 @@ export default function ProviderProfile({ route, navigation }) {
           >
             <Text style={s.bookNowText}>Book now</Text>
           </TouchableOpacity>
+          </View>
         </View>
       )}
     </SafeAreaView>
@@ -892,3 +902,10 @@ function makeStyles(theme) {
     bookNowText: { fontSize: 15, fontWeight: '700', color: theme.btnPrimaryText },
   });
 }
+
+// Desktop: centers the exact same content, doesn't restyle it -- same
+// lightest-touch call as CreateBookingScreen.js/SearchScreen.js.
+const ds = StyleSheet.create({
+  centerCol: { width: '100%', maxWidth: 720, alignSelf: 'center' },
+  bottomBarInner: { alignSelf: 'center', width: '100%', maxWidth: 720 },
+});

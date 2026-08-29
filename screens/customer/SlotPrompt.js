@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import { showAlert } from '../../helpers';
 import SlotField, { slotApplies, slotFilled } from '../../components/SlotField';
 import AppHeader from '../../components/AppHeader';
+import { CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 // sub_type_slug/event_date/city block — city joins them because too much
 // downstream (venue search, provider matching, price-median lookups) quietly
@@ -21,6 +24,8 @@ export default function SlotPrompt({ route, navigation }) {
   const { eventId } = route.params;
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -84,9 +89,9 @@ export default function SlotPrompt({ route, navigation }) {
   }
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
       <AppHeader title={event.working_title || 'New event'} theme={theme} navigation={navigation} />
-      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={isDesktopWeb ? ds.centerCol : s.scroll} keyboardShouldPersistTaps="handled">
         {saving ? <ActivityIndicator color={theme.accent} style={{ marginBottom: 12 }} /> : null}
         <SlotField slotKey={currentSlot} event={event} onSave={saveField} navigation={navigation} />
       </ScrollView>
@@ -102,3 +107,7 @@ function makeStyles(theme) {
     scroll: { padding: 20 },
   });
 }
+
+const ds = StyleSheet.create({
+  centerCol: { maxWidth: 480, width: '100%', alignSelf: 'center', padding: 20, paddingTop: 40 },
+});

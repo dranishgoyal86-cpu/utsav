@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform
+  View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
@@ -11,6 +11,9 @@ import { uploadProviderDocument, showAlert } from '../../helpers';
 import RequestCategoryModal from '../../components/RequestCategoryModal';
 import { CATEGORY_NAMES, getSubcategories, getParentCategory, getCategoryIcon, guessSubcategory } from '../../serviceTemplates';
 import AppHeader from '../../components/AppHeader';
+import { CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 const DOCUMENT_TYPES = [
   { key: 'business_image', label: 'Business image' },
@@ -41,6 +44,8 @@ export default function ClaimBusiness({ route, navigation }) {
   const { provider } = route.params;
   const { theme } = useTheme();
   const s = styles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -176,14 +181,14 @@ export default function ClaimBusiness({ route, navigation }) {
   }
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <AppHeader title="Claim Business" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
 
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={isDesktopWeb ? ds.centerCol : { padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
         <View style={s.businessCard}>
           <Text style={s.businessName}>{provider.name}</Text>
           {provider.category ? <Text style={s.businessMeta}>{provider.category}</Text> : null}
@@ -390,4 +395,10 @@ const styles = theme => StyleSheet.create({
     paddingHorizontal: 32, paddingVertical: 14, marginTop: 24,
   },
   doneBtnText: { fontSize: 15, fontWeight: '700', color: theme.bg },
+});
+
+// Desktop: centers the exact same form, per this screen's own "doesn't fit
+// a pattern cleanly" classification -- doesn't restyle the content.
+const ds = StyleSheet.create({
+  centerCol: { maxWidth: 560, width: '100%', alignSelf: 'center', padding: 20, paddingTop: 32, gap: 16 },
 });

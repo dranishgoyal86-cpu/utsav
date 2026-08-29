@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator
+  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -10,6 +10,10 @@ import { confirmAction } from '../../helpers';
 import SwipeableRow from '../../components/SwipeableRow';
 import { Archive } from 'phosphor-react-native';
 import AppHeader from '../../components/AppHeader';
+import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
+import { MAROON, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 export default function InboxScreen({ navigation }) {
   const { theme } = useTheme();
@@ -17,6 +21,8 @@ export default function InboxScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState(null);
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
 
   useFocusEffect(
     useCallback(() => {
@@ -119,6 +125,55 @@ export default function InboxScreen({ navigation }) {
       return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
     }
     return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  }
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopStandalonePage onBack={() => navigation.goBack()} title="Messages" maxWidth={800}>
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+        ) : conversations.length === 0 ? (
+          <View style={ds.emptyCard}>
+            <Text style={{ fontSize: 40, marginBottom: 10 }}>💬</Text>
+            <Text style={ds.emptyTitle}>No messages yet</Text>
+            <Text style={ds.emptySub}>Make a booking to start chatting with service providers</Text>
+          </View>
+        ) : (
+          <View style={{ gap: 10 }}>
+            {conversations.map(item => {
+              const hasUnread = item.unreadCount > 0;
+              const isMe = item.lastMessage?.sender_id === currentUserId;
+              return (
+                <View key={item.booking.id} style={ds.convoRowWrap}>
+                  <TouchableOpacity
+                    style={ds.convoRow}
+                    onPress={() => navigation.navigate('Chat', { booking: item.booking, receiverId: item.providerUserId, receiverName: item.providerName })}
+                  >
+                    <View style={ds.convoAvatar}><Text style={ds.convoAvatarText}>{item.providerName?.[0] || '?'}</Text></View>
+                    <View style={{ flex: 1 }}>
+                      <View style={ds.convoTop}>
+                        <Text style={[ds.convoName, hasUnread && ds.convoNameBold]}>{item.providerName}</Text>
+                        <Text style={ds.convoTime}>{formatTime(item.lastMessage?.created_at)}</Text>
+                      </View>
+                      <View style={ds.convoBottom}>
+                        <Text style={[ds.convoPreview, hasUnread && ds.convoPreviewBold]} numberOfLines={1}>
+                          {item.lastMessage ? `${isMe ? 'You: ' : ''}${item.lastMessage.content}` : `${item.booking.event_type} · Tap to chat`}
+                        </Text>
+                        {hasUnread && <View style={ds.unreadBadge}><Text style={ds.unreadCount}>{item.unreadCount}</Text></View>}
+                      </View>
+                      <Text style={ds.convoMeta}>{item.booking.event_type} · {item.booking.providers?.category}</Text>
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={ds.archiveBtn} onPress={() => archiveConversation(item)}>
+                    <Archive size={14} color={MUTED} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </DesktopStandalonePage>
+    );
   }
 
   return (
@@ -226,3 +281,24 @@ function makeStyles(theme) {
     separator: { height: 0.5, backgroundColor: theme.border, marginLeft: 80 },
   });
 }
+
+const ds = StyleSheet.create({
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
+  emptySub: { fontSize: 13, color: MUTED, textAlign: 'center' },
+  convoRowWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: LINE, paddingRight: 12 },
+  convoRow: { flex: 1, flexDirection: 'row', alignItems: 'center', padding: 14, gap: 13 },
+  convoAvatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: MAROON, alignItems: 'center', justifyContent: 'center' },
+  convoAvatarText: { fontSize: 17, color: '#fff', fontWeight: '700' },
+  convoTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 },
+  convoName: { fontSize: 14, color: TEXT, fontWeight: '600' },
+  convoNameBold: { fontWeight: '700' },
+  convoTime: { fontSize: 11, color: MUTED },
+  convoBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
+  convoPreview: { fontSize: 13, color: MUTED, flex: 1 },
+  convoPreviewBold: { color: TEXT, fontWeight: '500' },
+  convoMeta: { fontSize: 11, color: MUTED },
+  unreadBadge: { backgroundColor: MAROON, borderRadius: 10, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginLeft: 8 },
+  unreadCount: { fontSize: 11, color: '#fff', fontWeight: '700' },
+  archiveBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: CREAM, alignItems: 'center', justifyContent: 'center' },
+});

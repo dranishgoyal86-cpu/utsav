@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, Modal, ActivityIndicator, KeyboardAvoidingView, Platform
+  View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, Modal, ActivityIndicator, KeyboardAvoidingView, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, X, MagnifyingGlass } from 'phosphor-react-native';
@@ -8,6 +8,10 @@ import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
 import { showAlert } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
+import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
+import { MAROON, CARD, LINE, TEXT, MUTED, CREAM, OK, OK_BG } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 const FILTER_OPTIONS = [
   { key: 'all', label: 'All' },
@@ -27,6 +31,8 @@ function formatDate(dateStr) {
 export default function ReciprocityLedger({ navigation }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
 
   const [entries, setEntries] = useState([]);
   const [eventNameById, setEventNameById] = useState(new Map());
@@ -171,6 +177,96 @@ export default function ReciprocityLedger({ navigation }) {
     return list;
   }, [entries, filter, search]);
 
+  const settleModalEl = (
+    <Modal visible={!!settleModalEntry} transparent animationType="fade" onRequestClose={() => setSettleModalEntry(null)}>
+      <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={s.modal}>
+          <View style={s.modalHeader}>
+            <Text style={s.modalTitle}>{settleModalEntry?.guest_name}</Text>
+            <TouchableOpacity onPress={() => setSettleModalEntry(null)}><X size={20} color={theme.text} /></TouchableOpacity>
+          </View>
+          <Text style={s.modalHint}>Optional note — e.g. "returned at their son's wedding, June 2027"</Text>
+          <TextInput
+            style={[s.input, { minHeight: 70, textAlignVertical: 'top' }]}
+            placeholder="Note (optional)"
+            placeholderTextColor={theme.textTertiary}
+            value={settleNote}
+            onChangeText={setSettleNote}
+            multiline
+          />
+          <TouchableOpacity style={s.saveBtn} onPress={() => saveSettled(true)} disabled={savingSettle}>
+            {savingSettle ? <ActivityIndicator color={theme.btnPrimaryText} /> : (
+              <Text style={s.saveBtnText}>{settleModalEntry?.is_settled ? 'Update note' : 'Mark as settled'}</Text>
+            )}
+          </TouchableOpacity>
+          {settleModalEntry?.is_settled && (
+            <TouchableOpacity style={s.linkBtn} onPress={() => saveSettled(false)} disabled={savingSettle}>
+              <Text style={s.linkBtnText}>Mark as unsettled instead</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopStandalonePage onBack={() => navigation.goBack()} title="Gift ledger" maxWidth={1000}>
+        <Text style={ds.subtitle}>Records what guests have given across every function you've hosted, so you can reciprocate at theirs later.</Text>
+
+        <View style={ds.controlsRow}>
+          <View style={ds.searchBox}>
+            <MagnifyingGlass size={16} color={MUTED} />
+            <TextInput style={ds.searchInput} placeholder="Search by guest name" placeholderTextColor={MUTED} value={search} onChangeText={setSearch} />
+          </View>
+          <View style={ds.chipsWrap}>
+            {FILTER_OPTIONS.map(opt => (
+              <TouchableOpacity key={opt.key} style={[ds.filterChip, filter === opt.key && ds.filterChipActive]} onPress={() => setFilter(opt.key)}>
+                <Text style={[ds.filterChipText, filter === opt.key && ds.filterChipTextActive]}>{opt.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity style={ds.syncBtn} onPress={syncFromEvents} disabled={syncing}>
+            {syncing ? <ActivityIndicator size="small" color={MAROON} /> : <Text style={ds.syncBtnText}>Sync from events</Text>}
+          </TouchableOpacity>
+        </View>
+
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+        ) : entries.length === 0 ? (
+          <View style={ds.emptyCard}>
+            <Text style={ds.emptyTitle}>No ledger entries yet</Text>
+            <Text style={ds.emptySub}>Tap "Sync from events" to pull in gifts you've already recorded via Gift Stickers.</Text>
+          </View>
+        ) : filteredEntries.length === 0 ? (
+          <View style={ds.emptyCard}><Text style={ds.emptyTitle}>No matches</Text></View>
+        ) : (
+          <View style={ds.grid}>
+            {filteredEntries.map(item => (
+              <TouchableOpacity key={item.id} style={ds.entryCard} onPress={() => openSettleModal(item)}>
+                <View style={{ flex: 1 }}>
+                  <Text style={ds.entryName}>{item.guest_name}</Text>
+                  <Text style={ds.entryMeta}>
+                    {eventNameById.get(item.source_event_id) || 'Event no longer available'}
+                    {item.received_on ? ` · ${formatDate(item.received_on)}` : ''}
+                  </Text>
+                  {item.is_settled && item.settled_note ? <Text style={ds.entryNote}>{item.settled_note}</Text> : null}
+                </View>
+                <View style={{ alignItems: 'flex-end', gap: 6, marginTop: 10 }}>
+                  <Text style={ds.entryAmount}>{item.amount_received ? `₹${item.amount_received.toLocaleString('en-IN')}` : (item.gift_description || '—')}</Text>
+                  <View style={[ds.settledBadge, item.is_settled ? ds.settledBadgeYes : ds.settledBadgeNo]}>
+                    <Text style={[ds.settledBadgeText, item.is_settled ? ds.settledBadgeTextYes : ds.settledBadgeTextNo]}>{item.is_settled ? 'Settled' : 'Unsettled'}</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+        {settleModalEl}
+      </DesktopStandalonePage>
+    );
+  }
+
   return (
     <SafeAreaView style={s.container}>
       <AppHeader title="Gift ledger" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
@@ -248,35 +344,7 @@ export default function ReciprocityLedger({ navigation }) {
         />
       )}
 
-      <Modal visible={!!settleModalEntry} transparent animationType="fade" onRequestClose={() => setSettleModalEntry(null)}>
-        <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={s.modal}>
-            <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>{settleModalEntry?.guest_name}</Text>
-              <TouchableOpacity onPress={() => setSettleModalEntry(null)}><X size={20} color={theme.text} /></TouchableOpacity>
-            </View>
-            <Text style={s.modalHint}>Optional note — e.g. "returned at their son's wedding, June 2027"</Text>
-            <TextInput
-              style={[s.input, { minHeight: 70, textAlignVertical: 'top' }]}
-              placeholder="Note (optional)"
-              placeholderTextColor={theme.textTertiary}
-              value={settleNote}
-              onChangeText={setSettleNote}
-              multiline
-            />
-            <TouchableOpacity style={s.saveBtn} onPress={() => saveSettled(true)} disabled={savingSettle}>
-              {savingSettle ? <ActivityIndicator color={theme.btnPrimaryText} /> : (
-                <Text style={s.saveBtnText}>{settleModalEntry?.is_settled ? 'Update note' : 'Mark as settled'}</Text>
-              )}
-            </TouchableOpacity>
-            {settleModalEntry?.is_settled && (
-              <TouchableOpacity style={s.linkBtn} onPress={() => saveSettled(false)} disabled={savingSettle}>
-                <Text style={s.linkBtnText}>Mark as unsettled instead</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      {settleModalEl}
     </SafeAreaView>
   );
 }
@@ -350,3 +418,32 @@ function makeStyles(theme) {
     linkBtnText: { fontSize: 12.5, fontWeight: '600', color: theme.accent },
   });
 }
+
+const ds = StyleSheet.create({
+  subtitle: { fontSize: 13, color: MUTED, lineHeight: 19, marginBottom: 20, maxWidth: 640 },
+  controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 22, flexWrap: 'wrap' },
+  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: CARD, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 11, borderWidth: 1, borderColor: LINE, minWidth: 260 },
+  searchInput: { flex: 1, fontSize: 14, color: TEXT },
+  chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  filterChip: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 14, backgroundColor: CARD, borderWidth: 1, borderColor: LINE },
+  filterChipActive: { backgroundColor: MAROON, borderColor: MAROON },
+  filterChipText: { fontSize: 12.5, fontWeight: '600', color: MUTED },
+  filterChipTextActive: { color: '#fff' },
+  syncBtn: { marginLeft: 'auto', paddingVertical: 10, paddingHorizontal: 14 },
+  syncBtnText: { fontSize: 12.5, fontWeight: '700', color: MAROON },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
+  emptySub: { fontSize: 13, color: MUTED, textAlign: 'center' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  entryCard: { width: 300, backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: LINE, padding: 14 },
+  entryName: { fontSize: 14.5, fontWeight: '700', color: TEXT },
+  entryMeta: { fontSize: 11.5, color: MUTED, marginTop: 2 },
+  entryNote: { fontSize: 11.5, color: MUTED, marginTop: 4, fontStyle: 'italic' },
+  entryAmount: { fontSize: 14, fontWeight: '700', color: TEXT },
+  settledBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  settledBadgeYes: { backgroundColor: OK_BG },
+  settledBadgeNo: { backgroundColor: CREAM },
+  settledBadgeText: { fontSize: 10, fontWeight: '700' },
+  settledBadgeTextYes: { color: OK },
+  settledBadgeTextNo: { color: MUTED },
+});

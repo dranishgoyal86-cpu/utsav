@@ -1,9 +1,13 @@
 import { useTheme } from '../../ThemeContext';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppHeader from '../../components/AppHeader';
+import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
+import { MAROON, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 const EVENT_ICONS = {
   wedding: '💍', birthday: '🎂', corporate: '💼', engagement: '💑',
@@ -13,6 +17,8 @@ const EVENT_ICONS = {
 export default function ComparePlans({ navigation, route }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const plans = route?.params?.plans || [];
 
   function openPlan(savedPlan) {
@@ -23,6 +29,58 @@ export default function ComparePlans({ navigation, route }) {
   const allCategories = [...new Set(
     plans.flatMap(p => (p.plan_data?.breakdown || []).map(b => b.category))
   )];
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopStandalonePage onBack={() => navigation.goBack()} title="Compare plans" maxWidth={1100}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={ds.table}>
+            <View style={ds.row}>
+              <View style={ds.labelCol} />
+              {plans.map(p => (
+                <TouchableOpacity key={p.id} style={ds.planHeaderCard} onPress={() => openPlan(p)}>
+                  <Text style={{ fontSize: 22, marginBottom: 6 }}>{EVENT_ICONS[p.event_type] || '🎉'}</Text>
+                  <Text style={ds.planHeaderTitle} numberOfLines={1}>{p.title}</Text>
+                  <Text style={ds.planHeaderTap}>Open →</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={ds.row}>
+              <View style={ds.labelCol}><Text style={ds.labelText}>Date</Text></View>
+              {plans.map(p => (
+                <View key={p.id} style={ds.cell}><Text style={ds.cellText}>{p.event_date ? new Date(p.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</Text></View>
+              ))}
+            </View>
+            <View style={ds.row}>
+              <View style={ds.labelCol}><Text style={ds.labelText}>City</Text></View>
+              {plans.map(p => <View key={p.id} style={ds.cell}><Text style={ds.cellText}>{p.city || '—'}</Text></View>)}
+            </View>
+            <View style={ds.row}>
+              <View style={ds.labelCol}><Text style={ds.labelText}>Guests</Text></View>
+              {plans.map(p => <View key={p.id} style={ds.cell}><Text style={ds.cellText}>{p.plan_data?.summary?.guests || '—'}</Text></View>)}
+            </View>
+            <View style={[ds.row, ds.highlightRow]}>
+              <View style={ds.labelCol}><Text style={ds.labelTextBold}>Total budget</Text></View>
+              {plans.map(p => <View key={p.id} style={ds.cell}><Text style={ds.cellTextBold}>{p.total_budget ? `₹${p.total_budget.toLocaleString()}` : '—'}</Text></View>)}
+            </View>
+            {allCategories.map(cat => (
+              <View key={cat} style={ds.row}>
+                <View style={ds.labelCol}><Text style={ds.labelText}>{cat}</Text></View>
+                {plans.map(p => {
+                  const item = (p.plan_data?.breakdown || []).find(b => b.category === cat);
+                  return <View key={p.id} style={ds.cell}><Text style={ds.cellText}>{item ? `₹${item.budget.toLocaleString()}` : '—'}</Text></View>;
+                })}
+              </View>
+            ))}
+            <View style={ds.row}>
+              <View style={ds.labelCol}><Text style={ds.labelText}>Status</Text></View>
+              {plans.map(p => <View key={p.id} style={ds.cell}><Text style={ds.cellText}>{(p.status || 'planning').toUpperCase()}</Text></View>)}
+            </View>
+          </View>
+        </ScrollView>
+      </DesktopStandalonePage>
+    );
+  }
 
   return (
     <SafeAreaView style={s.container}>
@@ -143,3 +201,18 @@ function makeStyles(theme) {
     planHeaderTap: { fontSize: 10, color: theme.accent, fontWeight: '600' },
   });
 }
+
+const ds = StyleSheet.create({
+  table: { borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: LINE },
+  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: LINE, backgroundColor: CARD },
+  highlightRow: { backgroundColor: CREAM },
+  labelCol: { width: 130, paddingHorizontal: 16, paddingVertical: 16, justifyContent: 'center' },
+  labelText: { fontSize: 12.5, color: MUTED, fontWeight: '600' },
+  labelTextBold: { fontSize: 12.5, color: TEXT, fontWeight: '700' },
+  cell: { width: 180, paddingHorizontal: 16, paddingVertical: 16, justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: LINE },
+  cellText: { fontSize: 13.5, color: TEXT },
+  cellTextBold: { fontSize: 15, color: MAROON, fontWeight: '700' },
+  planHeaderCard: { width: 180, padding: 16, borderLeftWidth: 1, borderLeftColor: LINE, backgroundColor: CREAM },
+  planHeaderTitle: { fontSize: 13.5, fontWeight: '700', color: TEXT, marginBottom: 4 },
+  planHeaderTap: { fontSize: 11, color: MAROON, fontWeight: '600' },
+});

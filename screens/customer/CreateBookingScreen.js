@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Alert, ActivityIndicator, Platform, KeyboardAvoidingView
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Alert, ActivityIndicator, Platform, KeyboardAvoidingView, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 import { supabase } from '../../supabase';
 import { resolveGuestPartySize } from '../../helpers';
 import { createRazorpayOrder, initiatePayment, verifyPayment } from '../../payment';
@@ -37,6 +40,13 @@ export default function CreateBookingScreen({ route, navigation }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  // This screen is a real-money Razorpay payment flow (1000+ lines, many
+  // state branches) -- deliberately the lightest possible desktop touch,
+  // matching ProfileScreen/ClaimBusiness's "centered, not restyled"
+  // treatment: cap+center the exact same content, don't restructure a
+  // single line of the payment logic or its JSX.
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
 
   const [provider, setProvider] = useState(route.params.provider || null);
   const [service, setService] = useState(route.params.service || null);
@@ -554,7 +564,7 @@ export default function CreateBookingScreen({ route, navigation }) {
   if (loadingBooking || checkingDuplicate || !provider || !service) {
     if (loadError) {
       return (
-        <SafeAreaView style={s.container}>
+        <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
           <AppHeader title="Booking" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
             <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>{loadError}</Text>
@@ -563,7 +573,7 @@ export default function CreateBookingScreen({ route, navigation }) {
       );
     }
     return (
-      <SafeAreaView style={s.container}>
+      <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator size="large" color={theme.accent} />
         </View>
@@ -573,10 +583,10 @@ export default function CreateBookingScreen({ route, navigation }) {
 
   if (step === 'payment') {
     return (
-      <SafeAreaView style={s.container}>
+      <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
         <AppHeader title="Payment" onBack={() => setStep('details')} theme={theme} navigation={navigation} />
 
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={isDesktopWeb && ds.centerCol}>
           <View style={s.paymentHero}>
             <Text style={s.paymentHeroLabel}>Total amount</Text>
             <Text style={s.paymentHeroAmount}>₹{totalAmount.toLocaleString()}</Text>
@@ -663,18 +673,20 @@ export default function CreateBookingScreen({ route, navigation }) {
         </ScrollView>
 
         <View style={[s.bottomBar, { paddingBottom: 16 + insets.bottom }]}>
-          <TouchableOpacity
-            style={[s.payBtn, loading && { opacity: 0.7 }]}
-            onPress={handlePayment}
-            disabled={loading}
-          >
-            {loading
-              ? <ActivityIndicator color="#FFF" />
-              : <Text style={s.payBtnText}>
-                  Pay ₹{totalAmount.toLocaleString()} with Razorpay →
-                </Text>
-            }
-          </TouchableOpacity>
+          <View style={isDesktopWeb && ds.bottomBarInner}>
+            <TouchableOpacity
+              style={[s.payBtn, loading && { opacity: 0.7 }]}
+              onPress={handlePayment}
+              disabled={loading}
+            >
+              {loading
+                ? <ActivityIndicator color="#FFF" />
+                : <Text style={s.payBtnText}>
+                    Pay ₹{totalAmount.toLocaleString()} with Razorpay →
+                  </Text>
+              }
+            </TouchableOpacity>
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -687,7 +699,7 @@ export default function CreateBookingScreen({ route, navigation }) {
   const canPay = existingBooking ? ['payment_pending', 'pending'].includes(existingBooking.status) : true;
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
       <AppHeader
         title={existingBooking ? 'Booking details' : 'Book service'}
         onBack={() => navigation.goBack()}
@@ -696,7 +708,7 @@ export default function CreateBookingScreen({ route, navigation }) {
       />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={isDesktopWeb && ds.centerCol}>
         <View style={s.serviceBanner}>
           <View style={s.serviceInfo}>
             <Text style={s.serviceName}>{service.title}</Text>
@@ -946,6 +958,7 @@ export default function CreateBookingScreen({ route, navigation }) {
 
       {(canPay || detailsEditing) && (
         <View style={[s.bottomBar, { paddingBottom: 16 + insets.bottom }]}>
+          <View style={isDesktopWeb && ds.bottomBarInner}>
           {canPay ? (
             <>
               <TouchableOpacity style={s.proceedBtn} onPress={handleProceedToPayment}>
@@ -975,6 +988,7 @@ export default function CreateBookingScreen({ route, navigation }) {
               )}
             </TouchableOpacity>
           )}
+          </View>
         </View>
       )}
       </KeyboardAvoidingView>
@@ -1069,3 +1083,17 @@ function makeStyles(theme) {
     payBtnText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   });
 }
+
+// Desktop: centers the exact same content/buttons, doesn't restyle a
+// single line of the real payment flow -- deliberately the lightest touch
+// in this whole wave, per this screen's own real-money stakes (see the
+// comment where isDesktopWeb is computed above).
+const ds = StyleSheet.create({
+  centerCol: { maxWidth: 560, width: '100%', alignSelf: 'center', paddingTop: 12 },
+  // The bar itself keeps s.bottomBar's real position:absolute/left:0/
+  // right:0 (so its background+border still spans the full width, correct
+  // either way) -- alignSelf:'center' on this INNER wrapper is what
+  // actually centers+caps its own content, independent of the parent's
+  // own (unchanged) stretch behaviour.
+  bottomBarInner: { alignSelf: 'center', width: '100%', maxWidth: 560 },
+});

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator
+  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -10,12 +10,18 @@ import { confirmAction } from '../../helpers';
 import SwipeableRow from '../../components/SwipeableRow';
 import { ArrowCounterClockwise } from 'phosphor-react-native';
 import AppHeader from '../../components/AppHeader';
+import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
+import { MAROON, CARD, LINE, TEXT, MUTED, UNDO, UNDO_BG, UNDO_BORDER } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 export default function BlockedProviders({ navigation }) {
   const { theme } = useTheme();
   const [blocked, setBlocked] = useState([]);
   const [loading, setLoading] = useState(true);
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
 
   useFocusEffect(
     useCallback(() => { fetchBlocked(); }, [])
@@ -79,6 +85,50 @@ export default function BlockedProviders({ navigation }) {
         await supabase.from('blocked_providers').delete().eq('id', blockedId);
         setBlocked(prev => prev.filter(b => b.id !== blockedId));
       }
+    );
+  }
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopStandalonePage onBack={() => navigation.goBack()} title="Blocked vendors" maxWidth={900}>
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+        ) : blocked.length === 0 ? (
+          <View style={ds.emptyCard}>
+            <Text style={{ fontSize: 40, marginBottom: 10 }}>🚫</Text>
+            <Text style={ds.emptyTitle}>No blocked vendors</Text>
+            <Text style={ds.emptySub}>Vendors you mark "Not interested" on their profile stop showing up in your event agent's recommendations — you'll see them here.</Text>
+          </View>
+        ) : (
+          <>
+            <View style={ds.grid}>
+              {blocked.map(item => {
+                const provider = item.providers;
+                const name = provider?.users?.name || 'Provider';
+                return (
+                  <View key={item.id} style={ds.card}>
+                    <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('ProviderProfile', { provider })} activeOpacity={0.85}>
+                      <View style={ds.avatar}><Text style={ds.avatarText}>{name[0]}</Text></View>
+                      <Text style={ds.name}>{name}</Text>
+                      <Text style={ds.meta}>{provider?.category} · {provider?.city}</Text>
+                      <View style={ds.ratingRow}>
+                        <Text style={{ fontSize: 12 }}>⭐</Text>
+                        <Text style={ds.rating}>{provider?.rating?.toFixed(1) || 'New'}</Text>
+                        <Text style={ds.reviews}>({provider?.total_reviews || 0})</Text>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={ds.undoBtn} onPress={() => handleUnblock(item.id, name)}>
+                      <ArrowCounterClockwise size={13} color={UNDO} />
+                      <Text style={ds.undoBtnText}>Undo</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+            <Text style={ds.footerText}>{blocked.length} blocked vendor{blocked.length !== 1 ? 's' : ''}</Text>
+          </>
+        )}
+      </DesktopStandalonePage>
     );
   }
 
@@ -184,3 +234,21 @@ function makeStyles(theme) {
     footerText: { textAlign: 'center', fontSize: 12, color: theme.textTertiary, marginTop: 8, paddingBottom: 12 },
   });
 }
+
+const ds = StyleSheet.create({
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 17, color: TEXT, marginBottom: 8 },
+  emptySub: { fontSize: 13.5, color: MUTED, textAlign: 'center', lineHeight: 20, maxWidth: 360 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  card: { width: 280, backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: LINE, padding: 16 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: MAROON, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  avatarText: { fontSize: 16, color: '#fff', fontWeight: '700' },
+  name: { fontFamily: 'Fraunces-SemiBold', fontSize: 15, color: TEXT, marginBottom: 3 },
+  meta: { fontSize: 12, color: MUTED, marginBottom: 8 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12 },
+  rating: { fontSize: 12, fontWeight: '700', color: TEXT },
+  reviews: { fontSize: 11, color: MUTED },
+  undoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 12, backgroundColor: UNDO_BG, borderWidth: 1, borderColor: UNDO_BORDER },
+  undoBtnText: { fontSize: 12.5, color: UNDO, fontWeight: '700' },
+  footerText: { textAlign: 'center', fontSize: 12, color: MUTED, marginTop: 20 },
+});

@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert, Platform, KeyboardAvoidingView
+  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert, Platform, KeyboardAvoidingView, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
 import AppHeader from '../../components/AppHeader';
+import { CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 const QUICK_TAGS = [
   'Professional', 'Creative', 'On time', 'Great communication',
@@ -23,6 +26,8 @@ export default function WriteReview({ route, navigation }) {
   const [loading, setLoading] = useState(false);
   const s = makeStyles(theme);
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
 
   const ratingLabels = ['', 'Poor', 'Below average', 'Good', 'Very good', 'Excellent!'];
 
@@ -92,11 +97,11 @@ export default function WriteReview({ route, navigation }) {
   }
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
       <AppHeader title="Write a review" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={isDesktopWeb && ds.centerCol}>
 
         {/* Provider info */}
         <View style={s.providerCard}>
@@ -190,9 +195,9 @@ export default function WriteReview({ route, navigation }) {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      <View style={[s.bottomBar, { paddingBottom: 16 + insets.bottom }]}>
+      <View style={[s.bottomBar, { paddingBottom: 16 + insets.bottom }, isDesktopWeb && ds.bottomBarDesktop]}>
         <TouchableOpacity
-          style={[s.submitBtn, (rating === 0 || loading) && s.submitBtnDisabled]}
+          style={[s.submitBtn, (rating === 0 || loading) && s.submitBtnDisabled, isDesktopWeb && ds.submitBtnDesktop]}
           onPress={handleSubmit}
           disabled={rating === 0 || loading}
         >
@@ -249,3 +254,11 @@ function makeStyles(theme) {
     submitBtnText: { color: theme.btnPrimaryText, fontSize: 15, fontWeight: '700' },
   });
 }
+
+// Desktop: centers the exact same form, per this screen's own
+// "simple/centered" classification -- doesn't restyle the content.
+const ds = StyleSheet.create({
+  centerCol: { maxWidth: 560, width: '100%', alignSelf: 'center', paddingTop: 12 },
+  bottomBarDesktop: { alignItems: 'center' },
+  submitBtnDesktop: { maxWidth: 560, width: '100%' },
+});

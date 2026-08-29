@@ -1,15 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Modal
+  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
 import { notifyNewMessage } from '../../notifications';
+import { CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 export default function ChatScreen({ route, navigation }) {
   const { booking, receiverId, receiverName } = route.params;
   const { theme } = useTheme();
+  const { width } = useWindowDimensions();
+  // Chat's own pattern (neither list/table nor form+preview) -- a centered,
+  // narrower column reads better for a message thread than edge-to-edge on
+  // a wide screen, same instinct as messaging apps' own centered-pane
+  // convention; content/logic completely unchanged.
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -225,7 +234,7 @@ export default function ChatScreen({ route, navigation }) {
   const showProceedToPayment = booking.status === 'inquiry' && !!confirmedPriceMessage && currentUserId === booking.customer_id;
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
       {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -256,7 +265,7 @@ export default function ChatScreen({ route, navigation }) {
       )}
 
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={[{ flex: 1 }, isDesktopWeb && ds.centerCol]}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
@@ -573,3 +582,10 @@ function makeStyles(theme) {
     cardTimestamp: { fontSize: 10, color: theme.textTertiary, marginTop: 8, textAlign: 'right' },
   });
 }
+
+// Desktop: centers the exact same thread (message list + input bar), same
+// content/logic, just narrower -- matches messaging apps' own centered-
+// pane convention rather than stretching a chat thread edge to edge.
+const ds = StyleSheet.create({
+  centerCol: { width: '100%', maxWidth: 720, alignSelf: 'center' },
+});

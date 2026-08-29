@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator, Share, Modal, KeyboardAvoidingView, Platform
+  View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator, Share, Modal, KeyboardAvoidingView, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -9,6 +9,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import { showAlert, confirmDestructive } from '../../helpers';
 import SwipeableRow from '../../components/SwipeableRow';
 import AppHeader from '../../components/AppHeader';
+import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
+import { MAROON, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 const CATEGORIES = ['Decorator', 'Caterer', 'Photographer', 'DJ', 'Mehendi', 'Makeup', 'Venue', 'Other'];
 
@@ -16,6 +20,8 @@ export default function PersonalVendors({ route, navigation }) {
   const { savedPlanId, bookingId, eventTitle } = route.params || {};
   const { theme } = useTheme();
   const s = makeStyles(theme);
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -111,6 +117,73 @@ export default function PersonalVendors({ route, navigation }) {
     }
   }
 
+  const addModalEl = (
+    <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={() => setShowAddModal(false)}>
+      <KeyboardAvoidingView style={[s.modalOverlay, isDesktopWeb && { justifyContent: 'center' }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[s.modalSheet, isDesktopWeb && ds.modalDesktop]}>
+          <View style={s.modalHeader}>
+            <Text style={s.modalTitle}>Add a vendor</Text>
+            <TouchableOpacity onPress={() => setShowAddModal(false)}>
+              <Text style={s.modalClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <TextInput style={s.input} placeholder="Vendor name" placeholderTextColor={theme.textTertiary} value={name} onChangeText={setName} />
+          <TextInput style={s.input} placeholder="Phone number" placeholderTextColor={theme.textTertiary} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+          <View style={s.chipsWrap}>
+            {CATEGORIES.map(cat => (
+              <TouchableOpacity key={cat} style={[s.chip, category === cat && s.chipActive]} onPress={() => setCategory(cat)}>
+                <Text style={[s.chipText, category === cat && s.chipTextActive]}>{cat}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.7 }]} onPress={addVendor} disabled={saving}>
+            {saving ? <ActivityIndicator color={theme.btnPrimaryText} /> : <Text style={s.saveBtnText}>Add & share chat link</Text>}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+
+  if (isDesktopWeb) {
+    return (
+      <DesktopStandalonePage
+        onBack={() => navigation.goBack()}
+        title="My vendors"
+        maxWidth={900}
+        right={<TouchableOpacity style={ds.addBtn} onPress={() => setShowAddModal(true)}><Text style={ds.addBtnText}>+ Add</Text></TouchableOpacity>}
+      >
+        {loading ? (
+          <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+        ) : vendors.length === 0 ? (
+          <View style={ds.emptyCard}>
+            <Text style={{ fontSize: 40, marginBottom: 10 }}>🤝</Text>
+            <Text style={ds.emptyTitle}>No personal vendors yet</Text>
+            <Text style={ds.emptySub}>Add any vendor you're working with outside Utsav — a family caterer, your own photographer — and chat with them right here.</Text>
+            <TouchableOpacity style={ds.addBtn} onPress={() => setShowAddModal(true)}><Text style={ds.addBtnText}>+ Add a vendor</Text></TouchableOpacity>
+          </View>
+        ) : (
+          <View style={ds.grid}>
+            {vendors.map(item => (
+              <View key={item.id} style={ds.card}>
+                <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }} onPress={() => navigation.navigate('PersonalVendorChat', { vendor: item })} activeOpacity={0.85}>
+                  <View style={ds.avatar}><Text style={ds.avatarText}>{item.name[0]}</Text></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={ds.name}>{item.name}</Text>
+                    <Text style={ds.meta}>{item.category || 'Vendor'} · {item.phone}</Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity style={ds.shareBtn} onPress={() => shareVendorLink(item)}>
+                  <Text style={{ fontSize: 15, color: MAROON }}>↑</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+        {addModalEl}
+      </DesktopStandalonePage>
+    );
+  }
+
   return (
     <SafeAreaView style={s.container}>
       <AppHeader
@@ -166,30 +239,7 @@ export default function PersonalVendors({ route, navigation }) {
         />
       )}
 
-      <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={() => setShowAddModal(false)}>
-        <KeyboardAvoidingView style={s.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={s.modalSheet}>
-            <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>Add a vendor</Text>
-              <TouchableOpacity onPress={() => setShowAddModal(false)}>
-                <Text style={s.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <TextInput style={s.input} placeholder="Vendor name" placeholderTextColor={theme.textTertiary} value={name} onChangeText={setName} />
-            <TextInput style={s.input} placeholder="Phone number" placeholderTextColor={theme.textTertiary} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-            <View style={s.chipsWrap}>
-              {CATEGORIES.map(cat => (
-                <TouchableOpacity key={cat} style={[s.chip, category === cat && s.chipActive]} onPress={() => setCategory(cat)}>
-                  <Text style={[s.chipText, category === cat && s.chipTextActive]}>{cat}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.7 }]} onPress={addVendor} disabled={saving}>
-              {saving ? <ActivityIndicator color={theme.btnPrimaryText} /> : <Text style={s.saveBtnText}>Add & share chat link</Text>}
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      {addModalEl}
     </SafeAreaView>
   );
 }
@@ -234,3 +284,19 @@ function makeStyles(theme) {
     saveBtnText: { color: theme.btnPrimaryText, fontSize: 15, fontWeight: '700' },
   });
 }
+
+const ds = StyleSheet.create({
+  addBtn: { backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 18, paddingVertical: 12 },
+  addBtnText: { color: '#fff', fontSize: 13.5, fontWeight: '700' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 17, color: TEXT, marginBottom: 8 },
+  emptySub: { fontSize: 13.5, color: MUTED, textAlign: 'center', lineHeight: 20, marginBottom: 20, maxWidth: 400 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  card: { width: 320, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: LINE, padding: 14 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: MAROON, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 16, color: '#fff', fontWeight: '700' },
+  name: { fontSize: 14, fontWeight: '700', color: TEXT },
+  meta: { fontSize: 12, color: MUTED, marginTop: 2 },
+  shareBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: CREAM, alignItems: 'center', justifyContent: 'center' },
+  modalDesktop: { maxWidth: 460, width: '100%', alignSelf: 'center', borderRadius: 22 },
+});
