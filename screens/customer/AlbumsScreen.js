@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, FlatList, Image, TextInput, Modal, ActivityIndicator, Dimensions, RefreshControl, KeyboardAvoidingView, Platform
+  View, Text, StyleSheet, TouchableOpacity, FlatList, Image, TextInput, Modal, ActivityIndicator, Dimensions, RefreshControl, KeyboardAvoidingView, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
@@ -10,6 +10,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { createRekognitionCollection, showAlert, confirmDestructive } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
 import { AWS_CONFIG } from '../../config';
+import { SectionEyebrow } from '../../components/desktop/DesktopKit';
+import { MAROON, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
 
 function generateInviteCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -17,10 +19,14 @@ function generateInviteCode() {
 
 const { width } = Dimensions.get('window');
 const CARD_SIZE = (width - 48) / 2;
+const DESKTOP_BREAKPOINT = 768;
+const DESKTOP_CARD_SIZE = 220;
 
 export default function AlbumsScreen({ navigation }) {
   const { theme } = useTheme();
   const s = styles(theme);
+  const { width: winWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && winWidth >= DESKTOP_BREAKPOINT;
 
   const [albums, setAlbums] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -192,42 +198,8 @@ export default function AlbumsScreen({ navigation }) {
     );
   }
 
-  return (
-    <SafeAreaView style={s.container}>
-      {/* Header */}
-      <AppHeader
-        title="Albums"
-        large
-        theme={theme}
-        navigation={navigation}
-        rightActions={[
-          <TouchableOpacity key="add" style={s.addBtn} onPress={() => setModalVisible(true)}>
-            <Plus size={20} color={theme.bg} />
-          </TouchableOpacity>,
-        ]}
-      />
-
-      {loading ? (
-        <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
-      ) : albums.length === 0 ? (
-        <View style={s.empty}>
-          <FolderOpen size={56} color={theme.border} />
-          <Text style={s.emptyTitle}>No albums yet</Text>
-          <Text style={s.emptySubtitle}>Tap + to create your first album</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={albums}
-          keyExtractor={item => item.id}
-          renderItem={renderAlbum}
-          numColumns={2}
-          columnWrapperStyle={{ gap: 12 }}
-          contentContainerStyle={s.grid}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
-        />
-      )}
-
-      {/* Create Album Modal */}
+  function renderCreateModal() {
+    return (
       <Modal
         visible={modalVisible}
         transparent
@@ -277,6 +249,100 @@ export default function AlbumsScreen({ navigation }) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+    );
+  }
+
+  if (isDesktopWeb) {
+    return (
+      <View style={ds.page}>
+        <View style={ds.scroll}>
+          <View style={ds.headerRow}>
+            <View>
+              <SectionEyebrow>YOUR MEMORIES</SectionEyebrow>
+              <Text style={ds.title}>Albums</Text>
+            </View>
+            <TouchableOpacity style={ds.addBtn} onPress={() => setModalVisible(true)}>
+              <Plus size={16} color="#fff" />
+              <Text style={ds.addBtnText}>New album</Text>
+            </TouchableOpacity>
+          </View>
+
+          {loading ? (
+            <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+          ) : albums.length === 0 ? (
+            <View style={ds.emptyCard}>
+              <FolderOpen size={40} color={MUTED} />
+              <Text style={ds.emptyTitle}>No albums yet</Text>
+              <Text style={ds.emptySub}>Create your first album to start collecting photos</Text>
+            </View>
+          ) : (
+            <View style={ds.grid}>
+              {albums.map(item => {
+                const isOwner = item.user_id === userId;
+                return (
+                  <View key={item.id} style={ds.card}>
+                    <TouchableOpacity onPress={() => navigation.navigate('AlbumDetail', { album: item, userId })} activeOpacity={0.85}>
+                      {item.cover_url ? (
+                        <Image source={{ uri: item.cover_url }} style={ds.cardImage} />
+                      ) : (
+                        <View style={ds.cardPlaceholder}><FolderOpen size={30} color={MAROON} /></View>
+                      )}
+                      <View style={ds.cardFooter}>
+                        <Text style={ds.cardName} numberOfLines={1}>{item.name}</Text>
+                      </View>
+                    </TouchableOpacity>
+                    {isOwner && (
+                      <TouchableOpacity style={ds.cardDeleteBtn} onPress={() => deleteAlbum(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Trash size={13} color="#FFF" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+        {renderCreateModal()}
+      </View>
+    );
+  }
+
+  return (
+    <SafeAreaView style={s.container}>
+      {/* Header */}
+      <AppHeader
+        title="Albums"
+        large
+        theme={theme}
+        navigation={navigation}
+        rightActions={[
+          <TouchableOpacity key="add" style={s.addBtn} onPress={() => setModalVisible(true)}>
+            <Plus size={20} color={theme.bg} />
+          </TouchableOpacity>,
+        ]}
+      />
+
+      {loading ? (
+        <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
+      ) : albums.length === 0 ? (
+        <View style={s.empty}>
+          <FolderOpen size={56} color={theme.border} />
+          <Text style={s.emptyTitle}>No albums yet</Text>
+          <Text style={s.emptySubtitle}>Tap + to create your first album</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={albums}
+          keyExtractor={item => item.id}
+          renderItem={renderAlbum}
+          numColumns={2}
+          columnWrapperStyle={{ gap: 12 }}
+          contentContainerStyle={s.grid}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
+        />
+      )}
+
+      {renderCreateModal()}
     </SafeAreaView>
   );
 }
@@ -342,4 +408,27 @@ const styles = theme => StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   checkboxActive: { backgroundColor: theme.accent, borderColor: theme.accent },
+});
+
+// Desktop styles -- colours from lib/desktopTheme.js only. The create-album
+// modal is deliberately reused unchanged (renderCreateModal, above) rather
+// than reskinned -- it's a plain overlay, already theme-aware, and adds no
+// real visual inconsistency floating over the desktop page.
+const ds = StyleSheet.create({
+  page: { flex: 1, backgroundColor: CREAM },
+  scroll: { padding: 32, maxWidth: 1180, width: '100%', alignSelf: 'center' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 26 },
+  title: { fontFamily: 'Fraunces-SemiBold', fontSize: 26, color: TEXT, marginTop: 2 },
+  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 11 },
+  addBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', gap: 8 },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT },
+  emptySub: { fontSize: 13, color: MUTED, textAlign: 'center' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  card: { width: DESKTOP_CARD_SIZE, borderRadius: 16, overflow: 'hidden', backgroundColor: CARD, borderWidth: 1, borderColor: LINE },
+  cardImage: { width: DESKTOP_CARD_SIZE, height: DESKTOP_CARD_SIZE * 0.8, resizeMode: 'cover' },
+  cardPlaceholder: { width: DESKTOP_CARD_SIZE, height: DESKTOP_CARD_SIZE * 0.8, alignItems: 'center', justifyContent: 'center', backgroundColor: CREAM },
+  cardFooter: { padding: 12 },
+  cardName: { fontSize: 13.5, fontWeight: '700', color: TEXT, fontFamily: 'Manrope-SemiBold' },
+  cardDeleteBtn: { position: 'absolute', top: 10, right: 10, width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
 });

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, StyleSheet, Switch, Alert, Linking, Platform, Modal, TextInput, Image, ActivityIndicator, KeyboardAvoidingView
+  View, Text, TouchableOpacity, ScrollView, StyleSheet, Switch, Alert, Linking, Platform, Modal, TextInput, Image, ActivityIndicator, KeyboardAvoidingView, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -15,7 +15,9 @@ import { useCapabilityRules } from '../../hooks/useCapabilities';
 import { resolveCapabilities, isEnabled } from '../../lib/capabilities';
 import { PUBLIC_WEB_URL } from '../../config';
 import { TOUR_DEFINITIONS } from '../../lib/tourTargets';
+import { CREAM } from '../../lib/desktopTheme';
 
+const DESKTOP_BREAKPOINT = 768;
 const CITIES = ['Delhi', 'Mumbai', 'Bangalore', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune', 'Ahmedabad'];
 const LANGUAGES = [
   { value: 'en', label: 'English' },
@@ -44,6 +46,16 @@ function formatDob(dateOfBirth) {
 
 export default function ProfileScreen({ navigation }) {
   const { theme, isDark, toggleTheme } = useTheme();
+  const { width } = useWindowDimensions();
+  // This screen is a real "settings list" (per the desktop-shell brief's
+  // own carve-out) rather than a list/table, form+preview, or stats/
+  // summary fit -- every modal here (city/language/edit-profile/delete-
+  // account) is proven, native-pattern UI already. Rather than a bespoke
+  // desktop reskin, this just centers the exact same content in a
+  // constrained column on wide screens -- "consistent chrome around it
+  // matters more than making every screen into a table it was never
+  // meant to be."
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [user, setUser] = useState(null);
   const [hostEvents, setHostEvents] = useState([]);
   const { rules: capabilityRules } = useCapabilityRules();
@@ -318,7 +330,7 @@ export default function ProfileScreen({ navigation }) {
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
 
   return (
-    <SafeAreaView style={s.container}>
+    <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
       <AppHeader
         title="Profile"
         large
@@ -334,7 +346,7 @@ export default function ProfileScreen({ navigation }) {
           </TouchableOpacity>,
         ]}
       />
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={isDesktopWeb && ds.centerCol}>
 
         <View style={s.profileCard}>
           <TouchableOpacity style={s.avatarRing} onPress={pickAvatarImage} disabled={uploadingAvatar}>
@@ -497,7 +509,7 @@ export default function ProfileScreen({ navigation }) {
       <Modal visible={cityModalVisible} transparent animationType="fade" onRequestClose={() => setCityModalVisible(false)}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setCityModalVisible(false)}>
-          <TouchableOpacity style={s.modalCard} activeOpacity={1} onPress={() => {}}>
+          <TouchableOpacity style={[s.modalCard, isDesktopWeb && ds.modalCardDesktop]} activeOpacity={1} onPress={() => {}}>
             <Text style={s.modalTitle}>Choose your city</Text>
             <View style={s.chipsWrap}>
               {CITIES.map(city => (
@@ -544,7 +556,7 @@ export default function ProfileScreen({ navigation }) {
           activeOpacity={1}
           onPress={() => { setDeleteAccountModal(false); setDeleteConfirmText(''); }}
         >
-          <TouchableOpacity style={s.modalCard} activeOpacity={1} onPress={() => {}}>
+          <TouchableOpacity style={[s.modalCard, isDesktopWeb && ds.modalCardDesktop]} activeOpacity={1} onPress={() => {}}>
             <Text style={s.modalTitle}>Delete your account?</Text>
             <Text style={{ fontSize: 13.5, color: theme.textSecondary, lineHeight: 20, marginBottom: 16 }}>
               You'll be signed out immediately. Your profile, events, guest lists,
@@ -585,7 +597,7 @@ export default function ProfileScreen({ navigation }) {
       {/* Language picker */}
       <Modal visible={languageModalVisible} transparent animationType="fade" onRequestClose={() => setLanguageModalVisible(false)}>
         <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setLanguageModalVisible(false)}>
-          <TouchableOpacity style={s.modalCard} activeOpacity={1} onPress={() => {}}>
+          <TouchableOpacity style={[s.modalCard, isDesktopWeb && ds.modalCardDesktop]} activeOpacity={1} onPress={() => {}}>
             <Text style={s.modalTitle}>Choose your language</Text>
             <Text style={s.modalHint}>Used as the default for voice input on the Plan screen.</Text>
             {LANGUAGES.map(lang => (
@@ -608,7 +620,7 @@ export default function ProfileScreen({ navigation }) {
       <Modal visible={editModalVisible} transparent animationType="slide" onRequestClose={() => setEditModalVisible(false)}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setEditModalVisible(false)}>
-          <TouchableOpacity style={s.modalCard} activeOpacity={1} onPress={() => {}}>
+          <TouchableOpacity style={[s.modalCard, isDesktopWeb && ds.modalCardDesktop]} activeOpacity={1} onPress={() => {}}>
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <Text style={s.modalTitle}>Edit profile</Text>
 
@@ -821,3 +833,13 @@ function makeStyles(theme) {
     langCheck: { fontSize: 15, color: theme.accent, fontWeight: '700' },
   });
 }
+
+// Desktop: just constrains + centers the same content, doesn't restyle it.
+// modalCardDesktop turns the mobile edge-to-edge bottom sheet into a
+// centered floating card (still the same content/fields/logic inside,
+// unchanged) -- a full-width sheet pinned to the bottom of a 1440px
+// screen would read as broken, not just "simple."
+const ds = StyleSheet.create({
+  centerCol: { maxWidth: 640, width: '100%', alignSelf: 'center', paddingTop: 12 },
+  modalCardDesktop: { maxWidth: 480, width: '100%', alignSelf: 'center', borderRadius: 22, marginBottom: 40 },
+});

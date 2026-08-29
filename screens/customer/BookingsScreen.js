@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Alert, Platform,
-  Modal, TextInput, KeyboardAvoidingView
+  Modal, TextInput, KeyboardAvoidingView, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -13,6 +13,10 @@ import { notifyServiceConfirmed, notifyBookingCompleted, notifyDisputeRaised } f
 import { canFastPathComplete } from '../../lib/bookingLifecycle';
 import SwipeableRow from '../../components/SwipeableRow';
 import AppHeader from '../../components/AppHeader';
+import { SectionEyebrow } from '../../components/desktop/DesktopKit';
+import { MAROON, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 // Cancellable from the customer's side — a completed/declined/cancelled/
 // reviewed booking is a closed record, nothing left to cancel.
@@ -25,6 +29,8 @@ const DELETABLE_STATUSES = ['completed', 'declined', 'cancelled', 'reviewed'];
 
 export default function BookingsScreen({ navigation, route }) {
   const { theme } = useTheme();
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -333,6 +339,322 @@ export default function BookingsScreen({ navigation, route }) {
     return icons[eventType] || '🎉';
   }
 
+  // Extracted so the desktop grid below and the mobile stacked list can
+  // render the exact same card -- same handlers, same conditional buttons,
+  // same dispute/closure logic -- with zero duplicated business logic on a
+  // screen where getting a status/action wrong is a real-money mistake.
+  // Only the OUTER layout (grid vs. stacked list, swipe-to-cancel vs. a
+  // plain button) differs between the two branches.
+  function renderBookingContent(booking) {
+    const st = STATUS[booking.status] || STATUS.pending;
+    const isUpcoming = activeTab === 'upcoming';
+    const daysUntil = getDaysUntil(booking.event_date);
+    const isUrgent = booking.status === 'confirmed' &&
+      new Date(booking.event_date) - new Date() < 7 * 24 * 60 * 60 * 1000 &&
+      new Date(booking.event_date) > new Date();
+    const awaitingClosure = booking.status === 'confirmed' && new Date(booking.event_date) < new Date();
+    const isDisputed = booking.dispute_status === 'raised';
+
+    return (
+      <TouchableOpacity
+        style={[s.bookingCard, isUrgent && s.bookingCardUrgent]}
+        activeOpacity={0.85}
+        onPress={() => openBooking(booking)}
+      >
+        {isUrgent && (
+          <View style={s.urgentBanner}>
+            <Text style={s.urgentText}>
+              🔔 Event {daysUntil} — confirm all details with your provider!
+            </Text>
+          </View>
+        )}
+
+        {/* Card top */}
+        <View style={s.cardTop}>
+          <View style={s.eventIconBox}>
+            <Text style={s.eventIcon}>{getEventIcon(booking.event_type)}</Text>
+          </View>
+          <View style={s.cardTopInfo}>
+            <Text style={s.bookingTitle}>
+              {booking.event_type}
+              <Text style={s.bookingProvider}> · {booking.providerName}</Text>
+            </Text>
+            <Text style={s.bookingCategory}>{booking.providers?.category}</Text>
+          </View>
+          <View style={[s.statusBadge, { backgroundColor: st.bg }]}>
+            <Text style={[s.statusText, { color: st.color }]}>
+              {st.icon} {st.label}
+            </Text>
+          </View>
+        </View>
+
+        {/* Details */}
+        <View style={s.cardDetails}>
+          <View style={s.detailRow}>
+            <Text style={s.detailIcon}>📅</Text>
+            <View style={s.detailRight}>
+              <Text style={s.detailText}>
+                {new Date(booking.event_date).toLocaleDateString('en-IN', {
+                  weekday: 'long', day: 'numeric',
+                  month: 'long', year: 'numeric'
+                })}
+                {booking.event_time ? ` · ${formatTimeLabel(booking.event_time)}` : ''}
+              </Text>
+              {isUpcoming && (
+                <Text style={[s.daysUntil, {
+                  color: daysUntil.includes('Today') || daysUntil.includes('Tomorrow')
+                    ? theme.statusPendingText : theme.textSecondary
+                }]}>
+                  {daysUntil}
+                </Text>
+              )}
+            </View>
+          </View>
+          <View style={s.detailRow}>
+            <Text style={s.detailIcon}>📍</Text>
+            <Text style={s.detailText}>{booking.venue}</Text>
+          </View>
+          <View style={s.detailRow}>
+            <Text style={s.detailIcon}>👥</Text>
+            <Text style={s.detailText}>{booking.guest_count} guests</Text>
+          </View>
+          {booking.notes ? (
+            <View style={s.detailRow}>
+              <Text style={s.detailIcon}>📝</Text>
+              <Text style={s.detailText} numberOfLines={2}>{booking.notes}</Text>
+            </View>
+          ) : null}
+          {booking.eventId && (
+            <TouchableOpacity
+              style={s.planLinkRow}
+              onPress={() => navigation.navigate('PlanView', { eventId: booking.eventId })}
+            >
+              <Text style={s.planLinkText}>📋 View event plan →</Text>
+            </TouchableOpacity>
+          )}
+          <Text style={s.tapHint}>
+            {booking.status === 'payment_pending' ? 'Tap to recheck details and complete payment →' : 'Tap to view or modify →'}
+          </Text>
+        </View>
+
+        {/* Amount */}
+        <View style={s.amountRow}>
+          <View>
+            <Text style={s.amountLabel}>Total amount</Text>
+            <Text style={s.amountValue}>
+              ₹{booking.total_amount?.toLocaleString()}
+            </Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={s.amountLabel}>Booking ID</Text>
+            <Text style={s.bookingId}>
+              {booking.id?.slice(0, 8).toUpperCase()}
+            </Text>
+          </View>
+        </View>
+
+        {/* Mutual-confirmation closure — event's happened, booking's
+            still 'confirmed'. Disputed takes priority over showing
+            the confirm/dispute buttons; a host who already confirmed
+            sees a waiting note instead of the button again. */}
+        {isDisputed ? (
+          <View style={s.disputeBanner}>
+            <Text style={s.disputeBannerText}>
+              ⚠️ Dispute raised{booking.dispute_raised_by === 'host' ? ' by you' : ' by the provider'} — our team is reviewing it.
+            </Text>
+          </View>
+        ) : awaitingClosure && (
+          <View style={s.closureBox}>
+            {booking.host_confirmed_at ? (
+              <Text style={s.closureWaitingText}>✓ You confirmed — waiting for the provider to confirm too.</Text>
+            ) : (
+              <View style={s.closureBtnRow}>
+                <TouchableOpacity
+                  style={s.confirmDeliveredBtn}
+                  onPress={() => confirmServiceDelivered(booking)}
+                  disabled={confirmingId === booking.id}
+                >
+                  {confirmingId === booking.id
+                    ? <ActivityIndicator size="small" color="#FFF" />
+                    : <Text style={s.confirmDeliveredBtnText}>✓ Confirm service delivered</Text>
+                  }
+                </TouchableOpacity>
+                <TouchableOpacity style={s.disputeBtn} onPress={() => openDisputeModal(booking)}>
+                  <Text style={s.disputeBtnText}>Something's wrong</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Actions */}
+        <View style={s.actionRow}>
+          {(booking.status === 'confirmed' || booking.status === 'completed') && (
+            <TouchableOpacity
+              style={s.vendorsLinkBtn}
+              onPress={() => navigation.navigate('PersonalVendors', {
+                bookingId: booking.id,
+                eventTitle: booking.event_type,
+              })}
+            >
+              <Text style={s.vendorsLinkBtnText}>🤝 My vendors</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={s.actionRow}>
+          {booking.status === 'payment_pending' && (
+            <TouchableOpacity
+              style={[s.primaryBtn, { backgroundColor: '#2E7D32', flex: 1 }]}
+              onPress={() => openBooking(booking)}
+            >
+              <Text style={s.primaryBtnText}>Complete payment →</Text>
+            </TouchableOpacity>
+          )}
+
+          {booking.status === 'pending' && (
+            <TouchableOpacity
+              style={[s.primaryBtn, { flex: 1 }]}
+              onPress={() => openBooking(booking)}
+            >
+              <Text style={s.primaryBtnText}>Select terms & pay →</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Chat stays available for 'pending' too — it's the whole
+              point of that state (negotiating terms before paying),
+              unlike payment_pending where terms are already settled
+              and chat isn't the next action. */}
+          {booking.status !== 'payment_pending' && (
+            <TouchableOpacity
+              style={[s.primaryBtn, { flex: 1 }]}
+              onPress={() => navigation.navigate('Chat', {
+                booking,
+                receiverId: booking.providers?.user_id,
+                receiverName: booking.providerName,
+              })}
+            >
+              <Text style={s.primaryBtnText}>💬 Message</Text>
+            </TouchableOpacity>
+          )}
+
+          {activeTab === 'past' && booking.status === 'completed' && (
+            <TouchableOpacity
+              style={s.reviewBtn}
+              onPress={() => navigation.navigate('WriteReview', { booking })}
+            >
+              <Text style={s.reviewBtnText}>⭐ Review</Text>
+            </TouchableOpacity>
+          )}
+
+          {(booking.status === 'completed' || booking.status === 'reviewed') && (
+            <TouchableOpacity
+              style={s.reviewBtn}
+              onPress={() => navigation.navigate('ShareEventPhotos', { booking })}
+            >
+              <Text style={s.reviewBtnText}>📸 Share photos</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {booking.payment_id && (
+          <TouchableOpacity
+            style={s.receiptRow}
+            onPress={() => navigation.navigate('PaymentReceipt', { booking })}
+          >
+            <Text style={s.receiptRowText}>🧾 View receipt →</Text>
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    );
+  }
+
+  if (isDesktopWeb) {
+    return (
+      <View style={ds.page}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={ds.scroll}>
+          <View style={ds.headerRow}>
+            <View>
+              <SectionEyebrow>{savedPlanId && planTitle ? planTitle.toUpperCase() : 'YOUR BOOKINGS'}</SectionEyebrow>
+              <Text style={ds.title}>{savedPlanId ? 'Plan bookings' : 'Bookings'}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity style={ds.iconBtn} onPress={() => navigation.navigate('PersonalVendors')}>
+                <Text style={{ fontSize: 15 }}>🤝</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={ds.iconBtn} onPress={() => navigation.navigate('Inbox')}>
+                <Text style={{ fontSize: 15 }}>💬</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={ds.tabRow}>
+            <TouchableOpacity style={[ds.tab, activeTab === 'upcoming' && ds.tabActive]} onPress={() => setActiveTab('upcoming')}>
+              <Text style={[ds.tabText, activeTab === 'upcoming' && ds.tabTextActive]}>Upcoming {upcoming.length > 0 ? `(${upcoming.length})` : ''}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[ds.tab, activeTab === 'past' && ds.tabActive]} onPress={() => setActiveTab('past')}>
+              <Text style={[ds.tabText, activeTab === 'past' && ds.tabTextActive]}>Past {past.length > 0 ? `(${past.length})` : ''}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {loading ? (
+            <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+          ) : displayed.length === 0 ? (
+            <View style={ds.emptyCard}>
+              <Text style={{ fontSize: 30, marginBottom: 10 }}>{activeTab === 'upcoming' ? '📅' : '📋'}</Text>
+              <Text style={ds.emptyTitle}>{activeTab === 'upcoming' ? 'No upcoming bookings' : 'No past bookings'}</Text>
+              <Text style={ds.emptySub}>{activeTab === 'upcoming' ? 'Discover vendors and book your first event service' : 'Your completed bookings will appear here'}</Text>
+              {activeTab === 'upcoming' && (
+                <TouchableOpacity style={ds.discoverBtn} onPress={() => navigation.navigate('Discover')}>
+                  <Text style={ds.discoverBtnText}>Browse vendors →</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <View style={ds.grid}>
+              {displayed.map(booking => {
+                const canCancel = CANCELLABLE_STATUSES.includes(booking.status);
+                const canDeleteRow = DELETABLE_STATUSES.includes(booking.status);
+                return (
+                  <View key={booking.id} style={ds.cardWrap}>
+                    {renderBookingContent(booking)}
+                    {canCancel && (
+                      <TouchableOpacity style={ds.cardFootAction} onPress={() => cancelBooking(booking)}>
+                        <Text style={ds.cardFootActionText}>Cancel booking</Text>
+                      </TouchableOpacity>
+                    )}
+                    {canDeleteRow && (
+                      <TouchableOpacity style={ds.cardFootAction} onPress={() => deleteBooking(booking)}>
+                        <Text style={ds.cardFootActionText}>Remove from list</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </ScrollView>
+
+        <Modal visible={!!disputeModalBooking} transparent animationType="fade" onRequestClose={() => setDisputeModalBooking(null)}>
+          <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <View style={s.modal}>
+              <Text style={s.modalTitle}>Raise a dispute</Text>
+              <Text style={s.modalHint}>This freezes the booking and notifies the provider and our team — it won't auto-complete while a dispute is open.</Text>
+              <TextInput style={s.disputeInput} placeholder="What went wrong?" placeholderTextColor={theme.textTertiary} value={disputeNotes} onChangeText={setDisputeNotes} multiline autoFocus />
+              <View style={s.modalActions}>
+                <TouchableOpacity style={s.modalCancelBtn} onPress={() => setDisputeModalBooking(null)}>
+                  <Text style={s.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.modalSubmitBtn} onPress={submitDispute} disabled={disputing}>
+                  {disputing ? <ActivityIndicator color="#FFF" /> : <Text style={s.modalSubmitText}>Submit dispute</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={s.container}>
       <AppHeader
@@ -409,232 +731,7 @@ export default function BookingsScreen({ navigation, route }) {
           }
         >
           {displayed.map(booking => {
-            const st = STATUS[booking.status] || STATUS.pending;
-            const isUpcoming = activeTab === 'upcoming';
-            const daysUntil = getDaysUntil(booking.event_date);
-            const isUrgent = booking.status === 'confirmed' &&
-              new Date(booking.event_date) - new Date() < 7 * 24 * 60 * 60 * 1000 &&
-              new Date(booking.event_date) > new Date();
-            // Event already happened but the booking hasn't reached
-            // 'completed' yet — the window where "Confirm service delivered"
-            // / "Something's wrong" actions apply. Same condition the
-            // "past" tab itself already uses to surface a still-confirmed
-            // booking (see the `past` filter above), so this is exactly the
-            // set of cards a host would expect to be able to close out.
-            const awaitingClosure = booking.status === 'confirmed' && new Date(booking.event_date) < new Date();
-            const isDisputed = booking.dispute_status === 'raised';
-
-            const content = (
-              <TouchableOpacity
-                style={[s.bookingCard, isUrgent && s.bookingCardUrgent]}
-                activeOpacity={0.85}
-                onPress={() => openBooking(booking)}
-              >
-                {isUrgent && (
-                  <View style={s.urgentBanner}>
-                    <Text style={s.urgentText}>
-                      🔔 Event {daysUntil} — confirm all details with your provider!
-                    </Text>
-                  </View>
-                )}
-
-                {/* Card top */}
-                <View style={s.cardTop}>
-                  <View style={s.eventIconBox}>
-                    <Text style={s.eventIcon}>{getEventIcon(booking.event_type)}</Text>
-                  </View>
-                  <View style={s.cardTopInfo}>
-                    <Text style={s.bookingTitle}>
-                      {booking.event_type}
-                      <Text style={s.bookingProvider}> · {booking.providerName}</Text>
-                    </Text>
-                    <Text style={s.bookingCategory}>{booking.providers?.category}</Text>
-                  </View>
-                  <View style={[s.statusBadge, { backgroundColor: st.bg }]}>
-                    <Text style={[s.statusText, { color: st.color }]}>
-                      {st.icon} {st.label}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Details */}
-                <View style={s.cardDetails}>
-                  <View style={s.detailRow}>
-                    <Text style={s.detailIcon}>📅</Text>
-                    <View style={s.detailRight}>
-                      <Text style={s.detailText}>
-                        {new Date(booking.event_date).toLocaleDateString('en-IN', {
-                          weekday: 'long', day: 'numeric',
-                          month: 'long', year: 'numeric'
-                        })}
-                        {booking.event_time ? ` · ${formatTimeLabel(booking.event_time)}` : ''}
-                      </Text>
-                      {isUpcoming && (
-                        <Text style={[s.daysUntil, {
-                          color: daysUntil.includes('Today') || daysUntil.includes('Tomorrow')
-                            ? theme.statusPendingText : theme.textSecondary
-                        }]}>
-                          {daysUntil}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                  <View style={s.detailRow}>
-                    <Text style={s.detailIcon}>📍</Text>
-                    <Text style={s.detailText}>{booking.venue}</Text>
-                  </View>
-                  <View style={s.detailRow}>
-                    <Text style={s.detailIcon}>👥</Text>
-                    <Text style={s.detailText}>{booking.guest_count} guests</Text>
-                  </View>
-                  {booking.notes ? (
-                    <View style={s.detailRow}>
-                      <Text style={s.detailIcon}>📝</Text>
-                      <Text style={s.detailText} numberOfLines={2}>{booking.notes}</Text>
-                    </View>
-                  ) : null}
-                  {booking.eventId && (
-                    <TouchableOpacity
-                      style={s.planLinkRow}
-                      onPress={() => navigation.navigate('PlanView', { eventId: booking.eventId })}
-                    >
-                      <Text style={s.planLinkText}>📋 View event plan →</Text>
-                    </TouchableOpacity>
-                  )}
-                  <Text style={s.tapHint}>
-                    {booking.status === 'payment_pending' ? 'Tap to recheck details and complete payment →' : 'Tap to view or modify →'}
-                  </Text>
-                </View>
-
-                {/* Amount */}
-                <View style={s.amountRow}>
-                  <View>
-                    <Text style={s.amountLabel}>Total amount</Text>
-                    <Text style={s.amountValue}>
-                      ₹{booking.total_amount?.toLocaleString()}
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={s.amountLabel}>Booking ID</Text>
-                    <Text style={s.bookingId}>
-                      {booking.id?.slice(0, 8).toUpperCase()}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Mutual-confirmation closure — event's happened, booking's
-                    still 'confirmed'. Disputed takes priority over showing
-                    the confirm/dispute buttons; a host who already confirmed
-                    sees a waiting note instead of the button again. */}
-                {isDisputed ? (
-                  <View style={s.disputeBanner}>
-                    <Text style={s.disputeBannerText}>
-                      ⚠️ Dispute raised{booking.dispute_raised_by === 'host' ? ' by you' : ' by the provider'} — our team is reviewing it.
-                    </Text>
-                  </View>
-                ) : awaitingClosure && (
-                  <View style={s.closureBox}>
-                    {booking.host_confirmed_at ? (
-                      <Text style={s.closureWaitingText}>✓ You confirmed — waiting for the provider to confirm too.</Text>
-                    ) : (
-                      <View style={s.closureBtnRow}>
-                        <TouchableOpacity
-                          style={s.confirmDeliveredBtn}
-                          onPress={() => confirmServiceDelivered(booking)}
-                          disabled={confirmingId === booking.id}
-                        >
-                          {confirmingId === booking.id
-                            ? <ActivityIndicator size="small" color="#FFF" />
-                            : <Text style={s.confirmDeliveredBtnText}>✓ Confirm service delivered</Text>
-                          }
-                        </TouchableOpacity>
-                        <TouchableOpacity style={s.disputeBtn} onPress={() => openDisputeModal(booking)}>
-                          <Text style={s.disputeBtnText}>Something's wrong</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
-                )}
-
-                {/* Actions */}
-                <View style={s.actionRow}>
-                  {(booking.status === 'confirmed' || booking.status === 'completed') && (
-                    <TouchableOpacity
-                      style={s.vendorsLinkBtn}
-                      onPress={() => navigation.navigate('PersonalVendors', {
-                        bookingId: booking.id,
-                        eventTitle: booking.event_type,
-                      })}
-                    >
-                      <Text style={s.vendorsLinkBtnText}>🤝 My vendors</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <View style={s.actionRow}>
-                  {booking.status === 'payment_pending' && (
-                    <TouchableOpacity
-                      style={[s.primaryBtn, { backgroundColor: '#2E7D32', flex: 1 }]}
-                      onPress={() => openBooking(booking)}
-                    >
-                      <Text style={s.primaryBtnText}>Complete payment →</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {booking.status === 'pending' && (
-                    <TouchableOpacity
-                      style={[s.primaryBtn, { flex: 1 }]}
-                      onPress={() => openBooking(booking)}
-                    >
-                      <Text style={s.primaryBtnText}>Select terms & pay →</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Chat stays available for 'pending' too — it's the whole
-                      point of that state (negotiating terms before paying),
-                      unlike payment_pending where terms are already settled
-                      and chat isn't the next action. */}
-                  {booking.status !== 'payment_pending' && (
-                    <TouchableOpacity
-                      style={[s.primaryBtn, { flex: 1 }]}
-                      onPress={() => navigation.navigate('Chat', {
-                        booking,
-                        receiverId: booking.providers?.user_id,
-                        receiverName: booking.providerName,
-                      })}
-                    >
-                      <Text style={s.primaryBtnText}>💬 Message</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {activeTab === 'past' && booking.status === 'completed' && (
-                    <TouchableOpacity
-                      style={s.reviewBtn}
-                      onPress={() => navigation.navigate('WriteReview', { booking })}
-                    >
-                      <Text style={s.reviewBtnText}>⭐ Review</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {(booking.status === 'completed' || booking.status === 'reviewed') && (
-                    <TouchableOpacity
-                      style={s.reviewBtn}
-                      onPress={() => navigation.navigate('ShareEventPhotos', { booking })}
-                    >
-                      <Text style={s.reviewBtnText}>📸 Share photos</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {booking.payment_id && (
-                  <TouchableOpacity
-                    style={s.receiptRow}
-                    onPress={() => navigation.navigate('PaymentReceipt', { booking })}
-                  >
-                    <Text style={s.receiptRowText}>🧾 View receipt →</Text>
-                  </TouchableOpacity>
-                )}
-              </TouchableOpacity>
-            );
+            const content = renderBookingContent(booking);
 
             if (CANCELLABLE_STATUSES.includes(booking.status)) {
               return (
@@ -789,3 +886,35 @@ function makeStyles(theme) {
     modalSubmitText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
   });
 }
+
+// Desktop chrome styles (page/header/tabs/grid) -- colours from
+// lib/desktopTheme.js only. The booking card itself deliberately keeps
+// its proven mobile styling (the `s` StyleSheet above, via
+// renderBookingContent) rather than a second bespoke reskin: this card
+// carries real payment/cancellation/dispute logic with ~10 conditional
+// button states, and duplicating that visual surface a second time would
+// risk a subtle mismatch on a screen where getting a status wrong is a
+// real-money mistake, not just a cosmetic one. The desktop treatment here
+// is the frame (maroon/cream page, grid layout, restyled tabs) around an
+// unchanged, already-tested card.
+const ds = StyleSheet.create({
+  page: { flex: 1, backgroundColor: CREAM },
+  scroll: { padding: 32, maxWidth: 1180, width: '100%', alignSelf: 'center' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
+  title: { fontFamily: 'Fraunces-SemiBold', fontSize: 26, color: TEXT, marginTop: 2 },
+  iconBtn: { width: 34, height: 34, borderRadius: 12, backgroundColor: CARD, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: LINE },
+  tabRow: { flexDirection: 'row', gap: 8, marginBottom: 22 },
+  tab: { paddingHorizontal: 18, paddingVertical: 9, borderRadius: 14, backgroundColor: CARD, borderWidth: 1, borderColor: LINE },
+  tabActive: { backgroundColor: MAROON, borderColor: MAROON },
+  tabText: { fontSize: 13, fontWeight: '600', color: MUTED },
+  tabTextActive: { color: '#fff' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
+  emptySub: { fontSize: 13, color: MUTED, marginBottom: 16, textAlign: 'center' },
+  discoverBtn: { backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 22, paddingVertical: 12 },
+  discoverBtnText: { color: '#fff', fontSize: 13.5, fontWeight: '700' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' },
+  cardWrap: { width: 420 },
+  cardFootAction: { alignItems: 'center', paddingVertical: 10, marginTop: 6, backgroundColor: CARD, borderRadius: 12, borderWidth: 1, borderColor: LINE },
+  cardFootActionText: { fontSize: 12.5, color: MUTED, fontWeight: '600' },
+});

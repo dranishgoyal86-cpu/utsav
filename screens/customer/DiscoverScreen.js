@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
@@ -9,8 +9,44 @@ import { useSavedProvider } from '../../hooks/useSavedProvider';
 import { CATEGORY_NAMES, getSubcategories, getCategoryIcon } from '../../serviceTemplates';
 import NotificationBell from '../../components/NotificationBell';
 import AppHeader from '../../components/AppHeader';
+import { SectionEyebrow } from '../../components/desktop/DesktopKit';
+import { MAROON, GOLD, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
 
 const CITIES = ['Delhi', 'Mumbai', 'Bangalore', 'Chennai', 'Hyderabad'];
+const DESKTOP_BREAKPOINT = 768;
+
+// ── Desktop provider card — grid tile, same data/handlers as the mobile
+// ProviderCard above, restyled per the list/table desktop pattern (a wide
+// grid of cards, same shape GuestTable-adjacent screens have used, applied
+// here since providers are naturally card-like, not row-like data). ──
+function DesktopProviderCard({ provider, onPress }) {
+  const { isSaved, loading: saveLoading, toggleSave } = useSavedProvider(provider.id);
+  return (
+    <View style={ds.card}>
+      <TouchableOpacity style={{ flex: 1 }} onPress={onPress} activeOpacity={0.85}>
+        <View style={ds.cardTop}>
+          <View style={ds.avatar}><Text style={ds.avatarText}>{provider.users?.name?.[0] || '?'}</Text></View>
+          <TouchableOpacity style={ds.heartBtn} onPress={toggleSave} disabled={saveLoading}>
+            <Text style={[ds.heartIcon, isSaved && ds.heartIconSaved]}>{isSaved ? '♥' : '♡'}</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={ds.cardName} numberOfLines={1}>{provider.users?.name}</Text>
+        <Text style={ds.cardMeta}>{provider.category} · {provider.city}</Text>
+        <View style={ds.ratingRow}>
+          <Text style={{ fontSize: 12 }}>⭐</Text>
+          <Text style={ds.rating}>{provider.rating?.toFixed(1) || 'New'}</Text>
+          <Text style={ds.reviews}>({provider.total_reviews || 0})</Text>
+          {provider.is_verified && (
+            <View style={ds.verifiedBadge}><Text style={ds.verifiedText}>✓ Verified</Text></View>
+          )}
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity style={ds.bookBtn} onPress={onPress}>
+        <Text style={ds.bookBtnText}>Book →</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 // ── Provider card with save/unsave heart ──────────────
 function ProviderCard({ provider, onPress, theme }) {
@@ -77,6 +113,8 @@ export default function DiscoverScreen({ navigation, route }) {
   const savedPlanId = route?.params?.savedPlanId || null;
   const eventTitle = route?.params?.eventTitle || null;
   const { theme } = useTheme();
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [selectedCity, setSelectedCity] = useState('Delhi');
   const [selectedCategory, setSelectedCategory] = useState(route?.params?.presetCategory || null);
   const [searchText, setSearchText] = useState('');
@@ -151,6 +189,100 @@ export default function DiscoverScreen({ navigation, route }) {
     p.users?.name?.toLowerCase().includes(searchText.toLowerCase()) ||
     p.category?.toLowerCase().includes(searchText.toLowerCase())
   );
+
+  if (isDesktopWeb) {
+    return (
+      <View style={ds.page}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={ds.scroll}>
+          <View style={ds.headerRow}>
+            <View>
+              <SectionEyebrow>DISCOVER</SectionEyebrow>
+              <Text style={ds.title}>Find providers in {selectedCity}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <TouchableOpacity style={ds.cityBtn} onPress={() => setShowCities(!showCities)}>
+                <Text style={ds.cityBtnText}>📍 {selectedCity} ▾</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={ds.iconBtn} onPress={() => navigation.navigate('PersonalVendors')}>
+                <Text style={{ fontSize: 15 }}>🤝</Text>
+              </TouchableOpacity>
+              <NotificationBell navigation={navigation} />
+            </View>
+          </View>
+
+          {showCities && (
+            <View style={ds.cityDropdown}>
+              {CITIES.map(city => (
+                <TouchableOpacity key={city} style={[ds.cityOption, selectedCity === city && ds.cityOptionActive]} onPress={() => { setSelectedCity(city); setShowCities(false); }}>
+                  <Text style={[ds.cityOptionText, selectedCity === city && ds.cityOptionTextActive]}>{city}</Text>
+                  {selectedCity === city && <Text style={{ color: MAROON, fontWeight: '700' }}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          <TouchableOpacity style={ds.searchRow} onPress={() => navigation.navigate('Search', { savedPlanId })} activeOpacity={0.8}>
+            <Text style={{ fontSize: 14 }}>🔍</Text>
+            <Text style={ds.searchPlaceholder}>Search providers, categories...</Text>
+          </TouchableOpacity>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginBottom: 22 }}>
+            <TouchableOpacity style={[ds.catChip, selectedCategory === null && ds.catChipActive]} onPress={() => setSelectedCategory(null)}>
+              <Text style={{ fontSize: 15 }}>✨</Text>
+              <Text style={[ds.catChipText, selectedCategory === null && ds.catChipTextActive]}>All</Text>
+            </TouchableOpacity>
+            {CATEGORY_NAMES.map(cat => (
+              <TouchableOpacity key={cat} style={[ds.catChip, selectedCategory === cat && ds.catChipActive]} onPress={() => setSelectedCategory(selectedCategory === cat ? null : cat)}>
+                <Text style={{ fontSize: 15 }}>{getCategoryIcon(cat)}</Text>
+                <Text style={[ds.catChipText, selectedCategory === cat && ds.catChipTextActive]}>{cat}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <View style={ds.sectionHeaderRow}>
+            <SectionEyebrow>
+              {selectedCategory ? `${selectedCategory.toUpperCase()} · ${selectedCity.toUpperCase()}` : `TOP PROVIDERS · ${selectedCity.toUpperCase()}`}
+            </SectionEyebrow>
+            {selectedCategory && (
+              <TouchableOpacity onPress={() => setSelectedCategory(null)}>
+                <Text style={{ fontSize: 12.5, color: MAROON, fontWeight: '700' }}>Clear ✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {selectedCategory && (
+            <TouchableOpacity style={{ marginBottom: 16 }} onPress={() => navigation.navigate('CategoryList', { category: selectedCategory, city: selectedCity })}>
+              <Text style={{ fontSize: 12.5, color: MAROON, fontWeight: '600' }}>Browse {selectedCategory} subcategories →</Text>
+            </TouchableOpacity>
+          )}
+
+          {loading ? (
+            <View style={{ paddingVertical: 50, alignItems: 'center' }}><ActivityIndicator color={MAROON} /></View>
+          ) : filteredProviders.length === 0 ? (
+            <View style={ds.emptyCard}>
+              <Text style={{ fontSize: 30, marginBottom: 10 }}>🔍</Text>
+              <Text style={ds.emptyTitle}>{searchText ? `No results for "${searchText}"` : `No providers in ${selectedCity}`}</Text>
+              <Text style={ds.emptySub}>{searchText ? 'Try a different search term' : 'Check back soon as more providers join!'}</Text>
+              <TouchableOpacity style={ds.addOwnBtn} onPress={() => navigation.navigate('PersonalVendors', { savedPlanId, eventTitle })}>
+                <Text style={ds.addOwnBtnText}>🤝 Add your own vendor instead</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              <View style={ds.grid}>
+                {filteredProviders.map(provider => (
+                  <DesktopProviderCard key={provider.id} provider={provider} onPress={() => navigation.navigate('ProviderProfile', { provider, savedPlanId })} />
+                ))}
+              </View>
+              <TouchableOpacity style={{ marginTop: 20, alignItems: 'center' }} onPress={() => navigation.navigate('PersonalVendors', { savedPlanId, eventTitle })}>
+                <Text style={{ fontSize: 13, color: MUTED, fontWeight: '600' }}>🤝 Can't find the right vendor? Add your own →</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={s.container}>
@@ -421,3 +553,49 @@ function makeStyles(theme) {
     addOwnLinkText: { fontSize: 13, color: theme.textSecondary, fontWeight: '600' },
   });
 }
+
+// Desktop styles -- colours from lib/desktopTheme.js only, fonts limited to
+// Fraunces/Cormorant Garamond/Manrope where used.
+const ds = StyleSheet.create({
+  page: { flex: 1, backgroundColor: CREAM },
+  scroll: { padding: 32, maxWidth: 1180, width: '100%', alignSelf: 'center' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 22 },
+  title: { fontFamily: 'Fraunces-SemiBold', fontSize: 26, color: TEXT, marginTop: 2 },
+  cityBtn: { backgroundColor: CARD, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: LINE },
+  cityBtnText: { fontSize: 13, color: TEXT, fontWeight: '600' },
+  iconBtn: { width: 34, height: 34, borderRadius: 12, backgroundColor: CARD, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: LINE },
+  cityDropdown: { backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: LINE, marginBottom: 14, overflow: 'hidden', maxWidth: 240 },
+  cityOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 0.5, borderBottomColor: LINE },
+  cityOptionActive: { backgroundColor: CREAM },
+  cityOptionText: { fontSize: 13.5, color: MUTED },
+  cityOptionTextActive: { color: TEXT, fontWeight: '700' },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: LINE, paddingHorizontal: 16, paddingVertical: 13, marginBottom: 22, maxWidth: 480 },
+  searchPlaceholder: { fontSize: 13.5, color: MUTED },
+  catChip: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: CARD, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, marginRight: 10, borderWidth: 1, borderColor: LINE },
+  catChipActive: { backgroundColor: MAROON, borderColor: MAROON },
+  catChipText: { fontSize: 12.5, color: MUTED, fontWeight: '600' },
+  catChipTextActive: { color: '#fff' },
+  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
+  emptySub: { fontSize: 13, color: MUTED, marginBottom: 16, textAlign: 'center' },
+  addOwnBtn: { backgroundColor: CREAM, borderRadius: 14, paddingHorizontal: 18, paddingVertical: 11, borderWidth: 1, borderColor: LINE },
+  addOwnBtnText: { fontSize: 13, color: TEXT, fontWeight: '600' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  card: { width: 250, backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: LINE, padding: 16 },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: MAROON, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 16, color: '#fff', fontWeight: '700' },
+  heartBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: CREAM, alignItems: 'center', justifyContent: 'center' },
+  heartIcon: { fontSize: 15, color: MUTED },
+  heartIconSaved: { color: '#E85D04' },
+  cardName: { fontFamily: 'Fraunces-SemiBold', fontSize: 15, color: TEXT, marginBottom: 3 },
+  cardMeta: { fontSize: 12, color: MUTED, marginBottom: 8 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 12 },
+  rating: { fontSize: 12, fontWeight: '700', color: TEXT },
+  reviews: { fontSize: 11, color: MUTED },
+  verifiedBadge: { backgroundColor: CREAM, borderRadius: 7, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 2 },
+  verifiedText: { fontSize: 9.5, color: TEXT, fontWeight: '700' },
+  bookBtn: { backgroundColor: MAROON, borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
+  bookBtnText: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
+});
