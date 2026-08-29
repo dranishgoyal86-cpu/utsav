@@ -365,10 +365,13 @@ export default function ToranInvites({ route, navigation }) {
   // guests here excludes declined guests (this screen's own load() query
   // filters .neq('rsvp_status','no'), for its "ready to send" list) — a
   // real, non-fabricated count, just not identical in definition to
-  // GuestList.js's total invited.
+  // GuestList.js's total invited. Real decision: kept as-is rather than
+  // switched to match the other screens, but labeled "receiving" instead
+  // of the shell's default "invited" — the two numbers are allowed to
+  // differ, they just can't both silently claim to mean the same thing.
   if (isDesktopWeb) {
     return (
-      <DesktopEventShell activeItem="invites" event={event} guestCount={guests.length} currentUserName={currentUserName} navigation={navigation}>
+      <DesktopEventShell activeItem="invites" event={event} guestCount={guests.length} guestCountLabel="receiving" currentUserName={currentUserName} navigation={navigation}>
         <InviteDesignerDesktop
           design={design} setDesign={setDesign} allowedDesigns={allowedDesigns} celebratory={celebratory} designLabels={DESIGN_LABELS}
           partner1={partner1} setPartner1={setPartner1} partner2={partner2} setPartner2={setPartner2}

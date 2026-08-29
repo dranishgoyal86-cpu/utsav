@@ -38,7 +38,7 @@ function formatEventDate(dateStr) {
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-export default function DesktopEventShell({ activeItem, event, guestCount, currentUserName, navigation, onOpenFunctions, children }) {
+export default function DesktopEventShell({ activeItem, event, guestCount, guestCountLabel = 'invited', currentUserName, navigation, onOpenFunctions, children }) {
   function navigateTo(item) {
     if (item.key === activeItem) return;
     if (item.key === 'functions') {
@@ -74,8 +74,15 @@ export default function DesktopEventShell({ activeItem, event, guestCount, curre
             <View style={s.evtCard}>
               <Text style={s.evtK}>CURRENT EVENT</Text>
               <Text style={s.evtV} numberOfLines={2}>{event.name}</Text>
+              {/* guestCountLabel defaults to "invited" (the real total,
+                  what GuestList/Checklist/RSVP all show) — the invite
+                  designer passes "receiving" instead, since its own count
+                  genuinely excludes declines (a different, real number,
+                  not the same one mislabeled). Never just "guests" —
+                  that's exactly the ambiguity two different real counts
+                  can't share. */}
               <Text style={s.evtD}>
-                {[event.event_date && formatEventDate(event.event_date), `${guestCount ?? 0} guests`].filter(Boolean).join(' · ')}
+                {[event.event_date && formatEventDate(event.event_date), `${guestCount ?? 0} ${guestCountLabel}`].filter(Boolean).join(' · ')}
               </Text>
             </View>
           ) : null}
