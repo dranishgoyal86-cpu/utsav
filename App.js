@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Platform
+  ActivityIndicator, Platform, useWindowDimensions
 } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -160,6 +160,7 @@ import InvoiceGenerator from './screens/provider/InvoiceGenerator';
 import InvoicesList from './screens/provider/InvoicesList';
 import ReportsScreen from './screens/provider/ReportsScreen';
 import CategoryList from './screens/customer/CategoryList';
+import CustomerDesktopSidebar from './components/desktop/CustomerDesktopSidebar';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -227,15 +228,48 @@ function ComingSoon({ route, navigation }) {
   );
 }
 
-// ─── Customer bottom tabs — standard flush bar ───
+// Providers already get a desktop sidebar (ProviderERP.js) above this width
+// on the web build — customers/hosts get the exact same treatment here,
+// via the exact same Tab.Navigator tabBar-swap mechanism, just restyled
+// with the maroon/gold identity (CustomerDesktopSidebar.js) instead of
+// ProviderERP's neutral one. Native (phone/tablet app) always keeps the
+// mobile bar regardless of width — this is specifically a web-desktop thing.
+const CUSTOMER_DESKTOP_BREAKPOINT = 768;
+
+// ─── Customer bottom tabs — standard flush bar (mobile/narrow-web) or
+//     desktop sidebar (wide web) ───
 function CustomerTabs() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= CUSTOMER_DESKTOP_BREAKPOINT;
+  const [headerProfile, setHeaderProfile] = useState(null);
+
+  // Only needed for the desktop sidebar's footer (name) — mobile's default
+  // tab bar has no such footer, so nothing is lost skipping this on native;
+  // fetching unconditionally is harmless either way (one small, already-
+  // proven-fast query).
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { data } = await supabase.from('users').select('name').eq('id', session.user.id).maybeSingle();
+      setHeaderProfile({ name: data?.name || null });
+    })();
+  }, []);
+
   return (
     <Tab.Navigator
+      tabBar={isDesktopWeb
+        ? (props) => <CustomerDesktopSidebar {...props} headerProfile={headerProfile} />
+        : undefined}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: false,
+        tabBarPosition: isDesktopWeb ? 'left' : 'bottom',
+        // Only read on the mobile/narrow-web branch — the desktop branch
+        // replaces the whole tabBar renderer above, so none of this
+        // applies there.
         tabBarStyle: {
           backgroundColor: theme.navBg,
           borderTopWidth: 0.5,
@@ -259,7 +293,7 @@ function CustomerTabs() {
       <Tab.Screen name="Plan" component={PlanScreen} />
       <Tab.Screen name="Discover" component={DiscoverScreen} />
       <Tab.Screen name="Bookings" component={BookingsScreen} />
-      <Tab.Screen name="Albums" component={AlbumsScreen} /> 
+      <Tab.Screen name="Albums" component={AlbumsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Modal, KeyboardAvoidingView, Platform
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Modal, KeyboardAvoidingView, Platform, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
@@ -16,6 +16,10 @@ import { resolveCapabilities, isEnabled } from '../../lib/capabilities';
 import { useTour } from '../../hooks/useTour';
 import CoachMarkTour from '../../components/CoachMarkTour';
 import PlanHero from './PlanHero';
+import { StatCard, SectionEyebrow } from '../../components/desktop/DesktopKit';
+import { MAROON, GOLD, OK, WAIT, CARD, LINE, TEXT, MUTED, CREAM } from '../../lib/desktopTheme';
+
+const DESKTOP_BREAKPOINT = 768;
 
 // First-login core-loop tour — 5 real, always-mounted elements (the
 // PlanHero input + all 4 non-Albums bottom tabs), deliberately scoped to
@@ -110,6 +114,8 @@ const STATUS_LABEL = {
 
 export default function PlanScreen({ navigation, route }) {
   const { theme } = useTheme();
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   // First-login core-loop tour — startTour() internally no-ops if this
   // user already has a completed_at row for 'core_loop', so it's safe to
   // call unconditionally once the check resolves; no separate "is this
@@ -375,6 +381,190 @@ export default function PlanScreen({ navigation, route }) {
     if (sortBy === 'recent') return new Date(b.updated_at) - new Date(a.updated_at);
     return 0;
   });
+
+  // Desktop stat strip — every number here is a real derived value from
+  // savedPlans/bookingsByPlanId (already fetched for the mobile view), not
+  // a new query or a fabricated metric.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const upcoming = savedPlans
+    .filter(p => p.event_date && new Date(p.event_date) >= today)
+    .sort((a, b) => new Date(a.event_date) - new Date(b.event_date));
+  let nextEventLabel = 'No date set';
+  if (upcoming[0]) {
+    const days = Math.round((new Date(upcoming[0].event_date) - today) / 86400000);
+    nextEventLabel = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `${days} days`;
+  }
+  const totalBudget = savedPlans.reduce((sum, p) => sum + (p.total_budget || 0), 0);
+  const totalBudgetLabel = totalBudget > 0 ? `₹${(totalBudget / 100000).toFixed(1)}L` : '—';
+  const totalBookings = Object.values(bookingsByPlanId).reduce((sum, arr) => sum + arr.length, 0);
+
+  if (isDesktopWeb) {
+    return (
+      <View style={ds.page}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={ds.scroll}>
+          <View style={ds.headerRow}>
+            <View>
+              <SectionEyebrow>YOUR EVENTS</SectionEyebrow>
+              <Text style={ds.title}>{userName ? `Welcome back, ${userName}` : 'Welcome back'}</Text>
+            </View>
+            <NotificationBell navigation={navigation} />
+          </View>
+
+          <View style={ds.statsRow}>
+            <StatCard value={savedPlans.length} label="ACTIVE PLANS" color={MAROON} />
+            <StatCard value={nextEventLabel} label="NEXT EVENT" color={GOLD} />
+            <StatCard value={totalBudgetLabel} label="TOTAL BUDGET" color={OK} />
+            <StatCard value={totalBookings} label="BOOKINGS" color={WAIT} />
+          </View>
+
+          <View style={ds.heroWrap}>
+            <PlanHero navigation={navigation} />
+          </View>
+
+          <View style={ds.sectionHeaderRow}>
+            <SectionEyebrow>
+              {savedPlans.length > 0 ? `YOUR PLANS (${savedPlans.length})` : 'CURRENTLY PLANNING'}
+            </SectionEyebrow>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              {savedPlans.length > 1 && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {SORT_OPTIONS.map(opt => (
+                    <TouchableOpacity
+                      key={opt.id}
+                      style={[ds.sortChip, sortBy === opt.id && ds.sortChipActive]}
+                      onPress={() => setSortBy(opt.id)}
+                    >
+                      <Text style={[ds.sortChipText, sortBy === opt.id && ds.sortChipTextActive]}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              {savedPlans.length > 1 && (
+                <TouchableOpacity onPress={() => { setCompareMode(!compareMode); setSelectedIds([]); }}>
+                  <Text style={ds.compareToggle}>{compareMode ? 'Cancel' : 'Compare'}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {loadingPlans ? (
+            <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+              <ActivityIndicator color={MAROON} />
+            </View>
+          ) : sortedPlans.length === 0 ? (
+            <View style={ds.emptyCard}>
+              <Text style={{ fontSize: 30, marginBottom: 10 }}>✦</Text>
+              <Text style={ds.emptyTitle}>No active plan yet</Text>
+              <Text style={ds.emptySub}>Tell your agent what you're planning above, and it'll start building your event here.</Text>
+            </View>
+          ) : (
+            <View style={ds.plansGrid}>
+              {sortedPlans.map(p => {
+                const st = STATUS_LABEL[p.status] || STATUS_LABEL.planning;
+                const isSelected = selectedIds.includes(p.id);
+                const capabilities = resolvePlanCapabilities(p);
+                const showVisitorList = isEnabled(capabilities, 'society_gate_pass');
+                const showGiftStickers = isEnabled(capabilities, 'gift_qr_stickers');
+                const planBookings = bookingsByPlanId[p.id] || [];
+                const hasBooking = planBookings.length > 0;
+                return (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={[ds.planCard, compareMode && isSelected && ds.planCardSelected, hasBooking && ds.planCardBooked]}
+                    onPress={() => compareMode ? toggleSelect(p.id) : openSavedPlan(p)}
+                    activeOpacity={0.85}
+                  >
+                    <View style={ds.planCardTop}>
+                      <Text style={ds.planCardIcon}>{EVENT_ICONS[p.event_type] || '🎉'}</Text>
+                      {compareMode ? (
+                        <View style={[ds.checkbox, isSelected && ds.checkboxActive]}>
+                          {isSelected && <Text style={{ fontSize: 11, color: '#fff', fontWeight: '700' }}>✓</Text>}
+                        </View>
+                      ) : (
+                        <TouchableOpacity onPress={() => deletePlan(p)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <X size={15} color={MUTED} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    <Text style={ds.planCardTitle} numberOfLines={1}>{p.title}</Text>
+                    <Text style={ds.planCardMeta}>
+                      {p.event_date ? new Date(p.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'No date set'}
+                      {p.total_budget ? `  ·  ₹${(p.total_budget / 100000).toFixed(1)}L` : ''}
+                    </Text>
+                    <View style={ds.planCardFoot}>
+                      <View style={[ds.statusBadge, { backgroundColor: st.bg }]}>
+                        <Text style={[ds.statusBadgeText, { color: st.color }]}>{st.label}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        {hasBooking && !compareMode ? (
+                          <TouchableOpacity style={ds.miniBtn} onPress={() => openPlanBookings(p)}>
+                            <Text style={{ fontSize: 13, color: OK }}>✓</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {p.event_id && !compareMode && showVisitorList ? (
+                          <TouchableOpacity style={ds.miniBtn} onPress={() => openEventTool(p, 'VisitorList')}>
+                            <Text style={{ fontSize: 13 }}>🚪</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {p.event_id && !compareMode && showGiftStickers ? (
+                          <TouchableOpacity style={ds.miniBtn} onPress={() => openEventTool(p, 'GiftStickers')}>
+                            <Text style={{ fontSize: 13 }}>🎁</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+
+          {compareMode && selectedIds.length >= 2 && (
+            <TouchableOpacity style={ds.compareBtn} onPress={openCompare}>
+              <Text style={ds.compareBtnText}>Compare {selectedIds.length} plans →</Text>
+            </TouchableOpacity>
+          )}
+
+          <SectionEyebrow>TOOLS</SectionEyebrow>
+          <View style={ds.toolsGrid}>
+            {TOOLS.map(tool => (
+              <TouchableOpacity
+                key={tool.label}
+                style={ds.toolCard}
+                onPress={() => navigation.navigate(tool.screen, tool.params)}
+              >
+                <Text style={{ fontSize: 22, marginBottom: 8 }}>{tool.icon}</Text>
+                <Text style={ds.toolLabel}>{tool.label}</Text>
+                <Text style={ds.toolSub}>{tool.sub}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+
+        <Modal visible={!!deleteChoiceModal} transparent animationType="fade" onRequestClose={() => setDeleteChoiceModal(null)}>
+          <View style={s.deleteOverlay}>
+            <View style={s.deleteModal}>
+              <View style={s.deleteModalHeader}>
+                <Text style={s.deleteModalTitle}>Delete this plan?</Text>
+                <TouchableOpacity onPress={() => setDeleteChoiceModal(null)}>
+                  <X size={22} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+              <Text style={s.deleteModalHint}>
+                "{deleteChoiceModal?.title}" has a guest list, invites, and checklist linked to it under the same name. Delete all of it together, or just remove this plan and leave the rest as-is. Its photo album is never touched either way.
+              </Text>
+              <TouchableOpacity style={[s.deleteModalBtn, { backgroundColor: '#F44336' }]} onPress={deleteEverything} disabled={deletingPlan}>
+                {deletingPlan ? <ActivityIndicator color="#FFF" /> : <Text style={s.deleteModalBtnText}>Delete everything</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.deleteModalBtn, { backgroundColor: theme.cardBg, borderWidth: 0.5, borderColor: theme.border }]} onPress={deletePlanOnly} disabled={deletingPlan}>
+                {deletingPlan ? <ActivityIndicator color={theme.text} /> : <Text style={[s.deleteModalBtnText, { color: theme.text }]}>Only delete this plan</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={s.container}>
@@ -671,3 +861,56 @@ function makeStyles(theme) {
     deleteModalBtnText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   });
 }
+
+// Desktop content-pane styles — colours all sourced from lib/desktopTheme.js
+// (same palette as DesktopEventShell/GuestTable/etc.), fonts limited to
+// Fraunces/Cormorant Garamond/Manrope, no new tokens introduced anywhere
+// in this file.
+const ds = StyleSheet.create({
+  page: { flex: 1, backgroundColor: CREAM },
+  scroll: { padding: 32, maxWidth: 1100, width: '100%', alignSelf: 'center' },
+
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 22 },
+  title: { fontFamily: 'Fraunces-SemiBold', fontSize: 28, color: TEXT, marginTop: 2 },
+
+  statsRow: { flexDirection: 'row', gap: 14, marginBottom: 26 },
+
+  heroWrap: { marginBottom: 30, maxWidth: 640 },
+
+  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, marginTop: 6 },
+  compareToggle: { fontSize: 12.5, fontWeight: '700', color: MAROON },
+  sortChip: { paddingHorizontal: 13, paddingVertical: 7, borderRadius: 14, backgroundColor: CARD, borderWidth: 1, borderColor: LINE },
+  sortChipActive: { backgroundColor: MAROON, borderColor: MAROON },
+  sortChipText: { fontSize: 12, color: MUTED, fontWeight: '600' },
+  sortChipTextActive: { color: '#fff' },
+
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 40, alignItems: 'center' },
+  emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 17, color: TEXT, marginBottom: 6 },
+  emptySub: { fontSize: 13, color: MUTED, textAlign: 'center', lineHeight: 19, maxWidth: 340 },
+
+  plansGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginBottom: 8 },
+  planCard: {
+    width: 260, backgroundColor: CARD, borderRadius: 18, borderWidth: 1, borderColor: LINE,
+    padding: 16,
+  },
+  planCardSelected: { borderColor: MAROON, borderWidth: 1.5 },
+  planCardBooked: { borderColor: OK, borderWidth: 1 },
+  planCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  planCardIcon: { fontSize: 24 },
+  checkbox: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: LINE, alignItems: 'center', justifyContent: 'center' },
+  checkboxActive: { backgroundColor: MAROON, borderColor: MAROON },
+  planCardTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 4 },
+  planCardMeta: { fontSize: 12, color: MUTED, marginBottom: 12 },
+  planCardFoot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  statusBadge: { borderRadius: 8, paddingHorizontal: 9, paddingVertical: 4 },
+  statusBadgeText: { fontSize: 11, fontWeight: '700' },
+  miniBtn: { width: 26, height: 26, borderRadius: 13, backgroundColor: CREAM, alignItems: 'center', justifyContent: 'center' },
+
+  compareBtn: { backgroundColor: MAROON, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 26, maxWidth: 300 },
+  compareBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+
+  toolsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 14 },
+  toolCard: { width: 190, borderRadius: 16, padding: 18, backgroundColor: CARD, borderWidth: 1, borderColor: LINE },
+  toolLabel: { fontSize: 13.5, fontWeight: '700', color: TEXT, marginBottom: 3, fontFamily: 'Manrope-SemiBold' },
+  toolSub: { fontSize: 11.5, color: MUTED },
+});
