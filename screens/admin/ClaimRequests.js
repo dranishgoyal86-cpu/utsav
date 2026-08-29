@@ -12,6 +12,7 @@ import {
 import { showAlert, getSignedDocumentUrl } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
 import { autoDescription } from '../../serviceTemplates';
+import { sendBulkImportInviteEmail } from '../../lib/bulkImportInvite';
 
 const DOCUMENT_LABELS = {
   business_image: 'Business image',
@@ -182,6 +183,11 @@ export default function ClaimRequests({ navigation }) {
             .eq('provider_id', claim.provider_id)
             .eq('status', 'pending')
             .neq('id', claim.id);
+
+          // Non-fatal (catches its own errors), self-guarding against a
+          // duplicate send if this provider also later goes through
+          // verification approval -- see lib/bulkImportInvite.js.
+          await sendBulkImportInviteEmail(claim.provider_id);
 
           fetchClaims();
         } catch (err) {

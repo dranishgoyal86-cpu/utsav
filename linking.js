@@ -36,6 +36,15 @@ const linking = {
         },
       },
       ProviderProfile: 'provider/:providerId',
+      // Deliberately NOT nested under 'provider/...' -- ProviderProfile's
+      // 'provider/:providerId' pattern would ambiguously also match a
+      // literal 'provider/import' segment. Only meaningfully resolves for
+      // an already-logged-in provider (this screen lives inside App.js's
+      // auth-gated provider stack, unlike every other entry above) -- the
+      // bulk-import invite email (lib/bulkImportInvite.js) links here, with
+      // a plain-text fallback in the email itself for a recipient who
+      // isn't logged in yet.
+      BulkImportServices: 'import-services',
       GuestAccess: 'event/:inviteCode',
       // guestId is optional — old-style broadcast links (posted to a
       // family WhatsApp group, no third segment) still match exactly as

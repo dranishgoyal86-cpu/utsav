@@ -7,6 +7,7 @@ import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { notifyProviderVerified } from '../../notifications';
+import { sendBulkImportInviteEmail } from '../../lib/bulkImportInvite';
 import { getSignedDocumentUrl, showAlert } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
 
@@ -164,6 +165,10 @@ async function handleAction(request, action) {
           .eq('id', request.provider_id);
         if (provError) throw provError;
         await notifyProviderVerified(request.user_id);
+        // Non-fatal (catches its own errors), self-guarding against a
+        // duplicate send if this provider also came through claim
+        // approval -- see lib/bulkImportInvite.js.
+        await sendBulkImportInviteEmail(request.provider_id);
       }
 
       setSelected(null);
