@@ -19,6 +19,15 @@ const STATES = [
   'Delhi','Jammu and Kashmir','Ladakh','Chandigarh','Puducherry'
 ];
 
+// Provider verification, Task 3 (GST review) -- status shown to the
+// provider on their own Business Profile, mirroring VerificationScreen.js's
+// own pending/approved/rejected badge treatment for the ID-proof review.
+const GST_STATUS_STYLES = {
+  pending: { label: '⏳ Pending admin review', pill: { backgroundColor: '#FFF3CD' }, text: { color: '#8A6D00' } },
+  verified: { label: '✓ GST verified', pill: { backgroundColor: '#E3F5E6' }, text: { color: '#2E7D32' } },
+  rejected: { label: '✗ Rejected — check certificate and resubmit', pill: { backgroundColor: '#FDEAEA' }, text: { color: '#C62828' } },
+};
+
 const EMPTY = {
   business_name: '', address: '', city: '', state: '', pincode: '',
   gstin: '', pan: '', phone: '', email: '', sac_code: '998554',
@@ -43,6 +52,16 @@ export default function BillingProfile({ navigation, route }) {
   const [googleMapsUrl, setGoogleMapsUrl] = useState('');
   const [uploadingField, setUploadingField] = useState(null); // 'logo' | 'pan_card_url' | 'udyam_certificate_url' | 'gst_certificate_url'
   const [docSignedUrls, setDocSignedUrls] = useState({});
+
+  // Provider verification, Task 3 (GST review) -- tracks what was last
+  // SAVED (not what's currently typed) so save() can tell whether the
+  // provider actually changed their GSTIN/certificate since the last
+  // review, vs. just hitting Save on an unrelated field. gstStatus itself
+  // is display-only here; GSTReview.js (admin) is the only screen that
+  // writes 'verified'/'rejected'.
+  const [savedGstin, setSavedGstin] = useState('');
+  const [savedGstCertUrl, setSavedGstCertUrl] = useState('');
+  const [gstStatus, setGstStatus] = useState(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -83,6 +102,9 @@ export default function BillingProfile({ navigation, route }) {
         .maybeSingle();
       if (data) {
         setExisting(true);
+        setSavedGstin(data.gstin || '');
+        setSavedGstCertUrl(data.gst_certificate_url || '');
+        setGstStatus(data.gst_status || null);
         setForm({
           business_name: data.business_name || '',
           address: data.address || '',
@@ -135,6 +157,23 @@ export default function BillingProfile({ navigation, route }) {
     }
     setSaving(true);
     try {
+      const cleanGstin = form.gstin.trim().toUpperCase();
+
+      // Provider verification, Task 3 (GST review) -- only touches
+      // gst_status when the provider actually changed the GSTIN or the
+      // certificate since the last save (or is submitting fresh proof for
+      // the first time). Hitting Save on an unrelated field (bank details,
+      // invoice prefix, etc.) must never silently reset an already-
+      // 'verified' status, and a genuine change always needs a fresh
+      // admin look even if it was 'verified' before.
+      const gstChanged = cleanGstin !== savedGstin || (form.gst_certificate_url || '') !== savedGstCertUrl;
+      let nextGstStatus = gstStatus;
+      if (!cleanGstin) {
+        nextGstStatus = null; // blank GSTIN — nothing to review (Bill of Supply path)
+      } else if (gstChanged) {
+        nextGstStatus = 'pending';
+      }
+
       const payload = {
         provider_user_id: userId,
         business_name: form.business_name.trim(),
@@ -142,7 +181,7 @@ export default function BillingProfile({ navigation, route }) {
         city: form.city.trim(),
         state: form.state,
         pincode: form.pincode.trim(),
-        gstin: form.gstin.trim().toUpperCase(),
+        gstin: cleanGstin,
         pan: form.pan.trim().toUpperCase(),
         phone: form.phone.trim(),
         email: form.email.trim(),
@@ -155,6 +194,8 @@ export default function BillingProfile({ navigation, route }) {
         pan_card_url: form.pan_card_url || null,
         udyam_certificate_url: form.udyam_certificate_url || null,
         gst_certificate_url: form.gst_certificate_url || null,
+        gst_status: nextGstStatus,
+        ...(gstChanged && cleanGstin ? { gst_reviewed_at: null, gst_review_notes: null } : {}),
       };
 
       const { error } = existing
@@ -162,6 +203,10 @@ export default function BillingProfile({ navigation, route }) {
         : await supabase.from('provider_billing').insert(payload);
 
       if (error) throw error;
+
+      setSavedGstin(cleanGstin);
+      setSavedGstCertUrl(form.gst_certificate_url || '');
+      setGstStatus(nextGstStatus);
 
       // logo_url and google_maps_url live on providers, not provider_billing —
       // that table's RLS only ever allows the owning provider to read it at
@@ -365,6 +410,13 @@ export default function BillingProfile({ navigation, route }) {
 
         <Text style={s.sectionTitle}>Tax & Compliance</Text>
         {field('GSTIN (leave blank if unregistered)', 'gstin', { autoCapitalize: 'characters', placeholder: '15-character GSTIN' })}
+        {gstStatus && (
+          <View style={[s.gstStatusPill, GST_STATUS_STYLES[gstStatus]?.pill]}>
+            <Text style={[s.gstStatusPillText, GST_STATUS_STYLES[gstStatus]?.text]}>
+              {GST_STATUS_STYLES[gstStatus]?.label}
+            </Text>
+          </View>
+        )}
         {docRow('GST certificate', 'gst_certificate_url')}
         {field('PAN', 'pan', { autoCapitalize: 'characters' })}
         {docRow('PAN card', 'pan_card_url')}
@@ -443,6 +495,8 @@ const styles = theme => StyleSheet.create({
   },
   row: { flexDirection: 'row', gap: 12 },
   hint: { fontSize: 11, color: theme.textSecondary, marginTop: -8 },
+  gstStatusPill: { alignSelf: 'flex-start', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 6, marginTop: -6 },
+  gstStatusPillText: { fontSize: 11.5, fontWeight: '700' },
   categoryConfirmBox: {
     backgroundColor: theme.bgSecondary, borderRadius: 14, padding: 14,
     borderWidth: 0.5, borderColor: theme.border,

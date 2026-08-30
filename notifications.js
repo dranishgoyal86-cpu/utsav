@@ -342,6 +342,26 @@ export async function notifyProviderVerified(userId) {
   }
 }
 
+// Provider verification, Task 3 (GST review). Mirrors notifyProviderVerified
+// one-for-one, for the separate GST-specific admin queue (GSTReview.js).
+export async function notifyGstReviewed(userId, approved) {
+  const { data: user } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', userId)
+    .single();
+
+  const title = approved ? 'GST verified ✓' : 'GST verification needs another look';
+  const body = approved
+    ? 'Your GSTIN has been verified against the public GST record.'
+    : 'Your GST submission was not approved — check your Business Profile for details and resubmit.';
+
+  await saveNotificationToDb(userId, title, body, { type: 'gst_reviewed' });
+  if (user?.push_token) {
+    await sendPushNotification(user.push_token, title, body);
+  }
+}
+
 export async function notifyAccountSuspended(userId, reason) {
   const { data: user } = await supabase
     .from('users')

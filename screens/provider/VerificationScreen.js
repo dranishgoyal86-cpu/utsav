@@ -10,6 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { uploadToCloudinary, callEdgeFunction } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
 import { getParentCategory, getCategoryIcon } from '../../serviceTemplates';
+import { OTP_ENABLED } from '../ClaimVendorFlow';
 
 const BUSINESS_TYPES = [
   'Individual / Freelancer',
@@ -53,6 +54,21 @@ export default function VerificationScreen({ navigation }) {
   const [emailVerifiedAt, setEmailVerifiedAt] = useState(null);
   const [emailSending, setEmailSending] = useState(false);
   const [emailLinkSent, setEmailLinkSent] = useState(false);
+
+  // Provider verification, Task 2 (phone) -- reuses the SAME
+  // signInWithOtp/verifyOtp Supabase Auth mechanism ClaimVendorFlow.js
+  // already built for phone-OTP at signup (genuinely reusable, confirmed
+  // in Task 0 -- the only guest/claim-specific part there is
+  // linkGuestAccountByPhone(), which doesn't apply to an already-existing
+  // provider account). Gated behind the SAME OTP_ENABLED flag, imported
+  // rather than duplicated, so one flip activates both once a real SMS
+  // provider is configured (see CLAUDE.md's blockers).
+  const [userPhone, setUserPhone] = useState('');
+  const [phoneVerifiedAt, setPhoneVerifiedAt] = useState(null);
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneCode, setPhoneCode] = useState('');
+  const [phoneSending, setPhoneSending] = useState(false);
+  const [phoneVerifying, setPhoneVerifying] = useState(false);
 
   async function pickProof() {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -106,10 +122,12 @@ export default function VerificationScreen({ navigation }) {
       if (billing?.business_name) updateForm('businessName', billing.business_name);
 
       const { data: userRow } = await supabase
-        .from('users').select('email, email_verified_at').eq('id', session.user.id).maybeSingle();
+        .from('users').select('email, email_verified_at, phone, phone_verified_at').eq('id', session.user.id).maybeSingle();
       if (userRow) {
         setUserEmail(userRow.email || '');
         setEmailVerifiedAt(userRow.email_verified_at || null);
+        setUserPhone(userRow.phone || '');
+        setPhoneVerifiedAt(userRow.phone_verified_at || null);
       }
 
       const { data: request, error: reqError } = await supabase
@@ -149,6 +167,48 @@ export default function VerificationScreen({ navigation }) {
       showAlert('Could not send link', err.message);
     } finally {
       setEmailSending(false);
+    }
+  }
+
+  // Provider verification, Task 2 (phone). updateUser({phone}) against the
+  // CURRENT session (not signInWithOtp, which is for a pre-login flow) is
+  // Supabase Auth's own mechanism for adding/changing a phone number on an
+  // already-authenticated account -- it sends the SMS OTP itself, mirroring
+  // sendEmailOtp's updateUser({email}) pattern above one-for-one, phone_change
+  // in place of email_change.
+  async function sendPhoneVerification() {
+    if (!userPhone) return;
+    setPhoneSending(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ phone: '+91' + userPhone.replace(/\D/g, '') });
+      if (error) throw error;
+      setPhoneOtpSent(true);
+    } catch (err) {
+      showAlert('Could not send code', err.message);
+    } finally {
+      setPhoneSending(false);
+    }
+  }
+
+  async function verifyPhoneCode() {
+    if (!phoneCode.trim()) {
+      showAlert('Enter the code', 'Enter the code sent to your phone.');
+      return;
+    }
+    setPhoneVerifying(true);
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        phone: '+91' + userPhone.replace(/\D/g, ''), token: phoneCode.trim(), type: 'phone_change',
+      });
+      if (error) throw error;
+      const { data: { session } } = await supabase.auth.getSession();
+      await supabase.from('users').update({ phone_verified_at: new Date().toISOString() }).eq('id', session.user.id);
+      setPhoneVerifiedAt(new Date().toISOString());
+      setPhoneOtpSent(false);
+    } catch (err) {
+      showAlert('Verification failed', err.message);
+    } finally {
+      setPhoneVerifying(false);
     }
   }
 
@@ -245,6 +305,50 @@ export default function VerificationScreen({ navigation }) {
                 {emailSending
                   ? <ActivityIndicator size="small" color={theme.accent} />
                   : <Text style={s.signalBtnText}>Send verification link</Text>}
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : null}
+
+        {/* Provider verification, Task 2 (phone) -- same treatment as
+            email above. Held behind OTP_ENABLED like every other phone-OTP
+            entry point in the app (see CLAUDE.md's SMS-provider blocker) --
+            shows an informational row instead of a broken "send code"
+            button while it's off. */}
+        {userPhone ? (
+          <View style={s.signalRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.signalLabel}>Phone</Text>
+              <Text style={s.signalValue}>{userPhone}</Text>
+            </View>
+            {phoneVerifiedAt ? (
+              <View style={s.signalBadgeVerified}>
+                <Text style={s.signalBadgeVerifiedText}>✓ Verified</Text>
+              </View>
+            ) : !OTP_ENABLED ? (
+              <Text style={s.signalSentText}>Coming soon</Text>
+            ) : phoneOtpSent ? (
+              <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                <TextInput
+                  style={s.phoneCodeInput}
+                  placeholder="123456"
+                  placeholderTextColor={theme.textTertiary}
+                  value={phoneCode}
+                  onChangeText={setPhoneCode}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                />
+                <TouchableOpacity style={s.signalBtn} onPress={verifyPhoneCode} disabled={phoneVerifying}>
+                  {phoneVerifying
+                    ? <ActivityIndicator size="small" color={theme.accent} />
+                    : <Text style={s.signalBtnText}>Verify code</Text>}
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={s.signalBtn} onPress={sendPhoneVerification} disabled={phoneSending}>
+                {phoneSending
+                  ? <ActivityIndicator size="small" color={theme.accent} />
+                  : <Text style={s.signalBtnText}>Send code</Text>}
               </TouchableOpacity>
             )}
           </View>
@@ -490,6 +594,10 @@ function makeStyles(theme) {
     signalSentText: { fontSize: 12, color: theme.textSecondary, maxWidth: 130, textAlign: 'right' },
     signalBtn: { borderRadius: 12, paddingHorizontal: 13, paddingVertical: 9, borderWidth: 1, borderColor: theme.accent },
     signalBtnText: { fontSize: 12.5, fontWeight: '700', color: theme.accent },
+    phoneCodeInput: {
+      width: 110, backgroundColor: theme.bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7,
+      fontSize: 14, textAlign: 'center', letterSpacing: 2, borderWidth: 0.5, borderColor: theme.border, color: theme.text,
+    },
     verifiedBox: { alignItems: 'center', padding: 40 },
     verifiedIcon: { fontSize: 60, color: theme.statusConfirmedText, marginBottom: 18 },
     verifiedTitle: { fontSize: 23, fontWeight: '700', color: theme.statusConfirmedText, marginBottom: 9 },

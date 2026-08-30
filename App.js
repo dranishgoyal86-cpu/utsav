@@ -152,6 +152,7 @@ import ProviderInbox from './screens/provider/ProviderInbox';
 import ClaimBusiness from './screens/customer/ClaimBusiness';
 import ClaimVendorFlow from './screens/ClaimVendorFlow';
 import ClaimRequests from './screens/admin/ClaimRequests';
+import GSTReview from './screens/admin/GSTReview';
 import CategoryUpgradeRequests from './screens/admin/CategoryUpgradeRequests';
 import CategoryRequests from './screens/admin/CategoryRequests';
 import ManageUsers from './screens/admin/ManageUsers';
@@ -495,6 +496,7 @@ function MainApp() {
             <Stack.Screen name="AdminPanel" component={AdminPanel} />
             <Stack.Screen name="ProviderDashboard" component={ProviderERP} />
             <Stack.Screen name="ClaimRequests" component={ClaimRequests} />
+            <Stack.Screen name="GSTReview" component={GSTReview} />
             <Stack.Screen name="CategoryUpgradeRequests" component={CategoryUpgradeRequests} />
             <Stack.Screen name="CategoryRequests" component={CategoryRequests} />
             <Stack.Screen name="ManageUsers" component={ManageUsers} />

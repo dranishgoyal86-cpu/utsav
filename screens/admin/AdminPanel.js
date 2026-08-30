@@ -545,6 +545,19 @@ async function handleAction(request, action) {
         <Text style={s.claimsLinkArrow}>›</Text>
       </TouchableOpacity>
 
+      {/* GST review link — Provider verification, Task 3 */}
+      <TouchableOpacity
+        style={s.claimsLink}
+        onPress={() => navigation.navigate('GSTReview')}
+      >
+        <Text style={s.claimsLinkIcon}>🧾</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={s.claimsLinkTitle}>GST review</Text>
+          <Text style={s.claimsLinkSub}>Manually check submitted GSTINs against the public GST portal</Text>
+        </View>
+        <Text style={s.claimsLinkArrow}>›</Text>
+      </TouchableOpacity>
+
       {/* Tabs */}
       <View style={s.tabRow}>
         {['pending', 'approved', 'rejected'].map(tab => (
