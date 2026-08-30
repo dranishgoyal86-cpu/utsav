@@ -7,6 +7,7 @@ import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
 import { Upload } from 'phosphor-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
 import { uploadToCloudinary, callEdgeFunction } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
 import { getParentCategory, getCategoryIcon } from '../../serviceTemplates';
@@ -70,6 +71,18 @@ export default function VerificationScreen({ navigation }) {
   const [phoneSending, setPhoneSending] = useState(false);
   const [phoneVerifying, setPhoneVerifying] = useState(false);
 
+  // Provider verification, Task 4 (website, meta-tag method). Lives on
+  // providers (not provider_billing) -- see the migration's own comment,
+  // same reasoning as logo_url/google_maps_url.
+  const [websiteInput, setWebsiteInput] = useState('');
+  const [websiteSavedUrl, setWebsiteSavedUrl] = useState('');
+  const [websiteToken, setWebsiteToken] = useState('');
+  const [websiteMetaTag, setWebsiteMetaTag] = useState('');
+  const [websiteVerifiedAt, setWebsiteVerifiedAt] = useState(null);
+  const [websiteReachable, setWebsiteReachable] = useState(null); // null | true | false
+  const [websiteChecking, setWebsiteChecking] = useState(false);
+  const [websiteConfirming, setWebsiteConfirming] = useState(false);
+
   async function pickProof() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -105,7 +118,7 @@ export default function VerificationScreen({ navigation }) {
 
       const { data: provider } = await supabase
         .from('providers')
-        .select('id, is_verified, category')
+        .select('id, is_verified, category, website_url, website_verify_token, website_verified_at')
         .eq('user_id', session.user.id)
         .maybeSingle();
 
@@ -113,6 +126,13 @@ export default function VerificationScreen({ navigation }) {
       setProviderId(provider.id);
       setIsVerified(provider.is_verified);
       setProviderCategory(provider.category);
+      setWebsiteSavedUrl(provider.website_url || '');
+      setWebsiteInput(provider.website_url || '');
+      setWebsiteToken(provider.website_verify_token || '');
+      setWebsiteVerifiedAt(provider.website_verified_at || null);
+      if (provider.website_verify_token) {
+        setWebsiteMetaTag(`<meta name="utsav-site-verification" content="${provider.website_verify_token}" />`);
+      }
 
       // Business name now comes from Business Profile (provider_billing) —
       // no separate typed field here anymore, so it can't drift out of sync
@@ -209,6 +229,51 @@ export default function VerificationScreen({ navigation }) {
       showAlert('Verification failed', err.message);
     } finally {
       setPhoneVerifying(false);
+    }
+  }
+
+  // Provider verification, Task 4 (website). "check" saves the URL, runs
+  // the immediate reachability fetch, and hands back the meta tag to
+  // paste. "confirm" is the actual ownership proof -- re-fetches the site
+  // and looks for that exact tag.
+  async function checkWebsite() {
+    if (!websiteInput.trim()) {
+      showAlert('Enter a website', 'Enter your website address first.');
+      return;
+    }
+    setWebsiteChecking(true);
+    try {
+      const data = await callEdgeFunction('verify-website', { action: 'check', url: websiteInput.trim() });
+      setWebsiteSavedUrl(data.url);
+      setWebsiteToken(data.token);
+      setWebsiteMetaTag(data.metaTag);
+      setWebsiteReachable(data.reachable);
+      setWebsiteVerifiedAt(null); // a fresh/changed check always needs re-confirming
+      if (!data.reachable) {
+        showAlert('Could not reach this site', "We couldn't load this URL just now. Double-check it's correct and the site is live, then try again.");
+      }
+    } catch (err) {
+      showAlert('Check failed', err.message);
+    } finally {
+      setWebsiteChecking(false);
+    }
+  }
+
+  async function copyMetaTag() {
+    if (!websiteMetaTag) return;
+    await Clipboard.setStringAsync(websiteMetaTag);
+    showAlert('Copied', 'Paste this into your site\'s HTML <head>, save/publish, then tap "Verify now".');
+  }
+
+  async function confirmWebsite() {
+    setWebsiteConfirming(true);
+    try {
+      await callEdgeFunction('verify-website', { action: 'confirm' });
+      setWebsiteVerifiedAt(new Date().toISOString());
+    } catch (err) {
+      showAlert('Not verified yet', err.message);
+    } finally {
+      setWebsiteConfirming(false);
     }
   }
 
@@ -353,6 +418,62 @@ export default function VerificationScreen({ navigation }) {
             )}
           </View>
         ) : null}
+
+        {/* Provider verification, Task 4 (website) -- a bit more involved
+            than email/phone (URL input + a two-step check-then-confirm),
+            so it's its own card instead of a one-line signal row. */}
+        <View style={s.websiteCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={s.signalLabel}>Website</Text>
+            {websiteVerifiedAt && (
+              <View style={s.signalBadgeVerified}>
+                <Text style={s.signalBadgeVerifiedText}>✓ Verified</Text>
+              </View>
+            )}
+          </View>
+
+          <TextInput
+            style={s.input}
+            placeholder="yourbusiness.com"
+            placeholderTextColor={theme.textTertiary}
+            value={websiteInput}
+            onChangeText={setWebsiteInput}
+            autoCapitalize="none"
+            keyboardType="url"
+            editable={!websiteVerifiedAt}
+          />
+
+          {!websiteVerifiedAt && (
+            <TouchableOpacity style={s.websiteCheckBtn} onPress={checkWebsite} disabled={websiteChecking}>
+              {websiteChecking
+                ? <ActivityIndicator size="small" color={theme.accent} />
+                : <Text style={s.websiteCheckBtnText}>Check site</Text>}
+            </TouchableOpacity>
+          )}
+
+          {!websiteVerifiedAt && websiteReachable !== null && (
+            <Text style={websiteReachable ? s.websiteReachableOk : s.websiteReachableBad}>
+              {websiteReachable ? '✓ Site is reachable' : '✗ Could not reach this site'}
+            </Text>
+          )}
+
+          {!websiteVerifiedAt && websiteMetaTag && (
+            <View style={s.metaTagBox}>
+              <Text style={s.metaTagHint}>Paste this into your site's HTML &lt;head&gt;, save/publish it, then verify:</Text>
+              <Text style={s.metaTagCode} selectable numberOfLines={3}>{websiteMetaTag}</Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                <TouchableOpacity style={s.signalBtn} onPress={copyMetaTag}>
+                  <Text style={s.signalBtnText}>Copy tag</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.websiteVerifyNowBtn} onPress={confirmWebsite} disabled={websiteConfirming}>
+                  {websiteConfirming
+                    ? <ActivityIndicator size="small" color={theme.btnPrimaryText} />
+                    : <Text style={s.websiteVerifyNowBtnText}>Verify now</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
 
         {isVerified ? (
           <View style={s.verifiedBox}>
@@ -598,6 +719,23 @@ function makeStyles(theme) {
       width: 110, backgroundColor: theme.bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7,
       fontSize: 14, textAlign: 'center', letterSpacing: 2, borderWidth: 0.5, borderColor: theme.border, color: theme.text,
     },
+
+    websiteCard: {
+      margin: 16, marginTop: 0, padding: 15, backgroundColor: theme.cardBg, borderRadius: 16,
+      borderWidth: 0.5, borderColor: theme.border, gap: 10,
+    },
+    websiteCheckBtn: { alignSelf: 'flex-start', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: theme.accent },
+    websiteCheckBtnText: { fontSize: 12.5, fontWeight: '700', color: theme.accent },
+    websiteReachableOk: { fontSize: 12.5, fontWeight: '600', color: '#2E7D32' },
+    websiteReachableBad: { fontSize: 12.5, fontWeight: '600', color: '#C62828' },
+    metaTagBox: { backgroundColor: theme.bgSecondary || theme.bg, borderRadius: 12, padding: 12, borderWidth: 0.5, borderColor: theme.border },
+    metaTagHint: { fontSize: 11.5, color: theme.textSecondary, marginBottom: 8, lineHeight: 16 },
+    metaTagCode: {
+      fontSize: 11.5, color: theme.text, backgroundColor: theme.cardBg, borderRadius: 8, padding: 10,
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : Platform.OS === 'android' ? 'monospace' : 'monospace',
+    },
+    websiteVerifyNowBtn: { backgroundColor: theme.btnPrimary, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9 },
+    websiteVerifyNowBtnText: { fontSize: 12.5, fontWeight: '700', color: theme.btnPrimaryText },
     verifiedBox: { alignItems: 'center', padding: 40 },
     verifiedIcon: { fontSize: 60, color: theme.statusConfirmedText, marginBottom: 18 },
     verifiedTitle: { fontSize: 23, fontWeight: '700', color: theme.statusConfirmedText, marginBottom: 9 },
