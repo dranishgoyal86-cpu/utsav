@@ -14,6 +14,7 @@ import StillnessCard from '../../components/invite/StillnessCard';
 import { isCelebratory } from '../../lib/eventTypeNames';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import GuestTable from '../../components/desktop/GuestTable';
+import { CARD, LINE, TEXT } from '../../lib/desktopTheme';
 
 // Wave 12 — same breakpoint/pattern as ProviderERP.js's own desktop
 // sidebar (the only other place in this app that does this) — one shared
@@ -3100,6 +3101,27 @@ export default function GuestList({ route, navigation }) {
           currentUserName={currentUserName}
           navigation={navigation}
         >
+          {/* Restores the mobile utilityChip row's tool links that the
+              desktop reskin dropped when this branch was first built —
+              Seating and Gate list have no DesktopEventShell sidebar entry
+              of their own (unlike Invites/RSVP dashboard/Gate passes),
+              so without this row they were unreachable from desktop
+              entirely. Real gap, found via live click-through verification,
+              fixed here rather than routed around. */}
+          {!isDelegateView && (
+            <View style={ds.toolsRow}>
+              <TouchableOpacity style={ds.toolBtn} onPress={() => navigation.navigate('SeatingChart', { eventId: event.id })}>
+                <Table size={14} color={TEXT} />
+                <Text style={ds.toolBtnText}>Seating</Text>
+              </TouchableOpacity>
+              {showVisitorList && (
+                <TouchableOpacity style={ds.toolBtn} onPress={() => navigation.navigate('VisitorList', { eventId: event.id })}>
+                  <Text style={{ fontSize: 14 }}>🚪</Text>
+                  <Text style={ds.toolBtnText}>Gate list</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
           <GuestTable
             guests={guests}
             eventFunctions={eventFunctions}
@@ -5142,4 +5164,16 @@ const styles = theme => StyleSheet.create({
     backgroundColor: theme.accent + '14', borderWidth: 0.5, borderColor: theme.accent + '40',
   },
   addGuestFromQueueBtnText: { fontSize: 13, fontWeight: '700', color: theme.accent },
+});
+
+// Desktop tool-links row (Guests' desktop branch only) -- colours from
+// lib/desktopTheme.js, matching every other desktop reskin in this app.
+const ds = StyleSheet.create({
+  toolsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  toolBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: CARD, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1, borderColor: LINE,
+  },
+  toolBtnText: { fontSize: 13, fontWeight: '700', color: TEXT },
 });

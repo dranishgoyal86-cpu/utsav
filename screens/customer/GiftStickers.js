@@ -16,6 +16,7 @@ import CapabilityBlocked from '../../components/CapabilityBlocked';
 import AppHeader from '../../components/AppHeader';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import GiftTable from '../../components/desktop/GiftTable';
+import { CARD, LINE, TEXT } from '../../lib/desktopTheme';
 
 // Wave 13 — same shared breakpoint every desktop screen in this app uses
 // (ProviderERP.js / GuestList.js).
@@ -543,6 +544,20 @@ export default function GiftStickers({ route, navigation }) {
   if (isDesktopWeb && mode === 'list') {
     return (
       <DesktopEventShell activeItem="gifts" event={event} guestCount={guests.length} currentUserName={currentUserName} navigation={navigation}>
+        {/* Restores the mobile actionsRow's "Return gifts" link, dropped
+            when this desktop branch was first built — ReturnGifts has no
+            DesktopEventShell sidebar entry of its own, so without this it
+            was unreachable from desktop entirely. Real gap, found via live
+            click-through verification, fixed here rather than routed
+            around. Scan sticker/Print sheet stay mobile-only on purpose
+            (camera + native PDF share, per this file's own top-of-file
+            note) — only Return gifts is a genuine cross-platform gap. */}
+        <View style={ds.toolsRow}>
+          <TouchableOpacity style={ds.toolBtn} onPress={() => navigation.navigate('ReturnGifts', { eventId })}>
+            <Text style={{ fontSize: 14 }}>🎀</Text>
+            <Text style={ds.toolBtnText}>Return gifts</Text>
+          </TouchableOpacity>
+        </View>
         <GiftTable guests={guests} giftStickersByGuest={giftStickersByGuest} onToggleReciprocation={toggleReciprocation} />
       </DesktopEventShell>
     );
@@ -777,3 +792,15 @@ function makeStyles(theme) {
     revealActions: { width: '100%', marginTop: 36 },
   });
 }
+
+// Desktop tool-links row (list-mode desktop branch only) -- colours from
+// lib/desktopTheme.js, matching every other desktop reskin in this app.
+const ds = StyleSheet.create({
+  toolsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  toolBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: CARD, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1, borderColor: LINE,
+  },
+  toolBtnText: { fontSize: 13, fontWeight: '700', color: TEXT },
+});
