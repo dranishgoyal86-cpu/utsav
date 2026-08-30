@@ -490,6 +490,8 @@ export default function VerificationScreen({ navigation }) {
                 ? theme.statusPending
                 : existingRequest.status === 'approved'
                 ? theme.statusConfirmed
+                : existingRequest.status === 'more_info_needed'
+                ? theme.statusPending
                 : theme.statusDeclined
             }]}>
               <Text style={[s.statusText, {
@@ -497,10 +499,13 @@ export default function VerificationScreen({ navigation }) {
                   ? theme.statusPendingText
                   : existingRequest.status === 'approved'
                   ? theme.statusConfirmedText
+                  : existingRequest.status === 'more_info_needed'
+                  ? theme.statusPendingText
                   : theme.statusDeclinedText
               }]}>
                 {existingRequest.status === 'pending' ? '⏳ Under review'
                   : existingRequest.status === 'approved' ? '✓ Approved'
+                  : existingRequest.status === 'more_info_needed' ? '📝 More info needed'
                   : '✗ Rejected'}
               </Text>
             </View>
@@ -509,6 +514,8 @@ export default function VerificationScreen({ navigation }) {
                 ? 'Application under review'
                 : existingRequest.status === 'approved'
                 ? 'Application approved!'
+                : existingRequest.status === 'more_info_needed'
+                ? 'We need a bit more from you'
                 : 'Application rejected'}
             </Text>
             <Text style={s.statusSub}>
@@ -516,6 +523,8 @@ export default function VerificationScreen({ navigation }) {
                 ? 'Our team is reviewing your application. This usually takes 2-3 business days.'
                 : existingRequest.status === 'approved'
                 ? 'Your profile has been verified. The verified badge is now visible on your profile.'
+                : existingRequest.status === 'more_info_needed'
+                ? "Your application isn't rejected — our team just needs something more before it can be approved. See the note below, then resubmit."
                 : 'Your application was not approved. Please review the notes below and reapply.'}
             </Text>
             {existingRequest.admin_notes && (
@@ -542,12 +551,14 @@ export default function VerificationScreen({ navigation }) {
                 <Text style={s.submittedValue}>Uploaded ✓</Text>
               </View>
             )}
-            {existingRequest.status === 'rejected' && (
+            {(existingRequest.status === 'rejected' || existingRequest.status === 'more_info_needed') && (
               <TouchableOpacity
                 style={s.reapplyBtn}
                 onPress={() => setExistingRequest(null)}
               >
-                <Text style={s.reapplyBtnText}>Submit new application →</Text>
+                <Text style={s.reapplyBtnText}>
+                  {existingRequest.status === 'more_info_needed' ? 'Update & resubmit →' : 'Submit new application →'}
+                </Text>
               </TouchableOpacity>
             )}
           </View>

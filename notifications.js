@@ -362,6 +362,38 @@ export async function notifyGstReviewed(userId, approved) {
   }
 }
 
+// Admin edit/revoke/delete/request-more-docs, shared across the four
+// review queues (verification_requests, provider_claims,
+// category_requests, category_upgrade_requests) -- one generic pair
+// instead of four near-identical notify*() functions, since the body
+// shape is identical across all four and only the noun changes.
+// contextLabel is what the provider actually reads, e.g. "verification
+// application", "claim on Mumbai Catering Co", "category request for
+// Drone Photography", "category upgrade to Event Planner".
+export async function notifyMoreInfoNeeded(userId, contextLabel, note) {
+  const { data: user } = await supabase
+    .from('users').select('push_token').eq('id', userId).single();
+
+  const title = 'More info needed 📝';
+  const body = `Your ${contextLabel} needs something more before it can go ahead: ${note}`;
+
+  await saveNotificationToDb(userId, title, body, { type: 'more_info_needed' });
+  if (user?.push_token) await sendPushNotification(user.push_token, title, body);
+}
+
+export async function notifyRequestRevoked(userId, contextLabel, note) {
+  const { data: user } = await supabase
+    .from('users').select('push_token').eq('id', userId).single();
+
+  const title = 'A previous approval was reversed';
+  const body = note
+    ? `Your ${contextLabel} has been revoked: ${note}`
+    : `Your ${contextLabel} has been revoked. Contact support if you think this is a mistake.`;
+
+  await saveNotificationToDb(userId, title, body, { type: 'request_revoked' });
+  if (user?.push_token) await sendPushNotification(user.push_token, title, body);
+}
+
 export async function notifyAccountSuspended(userId, reason) {
   const { data: user } = await supabase
     .from('users')

@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
-import { notifyProviderVerified } from '../../notifications';
+import { notifyProviderVerified, notifyMoreInfoNeeded, notifyRequestRevoked } from '../../notifications';
 import { sendBulkImportInviteEmail } from '../../lib/bulkImportInvite';
 import { getSignedDocumentUrl, showAlert } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
@@ -18,7 +18,7 @@ export default function AdminPanel({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
-    pending: 0, approved: 0, rejected: 0, providers: 0
+    pending: 0, approved: 0, rejected: 0, moreInfoNeeded: 0, providers: 0
   });
   const [selected, setSelected] = useState(null);
   const [adminNotes, setAdminNotes] = useState('');
@@ -90,13 +90,15 @@ export default function AdminPanel({ navigation }) {
       }
 
       // Stats (unchanged — these don't use joins, so they were never the problem)
-      const [p, a, r, pr] = await Promise.all([
+      const [p, a, r, m, pr] = await Promise.all([
         supabase.from('verification_requests')
           .select('*', { count: 'exact', head: true }).eq('status', 'pending'),
         supabase.from('verification_requests')
           .select('*', { count: 'exact', head: true }).eq('status', 'approved'),
         supabase.from('verification_requests')
           .select('*', { count: 'exact', head: true }).eq('status', 'rejected'),
+        supabase.from('verification_requests')
+          .select('*', { count: 'exact', head: true }).eq('status', 'more_info_needed'),
         supabase.from('providers')
           .select('*', { count: 'exact', head: true }),
       ]);
@@ -105,6 +107,7 @@ export default function AdminPanel({ navigation }) {
         pending: p.count || 0,
         approved: a.count || 0,
         rejected: r.count || 0,
+        moreInfoNeeded: m.count || 0,
         providers: pr.count || 0,
       });
     } catch (err) {
@@ -115,29 +118,29 @@ export default function AdminPanel({ navigation }) {
     }
   }
 
-async function handleAction(request, action) {
-    const confirmTitle = action === 'approved' ? 'Approve verification?' : 'Reject application?';
-    const confirmMsg = action === 'approved'
-      ? `Verify ${request.users?.name}? They will get a verified badge and notification.`
-      : `Reject ${request.users?.name}'s application?`;
+const ACTION_COPY = {
+    approved: { title: 'Approve verification?', msg: n => `Verify ${n}? They will get a verified badge and notification.`, btn: '✓ Approve', destructive: false },
+    rejected: { title: 'Reject application?', msg: n => `Reject ${n}'s application?`, btn: '✗ Reject', destructive: true },
+    more_info_needed: { title: 'Request more info?', msg: n => `Ask ${n} for more information? They'll be notified with your note below and can resubmit.`, btn: '📝 Request more info', destructive: false },
+  };
+
+  function handleAction(request, action) {
+    if (action === 'more_info_needed' && !adminNotes.trim()) {
+      showAlert('Add a note', "Say what's missing or needed — this is what the provider will actually see.");
+      return;
+    }
+    const { title: confirmTitle, msg, btn, destructive } = ACTION_COPY[action];
+    const confirmMsg = msg(request.users?.name);
 
     if (Platform.OS === 'web') {
       const confirmed = window.confirm(`${confirmTitle}\n\n${confirmMsg}`);
       if (!confirmed) return;
-      await performAction(request, action);
+      performAction(request, action);
     } else {
-      Alert.alert(
-        confirmTitle,
-        confirmMsg,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: action === 'approved' ? '✓ Approve' : '✗ Reject',
-            style: action === 'rejected' ? 'destructive' : 'default',
-            onPress: () => performAction(request, action)
-          }
-        ]
-      );
+      Alert.alert(confirmTitle, confirmMsg, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: btn, style: destructive ? 'destructive' : 'default', onPress: () => performAction(request, action) },
+      ]);
     }
   }
 
@@ -169,15 +172,19 @@ async function handleAction(request, action) {
         // duplicate send if this provider also came through claim
         // approval -- see lib/bulkImportInvite.js.
         await sendBulkImportInviteEmail(request.provider_id);
+      } else if (action === 'more_info_needed') {
+        await notifyMoreInfoNeeded(request.user_id, 'verification application', adminNotes.trim());
       }
 
       setSelected(null);
       setAdminNotes('');
       await fetchRequests();
 
-      const successTitle = action === 'approved' ? 'Approved! ✓' : 'Rejected';
+      const successTitle = action === 'approved' ? 'Approved! ✓' : action === 'more_info_needed' ? 'Provider notified' : 'Rejected';
       const successMsg = action === 'approved'
         ? `${request.users?.name} has been verified and notified.`
+        : action === 'more_info_needed'
+        ? `${request.users?.name} has been asked for more information.`
         : `${request.users?.name}'s application has been rejected.`;
 
       if (Platform.OS === 'web') {
@@ -191,6 +198,57 @@ async function handleAction(request, action) {
       } else {
         Alert.alert('Error', err.message);
       }
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  // Delete the request row outright. On an approved request, also revokes
+  // the verified badge (providers.is_verified=false) -- confirmed with the
+  // user as the intended meaning of "delete" here, not just tidying the
+  // queue. Never touches is_claimed/user_id -- that's ClaimRequests.js's
+  // own record, a genuinely separate thing (confirmed in this session's
+  // earlier Task 0 investigation).
+  function handleDelete(request) {
+    const wasApproved = request.status === 'approved';
+    const title = wasApproved ? 'Revoke verification & delete?' : 'Delete this application?';
+    const msg = wasApproved
+      ? `${request.users?.name}'s verified badge will be removed immediately and this application deleted. They'll be notified${adminNotes.trim() ? ' with your note below' : ''}. This can't be undone from here — they'd need to reapply.`
+      : `Permanently remove this application from the queue? This can't be undone.`;
+    if (Platform.OS === 'web') {
+      if (!window.confirm(`${title}\n\n${msg}`)) return;
+      performDelete(request, wasApproved);
+    } else {
+      Alert.alert(title, msg, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: wasApproved ? 'Revoke & delete' : 'Delete', style: 'destructive', onPress: () => performDelete(request, wasApproved) },
+      ]);
+    }
+  }
+
+  async function performDelete(request, wasApproved) {
+    try {
+      setProcessing(true);
+      if (wasApproved) {
+        const { error: provError } = await supabase
+          .from('providers').update({ is_verified: false }).eq('id', request.provider_id);
+        if (provError) throw provError;
+      }
+
+      const { error: delError } = await supabase
+        .from('verification_requests').delete().eq('id', request.id);
+      if (delError) throw delError;
+
+      if (wasApproved) {
+        await notifyRequestRevoked(request.user_id, 'provider verification', adminNotes.trim());
+      }
+
+      setSelected(null);
+      setAdminNotes('');
+      await fetchRequests();
+      showAlert(wasApproved ? 'Revoked & deleted' : 'Deleted', wasApproved ? `${request.users?.name}'s verification has been revoked.` : 'The application has been removed.');
+    } catch (err) {
+      showAlert('Error', err.message);
     } finally {
       setProcessing(false);
     }
@@ -374,40 +432,37 @@ async function handleAction(request, action) {
                 </View>
               </View>
 
-              {/* Previous admin notes */}
-              {selected.admin_notes ? (
-                <View style={s.prevNotesBox}>
-                  <Text style={s.prevNotesTitle}>Previous admin notes</Text>
-                  <Text style={s.prevNotesText}>{selected.admin_notes}</Text>
-                </View>
-              ) : null}
-
-              {/* Admin notes input — only for pending */}
-              {activeTab === 'pending' && (
-                <View style={s.notesSection}>
-                  <Text style={s.notesLabel}>Admin notes (optional)</Text>
-                  <Text style={s.notesSub}>
-                    Shown to provider — especially important if rejecting
-                  </Text>
-                  <TextInput
-                    style={s.notesInput}
-                    placeholder="e.g. Please provide more details about your experience..."
-                    placeholderTextColor={theme.textTertiary}
-                    value={adminNotes}
-                    onChangeText={setAdminNotes}
-                    multiline
-                    numberOfLines={4}
-                    textAlignVertical="top"
-                  />
-                </View>
-              )}
+              {/* Admin notes — editable regardless of status now (not just
+                  pending), so a note can be corrected/added after the fact
+                  and reused for a "request more info" or "revoke" action
+                  too, not just at first review. */}
+              <View style={s.notesSection}>
+                <Text style={s.notesLabel}>Admin notes {activeTab === 'pending' ? '(optional)' : ''}</Text>
+                <Text style={s.notesSub}>
+                  Shown to the provider — required if rejecting, requesting more info, or revoking
+                </Text>
+                <TextInput
+                  style={s.notesInput}
+                  placeholder="e.g. Please provide more details about your experience..."
+                  placeholderTextColor={theme.textTertiary}
+                  value={adminNotes}
+                  onChangeText={setAdminNotes}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              </View>
 
               <View style={{ height: 120 }} />
             </View>
           }
         />
 
-        {/* Action buttons — only for pending */}
+        {/* Action buttons — different set per status. pending gets the
+            full review set (reject / more-info / approve); approved gets
+            the one destructive revoke path; rejected and more_info_needed
+            just get a plain delete to clear a stale entry out of the
+            queue. */}
         {activeTab === 'pending' && (
           <View style={s.actionBar}>
             <TouchableOpacity
@@ -418,6 +473,13 @@ async function handleAction(request, action) {
               <Text style={s.rejectBtnText}>✗  Reject</Text>
             </TouchableOpacity>
             <TouchableOpacity
+              style={[s.moreInfoBtn, processing && { opacity: 0.6 }]}
+              onPress={() => handleAction(selected, 'more_info_needed')}
+              disabled={processing}
+            >
+              <Text style={s.moreInfoBtnText}>📝  More info</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               style={[s.approveBtn, processing && { opacity: 0.6 }]}
               onPress={() => handleAction(selected, 'approved')}
               disabled={processing}
@@ -425,6 +487,34 @@ async function handleAction(request, action) {
               {processing
                 ? <ActivityIndicator color="#FFF" />
                 : <Text style={s.approveBtnText}>✓  Approve & verify</Text>
+              }
+            </TouchableOpacity>
+          </View>
+        )}
+        {activeTab === 'approved' && (
+          <View style={s.actionBar}>
+            <TouchableOpacity
+              style={[s.revokeBtn, processing && { opacity: 0.6 }]}
+              onPress={() => handleDelete(selected)}
+              disabled={processing}
+            >
+              {processing
+                ? <ActivityIndicator color="#C62828" />
+                : <Text style={s.revokeBtnText}>⛔  Revoke verification & delete</Text>
+              }
+            </TouchableOpacity>
+          </View>
+        )}
+        {(activeTab === 'rejected' || activeTab === 'more_info_needed') && (
+          <View style={s.actionBar}>
+            <TouchableOpacity
+              style={[s.rejectBtn, processing && { opacity: 0.6 }]}
+              onPress={() => handleDelete(selected)}
+              disabled={processing}
+            >
+              {processing
+                ? <ActivityIndicator color="#C62828" />
+                : <Text style={s.rejectBtnText}>🗑  Delete application</Text>
               }
             </TouchableOpacity>
           </View>
@@ -560,16 +650,16 @@ async function handleAction(request, action) {
 
       {/* Tabs */}
       <View style={s.tabRow}>
-        {['pending', 'approved', 'rejected'].map(tab => (
+        {['pending', 'approved', 'rejected', 'more_info_needed'].map(tab => (
           <TouchableOpacity
             key={tab}
             style={[s.tab, activeTab === tab && s.tabActive]}
             onPress={() => setActiveTab(tab)}
           >
             <Text style={[s.tabText, activeTab === tab && s.tabTextActive]}>
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              {tab === 'pending' && stats.pending > 0
-                ? ` (${stats.pending})` : ''}
+              {tab === 'more_info_needed' ? 'More info' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'pending' && stats.pending > 0 ? ` (${stats.pending})` : ''}
+              {tab === 'more_info_needed' && stats.moreInfoNeeded > 0 ? ` (${stats.moreInfoNeeded})` : ''}
             </Text>
           </TouchableOpacity>
         ))}
@@ -584,12 +674,14 @@ async function handleAction(request, action) {
       ) : requests.length === 0 ? (
         <View style={s.centerBox}>
           <Text style={s.emptyIcon}>
-            {activeTab === 'pending' ? '📭' : activeTab === 'approved' ? '✅' : '❌'}
+            {activeTab === 'pending' ? '📭' : activeTab === 'approved' ? '✅' : activeTab === 'more_info_needed' ? '📝' : '❌'}
           </Text>
-          <Text style={s.emptyTitle}>No {activeTab} applications</Text>
+          <Text style={s.emptyTitle}>No {activeTab === 'more_info_needed' ? 'more-info' : activeTab} applications</Text>
           <Text style={s.emptySub}>
             {activeTab === 'pending'
               ? 'All caught up! No applications waiting.'
+              : activeTab === 'more_info_needed'
+              ? 'Applications waiting on the provider appear here.'
               : `${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} applications appear here.`}
           </Text>
         </View>
@@ -608,7 +700,7 @@ async function handleAction(request, action) {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={s.requestCard}
-              onPress={() => { setSelected(item); setAdminNotes(''); }}
+              onPress={() => { setSelected(item); setAdminNotes(item.admin_notes || ''); }}
             >
               <View style={s.requestTop}>
                 <View style={s.requestAvatar}>
@@ -777,5 +869,9 @@ function makeStyles(theme) {
     rejectBtnText: { fontSize: 14, fontWeight: '700', color: '#C62828' },
     approveBtn: { flex: 2, paddingVertical: 14, borderRadius: 12, backgroundColor: '#2E7D32', alignItems: 'center' },
     approveBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+    moreInfoBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: '#E8A020', alignItems: 'center' },
+    moreInfoBtnText: { fontSize: 13, fontWeight: '700', color: '#E8A020' },
+    revokeBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#C6282814', borderWidth: 1.5, borderColor: '#C62828', alignItems: 'center' },
+    revokeBtnText: { fontSize: 14, fontWeight: '700', color: '#C62828' },
   });
 }
