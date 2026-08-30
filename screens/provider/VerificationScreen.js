@@ -7,7 +7,7 @@ import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
 import { Upload } from 'phosphor-react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { uploadToCloudinary } from '../../helpers';
+import { uploadToCloudinary, callEdgeFunction } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
 import { getParentCategory, getCategoryIcon } from '../../serviceTemplates';
 
@@ -44,6 +44,15 @@ export default function VerificationScreen({ navigation }) {
   });
   const [proofUrl, setProofUrl] = useState(null);
   const [uploading, setUploading] = useState(false);
+
+  // Provider verification, Task 1 (email) -- a separate signal from the
+  // ID-proof review above (existingRequest/is_verified). Reuses
+  // users.email_verified_at, the same column ClaimVendorFlow.js's held
+  // email-change-OTP step already targets.
+  const [userEmail, setUserEmail] = useState('');
+  const [emailVerifiedAt, setEmailVerifiedAt] = useState(null);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailLinkSent, setEmailLinkSent] = useState(false);
 
   async function pickProof() {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -96,6 +105,13 @@ export default function VerificationScreen({ navigation }) {
         .from('provider_billing').select('business_name').eq('provider_user_id', session.user.id).maybeSingle();
       if (billing?.business_name) updateForm('businessName', billing.business_name);
 
+      const { data: userRow } = await supabase
+        .from('users').select('email, email_verified_at').eq('id', session.user.id).maybeSingle();
+      if (userRow) {
+        setUserEmail(userRow.email || '');
+        setEmailVerifiedAt(userRow.email_verified_at || null);
+      }
+
       const { data: request, error: reqError } = await supabase
         .from('verification_requests')
         .select('*')
@@ -115,6 +131,25 @@ export default function VerificationScreen({ navigation }) {
 
   function updateForm(key, value) {
     setForm(prev => ({ ...prev, [key]: value }));
+  }
+
+  // Provider verification, Task 1 (email) -- generates+sends via
+  // request-email-verification (server-side token, AWS SES). Non-fatal to
+  // the rest of the screen if it fails; the button just re-enables.
+  async function sendEmailVerification() {
+    setEmailSending(true);
+    try {
+      const data = await callEdgeFunction('request-email-verification', {});
+      if (data.already_verified) {
+        setEmailVerifiedAt(new Date().toISOString());
+      } else {
+        setEmailLinkSent(true);
+      }
+    } catch (err) {
+      showAlert('Could not send link', err.message);
+    } finally {
+      setEmailSending(false);
+    }
   }
 
   async function handleSubmit() {
@@ -189,6 +224,31 @@ export default function VerificationScreen({ navigation }) {
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView showsVerticalScrollIndicator={false}>
+
+        {/* Provider verification, Task 1 (email) -- a separate signal from
+            the ID-proof review below, so it's shown regardless of that
+            review's own state. */}
+        {userEmail ? (
+          <View style={s.signalRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.signalLabel}>Email</Text>
+              <Text style={s.signalValue}>{userEmail}</Text>
+            </View>
+            {emailVerifiedAt ? (
+              <View style={s.signalBadgeVerified}>
+                <Text style={s.signalBadgeVerifiedText}>✓ Verified</Text>
+              </View>
+            ) : emailLinkSent ? (
+              <Text style={s.signalSentText}>Link sent — check your inbox</Text>
+            ) : (
+              <TouchableOpacity style={s.signalBtn} onPress={sendEmailVerification} disabled={emailSending}>
+                {emailSending
+                  ? <ActivityIndicator size="small" color={theme.accent} />
+                  : <Text style={s.signalBtnText}>Send verification link</Text>}
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : null}
 
         {isVerified ? (
           <View style={s.verifiedBox}>
@@ -419,6 +479,17 @@ function makeStyles(theme) {
     headerTitle: { fontSize: 17, fontWeight: '700', color: theme.text },
 
     centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    signalRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 12, margin: 16, marginBottom: 0,
+      padding: 15, backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 0.5, borderColor: theme.border,
+    },
+    signalLabel: { fontSize: 11.5, color: theme.textSecondary, marginBottom: 2 },
+    signalValue: { fontSize: 14, fontWeight: '600', color: theme.text },
+    signalBadgeVerified: { backgroundColor: theme.statusConfirmed, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 7 },
+    signalBadgeVerifiedText: { fontSize: 12.5, fontWeight: '700', color: theme.statusConfirmedText },
+    signalSentText: { fontSize: 12, color: theme.textSecondary, maxWidth: 130, textAlign: 'right' },
+    signalBtn: { borderRadius: 12, paddingHorizontal: 13, paddingVertical: 9, borderWidth: 1, borderColor: theme.accent },
+    signalBtnText: { fontSize: 12.5, fontWeight: '700', color: theme.accent },
     verifiedBox: { alignItems: 'center', padding: 40 },
     verifiedIcon: { fontSize: 60, color: theme.statusConfirmedText, marginBottom: 18 },
     verifiedTitle: { fontSize: 23, fontWeight: '700', color: theme.statusConfirmedText, marginBottom: 9 },

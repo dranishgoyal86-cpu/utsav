@@ -57,6 +57,10 @@ const linking = {
       Login: 'login',
       Signup: 'signup',
       GuestSignup: 'guest-signup',
+      // Provider verification, Task 1 (email) -- reachable regardless of
+      // auth state (the recipient may click this on a different, logged-out
+      // device), same cross-auth-state reasoning as RSVP below.
+      VerifyEmailToken: 'verify-email/:token',
     },
   },
 };

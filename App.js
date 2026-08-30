@@ -20,6 +20,7 @@ import { registerTourTarget } from './lib/tourTargets';
 import LoginScreen from './screens/LoginScreen';
 import SignupScreen from './screens/SignupScreen';
 import RSVPScreen from './screens/RSVPScreen';
+import VerifyEmailToken from './screens/VerifyEmailToken';
 import GuestPassScreen from './screens/GuestPassScreen';
 import GuestSignup from './screens/GuestSignup';
 import DelegateRedeem from './screens/DelegateRedeem';
@@ -483,6 +484,7 @@ function MainApp() {
             <Stack.Screen name="GuestSignup" component={GuestSignup} />
             <Stack.Screen name="ClaimVendorFlow" component={ClaimVendorFlow} />
             <Stack.Screen name="RSVP" component={RSVPScreen} />
+            <Stack.Screen name="VerifyEmailToken" component={VerifyEmailToken} />
             <Stack.Screen name="DelegateRedeem" component={DelegateRedeem} />
             <Stack.Screen name="GuestPass" component={GuestPassScreen} />
           </>
@@ -499,6 +501,7 @@ function MainApp() {
             <Stack.Screen name="CapabilitiesAdmin" component={CapabilitiesAdmin} />
             <Stack.Screen name="ClaimVendorFlow" component={ClaimVendorFlow} />
             <Stack.Screen name="RSVP" component={RSVPScreen} />
+            <Stack.Screen name="VerifyEmailToken" component={VerifyEmailToken} />
             <Stack.Screen name="DelegateRedeem" component={DelegateRedeem} />
             <Stack.Screen name="GuestPass" component={GuestPassScreen} />
           </>
@@ -509,6 +512,7 @@ function MainApp() {
             <Stack.Screen name="ProviderDashboard" component={ProviderERP} />
             <Stack.Screen name="ClaimVendorFlow" component={ClaimVendorFlow} />
             <Stack.Screen name="RSVP" component={RSVPScreen} />
+            <Stack.Screen name="VerifyEmailToken" component={VerifyEmailToken} />
             <Stack.Screen name="DelegateRedeem" component={DelegateRedeem} />
             <Stack.Screen name="GuestPass" component={GuestPassScreen} />
             <Stack.Screen name="AddService" component={AddServiceScreen} />
@@ -541,6 +545,7 @@ function MainApp() {
           <>
             <Stack.Screen name="CustomerTabs" component={CustomerTabs} />
             <Stack.Screen name="RSVP" component={RSVPScreen} />
+            <Stack.Screen name="VerifyEmailToken" component={VerifyEmailToken} />
             <Stack.Screen name="DelegateRedeem" component={DelegateRedeem} />
             <Stack.Screen name="GuestPass" component={GuestPassScreen} />
             <Stack.Screen name="ProviderProfile" component={ProviderProfile} />

@@ -101,3 +101,8 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/purge-deleted-accounts/deno.json"
 entrypoint = "./functions/purge-deleted-accounts/index.ts"
+
+[functions.verify-email-token]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/verify-email-token/index.ts"
