@@ -743,7 +743,7 @@ function makeStyles(theme) {
     metaTagHint: { fontSize: 11.5, color: theme.textSecondary, marginBottom: 8, lineHeight: 16 },
     metaTagCode: {
       fontSize: 11.5, color: theme.text, backgroundColor: theme.cardBg, borderRadius: 8, padding: 10,
-      fontFamily: Platform.OS === 'ios' ? 'Menlo' : Platform.OS === 'android' ? 'monospace' : 'monospace',
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
     websiteVerifyNowBtn: { backgroundColor: theme.btnPrimary, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9 },
     websiteVerifyNowBtnText: { fontSize: 12.5, fontWeight: '700', color: theme.btnPrimaryText },
