@@ -1,18 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert, Image, Modal, RefreshControl, Platform, Linking
+  View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, ActivityIndicator, Alert, Image, Modal, RefreshControl, Platform, Linking
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import {
   ArrowLeft, Check, X, Phone, FileText,
-  ArrowSquareOut, User
+  ArrowSquareOut, User, PencilSimple, Trash
 } from 'phosphor-react-native';
 import { showAlert, getSignedDocumentUrl } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
 import { autoDescription } from '../../serviceTemplates';
 import { sendBulkImportInviteEmail } from '../../lib/bulkImportInvite';
+import { notifyMoreInfoNeeded, notifyRequestRevoked } from '../../notifications';
 
 const DOCUMENT_LABELS = {
   business_image: 'Business image',
@@ -26,6 +27,7 @@ const STATUS_STYLES = {
   pending:  { label: 'Pending',  color: '#FF9800', bg: '#FF980022' },
   approved: { label: 'Approved', color: '#4CAF50', bg: '#4CAF5022' },
   rejected: { label: 'Rejected', color: '#F44336', bg: '#F4433622' },
+  more_info_needed: { label: 'More info', color: '#E8A020', bg: '#E8A02022' },
 };
 
 export default function ClaimRequests({ navigation }) {
@@ -39,6 +41,16 @@ export default function ClaimRequests({ navigation }) {
   const [processing, setProcessing] = useState(null); // claim id being processed
   const [proofModal, setProofModal] = useState(null); // resolved (viewable) proof url
   const [resolvingProof, setResolvingProof] = useState(null); // claim id being resolved
+  // Per-card note drafts, keyed by claim id -- this screen is a flat card
+  // list with no separate detail/selected screen (unlike AdminPanel.js), so
+  // there's no single shared "adminNotes" field; each card edits its own.
+  const [noteDrafts, setNoteDrafts] = useState({});
+  function noteFor(claim) {
+    return noteDrafts[claim.id] ?? (claim.admin_notes || '');
+  }
+  function setNoteFor(claimId, text) {
+    setNoteDrafts(prev => ({ ...prev, [claimId]: text }));
+  }
 
   // document_type set → business_proof_url is a private-bucket PATH
   // (stringent existing-listing claims) needing a fresh signed URL each
@@ -200,6 +212,10 @@ export default function ClaimRequests({ navigation }) {
   }
 
   async function rejectClaim(claim) {
+    if (!noteFor(claim).trim()) {
+      showAlert('Add a note', 'Say why this claim was rejected — this is what the claimant will actually see.');
+      return;
+    }
     confirm(
       'Reject claim?',
       `The claim by ${claim.claimant?.name || claim.claimant_name} for "${claim.provider?.name}" will be rejected.`,
@@ -211,6 +227,7 @@ export default function ClaimRequests({ navigation }) {
             .from('provider_claims')
             .update({
               status: 'rejected',
+              admin_notes: noteFor(claim).trim() || null,
               reviewed_by: user?.id,
               reviewed_at: new Date().toISOString(),
             })
@@ -227,7 +244,123 @@ export default function ClaimRequests({ navigation }) {
     );
   }
 
-  const filters = ['pending', 'approved', 'rejected', 'all'];
+  // Edit/revoke/delete/request-more-docs (confirmed scope with the user).
+  // requestMoreInfo mirrors AdminPanel.js's own action one-for-one.
+  function requestMoreInfo(claim) {
+    if (!noteFor(claim).trim()) {
+      showAlert('Add a note', "Say what's missing — this is what the claimant will actually see.");
+      return;
+    }
+    confirm(
+      'Request more info?',
+      `Ask ${claim.claimant?.name || claim.claimant_name} for more information? They'll be notified with your note and can resubmit.`,
+      async () => {
+        setProcessing(claim.id);
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          const { error } = await supabase
+            .from('provider_claims')
+            .update({
+              status: 'more_info_needed',
+              admin_notes: noteFor(claim).trim(),
+              reviewed_by: user?.id,
+              reviewed_at: new Date().toISOString(),
+            })
+            .eq('id', claim.id);
+          if (error) throw error;
+          await notifyMoreInfoNeeded(claim.claimant_user_id, `claim on "${claim.provider?.name}"`, noteFor(claim).trim());
+          fetchClaims();
+        } catch (err) {
+          showAlert('Error', err.message);
+        } finally {
+          setProcessing(null);
+        }
+      }
+    );
+  }
+
+  // Revoke & unclaim an approved claim -- confirmed with the user as what
+  // "delete" means for an already-approved record: undo the approval, not
+  // just remove the row. Deliberately does NOT touch providers.category
+  // (no reliable "previous category" is stored -- claimed_category is the
+  // NEW value, not the old one) and does NOT delete the services rows the
+  // approval created (real business data a provider may have since built
+  // on; same data-preservation call as AdminPanel.js's revoke).
+  function revokeClaim(claim) {
+    if (!noteFor(claim).trim()) {
+      showAlert('Add a note', 'Say why this claim is being revoked — this is what the claimant will actually see.');
+      return;
+    }
+    confirm(
+      'Revoke claim & unclaim listing?',
+      `"${claim.provider?.name}" will be unclaimed and unlinked from ${claim.claimant?.name || claim.claimant_name} immediately, and this claim record deleted. They'll be notified with your note below. Services already added stay on the listing -- remove those separately if needed. This can't be undone from here.`,
+      async () => {
+        setProcessing(claim.id);
+        try {
+          const { error: provErr } = await supabase
+            .from('providers')
+            .update({ is_claimed: false, user_id: null, is_active: false })
+            .eq('id', claim.provider_id);
+          if (provErr) throw provErr;
+
+          // Only demote the claimant if this is the only thing that made
+          // them a provider -- a role flip is a real behavioral change for
+          // them, not just a badge, so it's scoped narrowly rather than
+          // applied blindly whenever any one of their claims is revoked.
+          // A failed count query must NOT fall through to "demote" --
+          // count/error are both destructured so an error (count left
+          // null/undefined) is caught and skips the demotion instead of
+          // !otherApproved defaulting to true on nothing.
+          const { count: otherApproved, error: countErr } = await supabase
+            .from('provider_claims')
+            .select('id', { count: 'exact', head: true })
+            .eq('claimant_user_id', claim.claimant_user_id)
+            .eq('status', 'approved')
+            .neq('id', claim.id);
+          if (countErr) throw countErr;
+          if (!otherApproved) {
+            await supabase.from('users').update({ role: 'customer' }).eq('id', claim.claimant_user_id);
+          }
+
+          const { error: delErr } = await supabase.from('provider_claims').delete().eq('id', claim.id);
+          if (delErr) throw delErr;
+
+          await notifyRequestRevoked(claim.claimant_user_id, `claim on "${claim.provider?.name}"`, noteFor(claim).trim());
+          fetchClaims();
+          showAlert('Revoked', `The claim on "${claim.provider?.name}" has been reversed.`);
+        } catch (err) {
+          showAlert('Error', err.message);
+        } finally {
+          setProcessing(null);
+        }
+      },
+      true
+    );
+  }
+
+  // Plain record delete -- rejected/more_info_needed were never approved,
+  // so there's nothing to revoke, just a stale entry to clear.
+  function deleteClaim(claim) {
+    confirm(
+      'Delete this claim?',
+      `Permanently remove this claim record for "${claim.provider?.name}"? This can't be undone.`,
+      async () => {
+        setProcessing(claim.id);
+        try {
+          const { error } = await supabase.from('provider_claims').delete().eq('id', claim.id);
+          if (error) throw error;
+          fetchClaims();
+        } catch (err) {
+          showAlert('Error', err.message);
+        } finally {
+          setProcessing(null);
+        }
+      },
+      true
+    );
+  }
+
+  const filters = ['pending', 'approved', 'rejected', 'more_info_needed', 'all'];
   const filtered = activeFilter === 'all'
     ? claims
     : claims.filter(c => c.status === activeFilter);
@@ -321,7 +454,33 @@ export default function ClaimRequests({ navigation }) {
           })}
         </Text>
 
-        {/* Actions — only for pending */}
+        {claim.admin_notes && claim.status !== 'pending' && claim.status !== 'approved' ? (
+          <View style={s.prevNotesBox}>
+            <Text style={s.prevNotesTitle}>Admin notes</Text>
+            <Text style={s.prevNotesText}>{claim.admin_notes}</Text>
+          </View>
+        ) : null}
+
+        {/* Notes — editable on pending (reject/more-info) and approved
+            (revoke reason), same "edit" capability AdminPanel.js has. */}
+        {(claim.status === 'pending' || claim.status === 'approved') && (
+          <View style={{ gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <PencilSimple size={12} color={theme.textSecondary} />
+              <Text style={s.notesLabel}>Admin notes {claim.status === 'pending' ? '(required for reject/more-info)' : '(required to revoke)'}</Text>
+            </View>
+            <TextInput
+              style={s.notesInput}
+              placeholder="Shown to the claimant"
+              placeholderTextColor={theme.textTertiary}
+              value={noteFor(claim)}
+              onChangeText={t => setNoteFor(claim.id, t)}
+              multiline
+            />
+          </View>
+        )}
+
+        {/* Actions — different set per status, mirrors AdminPanel.js */}
         {claim.status === 'pending' && (
           <View style={s.actionRow}>
             <TouchableOpacity
@@ -331,6 +490,13 @@ export default function ClaimRequests({ navigation }) {
             >
               <X size={16} color="#F44336" />
               <Text style={s.rejectBtnText}>Reject</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.moreInfoBtn}
+              onPress={() => requestMoreInfo(claim)}
+              disabled={isProcessing}
+            >
+              <Text style={s.moreInfoBtnText}>📝 More info</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={s.approveBtn}
@@ -345,6 +511,32 @@ export default function ClaimRequests({ navigation }) {
                   <Text style={s.approveBtnText}>Approve</Text>
                 </>
               )}
+            </TouchableOpacity>
+          </View>
+        )}
+        {claim.status === 'approved' && (
+          <View style={s.actionRow}>
+            <TouchableOpacity
+              style={s.revokeBtn}
+              onPress={() => revokeClaim(claim)}
+              disabled={isProcessing}
+            >
+              {isProcessing
+                ? <ActivityIndicator size="small" color="#C62828" />
+                : <Text style={s.revokeBtnText}>⛔ Revoke & unclaim</Text>}
+            </TouchableOpacity>
+          </View>
+        )}
+        {(claim.status === 'rejected' || claim.status === 'more_info_needed') && (
+          <View style={s.actionRow}>
+            <TouchableOpacity
+              style={s.rejectBtn}
+              onPress={() => deleteClaim(claim)}
+              disabled={isProcessing}
+            >
+              {isProcessing
+                ? <ActivityIndicator size="small" color="#F44336" />
+                : (<><Trash size={16} color="#F44336" /><Text style={s.rejectBtnText}>Delete</Text></>)}
             </TouchableOpacity>
           </View>
         )}
@@ -366,7 +558,7 @@ export default function ClaimRequests({ navigation }) {
             onPress={() => setActiveFilter(f)}
           >
             <Text style={[s.filterPillText, activeFilter === f && s.filterPillTextActive]}>
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+              {f === 'more_info_needed' ? 'More info' : f.charAt(0).toUpperCase() + f.slice(1)}
               {f !== 'all' && ` (${claims.filter(c => c.status === f).length})`}
             </Text>
           </TouchableOpacity>
@@ -476,6 +668,26 @@ const styles = theme => StyleSheet.create({
     backgroundColor: '#4CAF50',
   },
   approveBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+  moreInfoBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: '#E8A02011', borderWidth: 0.5, borderColor: '#E8A02044',
+  },
+  moreInfoBtnText: { fontSize: 13, fontWeight: '700', color: '#E8A020' },
+  revokeBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: '#C6282814', borderWidth: 0.5, borderColor: '#C62828',
+  },
+  revokeBtnText: { fontSize: 14, fontWeight: '700', color: '#C62828' },
+  notesLabel: { fontSize: 11.5, fontWeight: '700', color: theme.textSecondary },
+  notesInput: {
+    backgroundColor: theme.bgSecondary || theme.bg, borderRadius: 10, padding: 10, fontSize: 13,
+    color: theme.text, borderWidth: 0.5, borderColor: theme.border, minHeight: 50, textAlignVertical: 'top',
+  },
+  prevNotesBox: { backgroundColor: '#E8A02014', borderRadius: 10, padding: 10 },
+  prevNotesTitle: { fontSize: 11, fontWeight: '700', color: '#8A6D00', marginBottom: 3 },
+  prevNotesText: { fontSize: 12.5, color: '#8A6D00', lineHeight: 17 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: theme.text },
   emptySubtitle: { fontSize: 13, color: theme.textSecondary },

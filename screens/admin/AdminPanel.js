@@ -125,8 +125,13 @@ const ACTION_COPY = {
   };
 
   function handleAction(request, action) {
-    if (action === 'more_info_needed' && !adminNotes.trim()) {
-      showAlert('Add a note', "Say what's missing or needed — this is what the provider will actually see.");
+    // Notes are required for reject/more-info, not approve -- matches the
+    // hint text shown above the input, which was previously making this
+    // exact promise without the code actually enforcing it.
+    if ((action === 'more_info_needed' || action === 'rejected') && !adminNotes.trim()) {
+      showAlert('Add a note', action === 'rejected'
+        ? "Say why this was rejected — this is what the provider will actually see."
+        : "Say what's missing or needed — this is what the provider will actually see.");
       return;
     }
     const { title: confirmTitle, msg, btn, destructive } = ACTION_COPY[action];
@@ -211,9 +216,13 @@ const ACTION_COPY = {
   // earlier Task 0 investigation).
   function handleDelete(request) {
     const wasApproved = request.status === 'approved';
+    if (wasApproved && !adminNotes.trim()) {
+      showAlert('Add a note', 'Say why this verification is being revoked — this is what the provider will actually see.');
+      return;
+    }
     const title = wasApproved ? 'Revoke verification & delete?' : 'Delete this application?';
     const msg = wasApproved
-      ? `${request.users?.name}'s verified badge will be removed immediately and this application deleted. They'll be notified${adminNotes.trim() ? ' with your note below' : ''}. This can't be undone from here — they'd need to reapply.`
+      ? `${request.users?.name}'s verified badge will be removed immediately and this application deleted. They'll be notified with your note below. This can't be undone from here — they'd need to reapply.`
       : `Permanently remove this application from the queue? This can't be undone.`;
     if (Platform.OS === 'web') {
       if (!window.confirm(`${title}\n\n${msg}`)) return;
