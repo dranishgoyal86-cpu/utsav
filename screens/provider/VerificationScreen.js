@@ -83,6 +83,16 @@ export default function VerificationScreen({ navigation }) {
   const [websiteChecking, setWebsiteChecking] = useState(false);
   const [websiteConfirming, setWebsiteConfirming] = useState(false);
 
+  // Provider verification, Task 5 (Google Business Profile). One-shot --
+  // no "recheck" button, matching "one search per provider, ever" (the
+  // real enforcement is server-side in verify-google-listing, this is
+  // just the client not offering a button that would no-op anyway).
+  const [googleCheckedAt, setGoogleCheckedAt] = useState(null);
+  const [googleFound, setGoogleFound] = useState(null);
+  const [googleListingName, setGoogleListingName] = useState('');
+  const [googleListingAddress, setGoogleListingAddress] = useState('');
+  const [googleChecking, setGoogleChecking] = useState(false);
+
   async function pickProof() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -118,7 +128,7 @@ export default function VerificationScreen({ navigation }) {
 
       const { data: provider } = await supabase
         .from('providers')
-        .select('id, is_verified, category, website_url, website_verify_token, website_verified_at')
+        .select('id, is_verified, category, website_url, website_verify_token, website_verified_at, google_listing_checked_at, google_listing_found, google_listing_name, google_listing_address')
         .eq('user_id', session.user.id)
         .maybeSingle();
 
@@ -133,6 +143,10 @@ export default function VerificationScreen({ navigation }) {
       if (provider.website_verify_token) {
         setWebsiteMetaTag(`<meta name="utsav-site-verification" content="${provider.website_verify_token}" />`);
       }
+      setGoogleCheckedAt(provider.google_listing_checked_at || null);
+      setGoogleFound(provider.google_listing_found);
+      setGoogleListingName(provider.google_listing_name || '');
+      setGoogleListingAddress(provider.google_listing_address || '');
 
       // Business name now comes from Business Profile (provider_billing) —
       // no separate typed field here anymore, so it can't drift out of sync
@@ -274,6 +288,24 @@ export default function VerificationScreen({ navigation }) {
       showAlert('Not verified yet', err.message);
     } finally {
       setWebsiteConfirming(false);
+    }
+  }
+
+  // Provider verification, Task 5 (Google Business Profile). Single call,
+  // server enforces the one-search-ever cache -- this just reflects
+  // whatever comes back (a fresh search or the already-cached result).
+  async function checkGoogleListing() {
+    setGoogleChecking(true);
+    try {
+      const data = await callEdgeFunction('verify-google-listing', {});
+      setGoogleCheckedAt(new Date().toISOString());
+      setGoogleFound(data.found);
+      setGoogleListingName(data.name || '');
+      setGoogleListingAddress(data.address || '');
+    } catch (err) {
+      showAlert('Check failed', err.message);
+    } finally {
+      setGoogleChecking(false);
     }
   }
 
@@ -472,6 +504,35 @@ export default function VerificationScreen({ navigation }) {
                 </TouchableOpacity>
               </View>
             </View>
+          )}
+        </View>
+
+        {/* Provider verification, Task 5 (Google Business Profile) -- a
+            soft positive signal, never a block. No match found reads as
+            neutral, not a failure: a real business might simply be
+            listed under a slightly different name. */}
+        <View style={s.websiteCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={s.signalLabel}>Google Business Profile</Text>
+            {googleFound === true && (
+              <View style={s.signalBadgeVerified}>
+                <Text style={s.signalBadgeVerifiedText}>✓ Listing found</Text>
+              </View>
+            )}
+          </View>
+          {!googleCheckedAt ? (
+            <>
+              <Text style={s.metaTagHint}>We'll look for a business listing matching your name and city — a good sign for customers, but never required.</Text>
+              <TouchableOpacity style={s.websiteCheckBtn} onPress={checkGoogleListing} disabled={googleChecking}>
+                {googleChecking
+                  ? <ActivityIndicator size="small" color={theme.accent} />
+                  : <Text style={s.websiteCheckBtnText}>Check for a listing</Text>}
+              </TouchableOpacity>
+            </>
+          ) : googleFound ? (
+            <Text style={s.metaTagHint}>Found: {googleListingName}{googleListingAddress ? ` — ${googleListingAddress}` : ''}</Text>
+          ) : (
+            <Text style={s.metaTagHint}>No matching listing found — this doesn't affect your verification. If your business is listed under a different name, that's fine.</Text>
           )}
         </View>
 
