@@ -499,7 +499,13 @@ function makeStyles(theme) {
     chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.cardBg, borderWidth: 0.5, borderColor: theme.border },
     chipActive: { backgroundColor: theme.text, borderColor: theme.text },
-    chipText: { fontSize: 13, fontWeight: '600', color: theme.textSecondary },
+    // Was theme.textSecondary (grey) -- every one of these chips (time
+    // presets, hour/minute/AM-PM, city, venue type, theme, etc.) is a
+    // real selectable option, not a disabled one, so it reads better in
+    // the same near-black theme.text everything else in this form uses.
+    // chipTextActive (theme.bg, light-on-dark) is untouched -- selected
+    // chips already have strong contrast via chipActive's dark background.
+    chipText: { fontSize: 13, fontWeight: '600', color: theme.text },
     chipTextActive: { color: theme.bg },
     input: { backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 13, fontSize: 14, color: theme.text },
     primaryBtn: { backgroundColor: theme.btnPrimary, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
