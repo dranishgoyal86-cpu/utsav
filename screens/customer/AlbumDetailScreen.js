@@ -633,7 +633,7 @@ const ds = StyleSheet.create({
   faceMatchBtnText: { fontSize: 12, fontWeight: '600', color: TEXT },
   enableFaceMatchCard: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20, padding: 14, backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: MAROON, borderStyle: 'dashed' },
   enableFaceMatchText: { flex: 1, fontSize: 13, fontWeight: '700', color: MAROON },
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', gap: 6 },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', gap: 6, maxWidth: 480, alignSelf: 'center' },
   emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT },
   emptySub: { fontSize: 13, color: MUTED },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

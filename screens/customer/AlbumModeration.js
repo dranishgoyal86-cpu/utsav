@@ -357,7 +357,7 @@ const ds = StyleSheet.create({
   bulkBtnText: { fontSize: 13.5, fontWeight: '700', color: TEXT },
   hostBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: LINE, paddingHorizontal: 16, paddingVertical: 12, marginBottom: 20 },
   hostBarLabel: { fontSize: 13.5, fontWeight: '600', color: TEXT },
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', gap: 6 },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', gap: 6, maxWidth: 480, alignSelf: 'center' },
   emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT },
   emptySub: { fontSize: 13, color: MUTED, textAlign: 'center' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

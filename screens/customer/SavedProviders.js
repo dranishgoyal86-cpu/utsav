@@ -261,7 +261,7 @@ function makeStyles(theme) {
 }
 
 const ds = StyleSheet.create({
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', maxWidth: 480, alignSelf: 'center' },
   emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 17, color: TEXT, marginBottom: 8 },
   emptySub: { fontSize: 13.5, color: MUTED, textAlign: 'center', lineHeight: 20, marginBottom: 20, maxWidth: 320 },
   browseBtn: { backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 22, paddingVertical: 13 },

@@ -312,7 +312,7 @@ function makeStyles(theme) {
 
 const ds = StyleSheet.create({
   clearAllText: { fontSize: 13, fontWeight: '600', color: MAROON },
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', maxWidth: 480, alignSelf: 'center' },
   emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
   emptySub: { fontSize: 13, color: MUTED, textAlign: 'center' },
   notifRowWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },

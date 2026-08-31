@@ -431,7 +431,7 @@ const ds = StyleSheet.create({
   filterChipTextActive: { color: '#fff' },
   syncBtn: { marginLeft: 'auto', paddingVertical: 10, paddingHorizontal: 14 },
   syncBtnText: { fontSize: 12.5, fontWeight: '700', color: MAROON },
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', maxWidth: 480, alignSelf: 'center' },
   emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
   emptySub: { fontSize: 13, color: MUTED, textAlign: 'center' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },

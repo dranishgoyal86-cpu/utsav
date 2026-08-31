@@ -234,7 +234,7 @@ const ds = StyleSheet.create({
   primaryBtn: { backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 18, paddingVertical: 13 },
   primaryBtnText: { color: '#fff', fontSize: 13.5, fontWeight: '700' },
   statsRow: { flexDirection: 'row', gap: 14, marginBottom: 24, maxWidth: 440 },
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 40, alignItems: 'center' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 40, alignItems: 'center', maxWidth: 480, alignSelf: 'center' },
   emptyText: { fontSize: 13.5, color: MUTED },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   guestRow: { width: 260, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: CARD, borderRadius: 12, borderWidth: 1, borderColor: LINE, paddingHorizontal: 14, paddingVertical: 12 },

@@ -908,7 +908,7 @@ const ds = StyleSheet.create({
   tabActive: { backgroundColor: MAROON, borderColor: MAROON },
   tabText: { fontSize: 13, fontWeight: '600', color: MUTED },
   tabTextActive: { color: '#fff' },
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', maxWidth: 480, alignSelf: 'center' },
   emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
   emptySub: { fontSize: 13, color: MUTED, marginBottom: 16, textAlign: 'center' },
   discoverBtn: { backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 22, paddingVertical: 12 },

@@ -576,7 +576,7 @@ const ds = StyleSheet.create({
   catChipText: { fontSize: 12.5, color: MUTED, fontWeight: '600' },
   catChipTextActive: { color: '#fff' },
   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', maxWidth: 480, alignSelf: 'center' },
   emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
   emptySub: { fontSize: 13, color: MUTED, marginBottom: 16, textAlign: 'center' },
   addOwnBtn: { backgroundColor: CREAM, borderRadius: 14, paddingHorizontal: 18, paddingVertical: 11, borderWidth: 1, borderColor: LINE },

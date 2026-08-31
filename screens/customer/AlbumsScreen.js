@@ -421,7 +421,7 @@ const ds = StyleSheet.create({
   title: { fontFamily: 'Fraunces-SemiBold', fontSize: 26, color: TEXT, marginTop: 2 },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 11 },
   addBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', gap: 8 },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', gap: 8, maxWidth: 480, alignSelf: 'center' },
   emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT },
   emptySub: { fontSize: 13, color: MUTED, textAlign: 'center' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },

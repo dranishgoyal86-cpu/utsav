@@ -304,7 +304,7 @@ const ds = StyleSheet.create({
   chipText: { fontSize: 12.5, color: MUTED, fontWeight: '600' },
   chipTextActive: { color: '#fff' },
   resultsCount: { fontSize: 12.5, color: MUTED, marginBottom: 14, fontWeight: '600' },
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 44, alignItems: 'center', maxWidth: 480, alignSelf: 'center' },
   emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 16, color: TEXT, marginBottom: 6 },
   emptySub: { fontSize: 13, color: MUTED },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },

@@ -380,7 +380,7 @@ const ds = StyleSheet.create({
   title: { fontFamily: 'Fraunces-SemiBold', fontSize: 24, color: TEXT, marginTop: 2 },
   printBtn: { backgroundColor: MAROON, borderRadius: 14, paddingHorizontal: 18, paddingVertical: 12 },
   printBtnText: { color: '#fff', fontSize: 13.5, fontWeight: '700' },
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 40, alignItems: 'center' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 40, alignItems: 'center', maxWidth: 480, alignSelf: 'center' },
   emptyText: { fontSize: 13.5, color: MUTED, textAlign: 'center', lineHeight: 20 },
   section: { marginBottom: 22 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },

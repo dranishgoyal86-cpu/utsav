@@ -884,7 +884,7 @@ const ds = StyleSheet.create({
   sortChipText: { fontSize: 12, color: MUTED, fontWeight: '600' },
   sortChipTextActive: { color: '#fff' },
 
-  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 40, alignItems: 'center' },
+  emptyCard: { backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: LINE, padding: 40, alignItems: 'center', maxWidth: 480, alignSelf: 'center' },
   emptyTitle: { fontFamily: 'Fraunces-SemiBold', fontSize: 17, color: TEXT, marginBottom: 6 },
   emptySub: { fontSize: 13, color: MUTED, textAlign: 'center', lineHeight: 19, maxWidth: 340 },
 
