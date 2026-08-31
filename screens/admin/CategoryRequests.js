@@ -5,14 +5,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
-import { ArrowLeft, Check, X, User } from 'phosphor-react-native';
+import { ArrowLeft, Check, X, User, PencilSimple, Trash } from 'phosphor-react-native';
 import { showAlert } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
+import { notifyMoreInfoNeeded, notifyRequestRevoked } from '../../notifications';
 
 const STATUS_STYLES = {
   pending:  { label: 'Pending',  color: '#FF9800', bg: '#FF980022' },
   approved: { label: 'Approved', color: '#4CAF50', bg: '#4CAF5022' },
   rejected: { label: 'Rejected', color: '#F44336', bg: '#F4433622' },
+  more_info_needed: { label: 'More info', color: '#E8A020', bg: '#E8A02022' },
 };
 
 // Mirrors CategoryUpgradeRequests.js's list/filter/card shape — same review
@@ -31,6 +33,16 @@ export default function CategoryRequests({ navigation }) {
   const [approveModal, setApproveModal] = useState(null);
   const [approveIcon, setApproveIcon] = useState('');
   const [approveSubcategories, setApproveSubcategories] = useState('');
+  // Per-card note drafts -- same reasoning as ClaimRequests.js: a flat
+  // card list with no shared "selected" detail screen, so each card's
+  // note is its own draft rather than one shared field.
+  const [noteDrafts, setNoteDrafts] = useState({});
+  function noteFor(req) {
+    return noteDrafts[req.id] ?? (req.admin_notes || '');
+  }
+  function setNoteFor(reqId, text) {
+    setNoteDrafts(prev => ({ ...prev, [reqId]: text }));
+  }
 
   useEffect(() => { fetchRequests(); }, []);
 
@@ -126,6 +138,10 @@ export default function CategoryRequests({ navigation }) {
   }
 
   async function rejectRequest(req) {
+    if (!noteFor(req).trim()) {
+      showAlert('Add a note', 'Say why this request was rejected — this is what the requester will actually see.');
+      return;
+    }
     confirm(
       'Reject this request?',
       `"${req.category_name}" won't be added as a category.`,
@@ -134,7 +150,7 @@ export default function CategoryRequests({ navigation }) {
         try {
           const { error } = await supabase
             .from('category_requests')
-            .update({ status: 'rejected', reviewed_at: new Date().toISOString() })
+            .update({ status: 'rejected', admin_notes: noteFor(req).trim(), reviewed_at: new Date().toISOString() })
             .eq('id', req.id);
           if (error) throw error;
           fetchRequests();
@@ -148,7 +164,118 @@ export default function CategoryRequests({ navigation }) {
     );
   }
 
-  const filters = ['pending', 'approved', 'rejected', 'all'];
+  // Edit/revoke/delete/request-more-docs -- same scope as
+  // AdminPanel.js/ClaimRequests.js, confirmed with the user.
+  function requestMoreInfo(req) {
+    if (!noteFor(req).trim()) {
+      showAlert('Add a note', "Say what's missing — this is what the requester will actually see.");
+      return;
+    }
+    confirm(
+      'Request more info?',
+      `Ask about "${req.category_name}" for more information? They'll be notified with your note and can resubmit.`,
+      async () => {
+        setProcessing(req.id);
+        try {
+          const { error } = await supabase
+            .from('category_requests')
+            .update({ status: 'more_info_needed', admin_notes: noteFor(req).trim(), reviewed_at: new Date().toISOString() })
+            .eq('id', req.id);
+          if (error) throw error;
+          if (req.requested_by) {
+            await notifyMoreInfoNeeded(req.requested_by, `category request for "${req.category_name}"`, noteFor(req).trim());
+          }
+          fetchRequests();
+        } catch (err) {
+          showAlert('Error', err.message);
+        } finally {
+          setProcessing(null);
+        }
+      }
+    );
+  }
+
+  // Revoke an approved category: deletes the custom_categories row this
+  // request created (source_request_id links them directly) and the
+  // request itself. Checks live whether any provider has actually adopted
+  // this category as their own before deleting -- doesn't block on it
+  // (an admin correcting a mistake needs to be able to proceed either
+  // way), but the confirm dialog surfaces the real count so the decision
+  // is informed, not blind.
+  async function revokeRequest(req) {
+    if (!noteFor(req).trim()) {
+      showAlert('Add a note', 'Say why this category is being revoked — this is what the requester will actually see.');
+      return;
+    }
+    setProcessing(req.id);
+    let inUseCount = 0;
+    try {
+      const { count, error: countErr } = await supabase
+        .from('providers')
+        .select('id', { count: 'exact', head: true })
+        .eq('category', req.category_name);
+      if (countErr) throw countErr;
+      inUseCount = count || 0;
+    } catch (err) {
+      showAlert('Error', err.message);
+      setProcessing(null);
+      return;
+    }
+    setProcessing(null);
+
+    const title = 'Revoke this category?';
+    const msg = inUseCount > 0
+      ? `"${req.category_name}" is currently the listed category for ${inUseCount} provider${inUseCount === 1 ? '' : 's'}. Removing it will leave ${inUseCount === 1 ? 'that provider' : 'them'} with a category that no longer exists in the app. This can't be undone from here.`
+      : `"${req.category_name}" isn't in use by any provider yet. It will be removed and this request deleted. This can't be undone from here.`;
+    confirm(title, msg, () => performRevoke(req), true);
+  }
+
+  async function performRevoke(req) {
+    setProcessing(req.id);
+    try {
+      const { error: catErr } = await supabase
+        .from('custom_categories').delete().eq('source_request_id', req.id);
+      if (catErr) throw catErr;
+
+      const { error: reqErr } = await supabase
+        .from('category_requests').delete().eq('id', req.id);
+      if (reqErr) throw reqErr;
+
+      if (req.requested_by) {
+        await notifyRequestRevoked(req.requested_by, `category request for "${req.category_name}"`, noteFor(req).trim());
+      }
+      fetchRequests();
+      showAlert('Revoked', `"${req.category_name}" has been removed.`);
+    } catch (err) {
+      showAlert('Error', err.message);
+    } finally {
+      setProcessing(null);
+    }
+  }
+
+  // Plain delete for rejected/more_info_needed -- never approved, nothing
+  // to revoke, just a stale entry to clear.
+  function deleteRequest(req) {
+    confirm(
+      'Delete this request?',
+      `Permanently remove this request for "${req.category_name}"? This can't be undone.`,
+      async () => {
+        setProcessing(req.id);
+        try {
+          const { error } = await supabase.from('category_requests').delete().eq('id', req.id);
+          if (error) throw error;
+          fetchRequests();
+        } catch (err) {
+          showAlert('Error', err.message);
+        } finally {
+          setProcessing(null);
+        }
+      },
+      true
+    );
+  }
+
+  const filters = ['pending', 'approved', 'rejected', 'more_info_needed', 'all'];
   const filtered = activeFilter === 'all' ? requests : requests.filter(r => r.status === activeFilter);
 
   function renderRequest({ item: req }) {
@@ -195,11 +322,38 @@ export default function CategoryRequests({ navigation }) {
           Requested {new Date(req.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
         </Text>
 
+        {req.admin_notes && req.status !== 'pending' && req.status !== 'approved' ? (
+          <View style={s.prevNotesBox}>
+            <Text style={s.prevNotesTitle}>Admin notes</Text>
+            <Text style={s.prevNotesText}>{req.admin_notes}</Text>
+          </View>
+        ) : null}
+
+        {(req.status === 'pending' || req.status === 'approved') && (
+          <View style={{ gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <PencilSimple size={12} color={theme.textSecondary} />
+              <Text style={s.notesLabel}>Admin notes {req.status === 'pending' ? '(required for reject/more-info)' : '(required to revoke)'}</Text>
+            </View>
+            <TextInput
+              style={s.notesInput}
+              placeholder="Shown to the requester"
+              placeholderTextColor={theme.textTertiary}
+              value={noteFor(req)}
+              onChangeText={t => setNoteFor(req.id, t)}
+              multiline
+            />
+          </View>
+        )}
+
         {req.status === 'pending' && (
           <View style={s.actionRow}>
             <TouchableOpacity style={s.rejectBtn} onPress={() => rejectRequest(req)} disabled={isProcessing}>
               <X size={16} color="#F44336" />
               <Text style={s.rejectBtnText}>Reject</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.moreInfoBtn} onPress={() => requestMoreInfo(req)} disabled={isProcessing}>
+              <Text style={s.moreInfoBtnText}>📝 More info</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.approveBtn} onPress={() => openApprove(req)} disabled={isProcessing}>
               {isProcessing ? <ActivityIndicator size="small" color="#FFF" /> : (
@@ -208,6 +362,24 @@ export default function CategoryRequests({ navigation }) {
                   <Text style={s.approveBtnText}>Approve</Text>
                 </>
               )}
+            </TouchableOpacity>
+          </View>
+        )}
+        {req.status === 'approved' && (
+          <View style={s.actionRow}>
+            <TouchableOpacity style={s.revokeBtn} onPress={() => revokeRequest(req)} disabled={isProcessing}>
+              {isProcessing
+                ? <ActivityIndicator size="small" color="#C62828" />
+                : <Text style={s.revokeBtnText}>⛔ Revoke category</Text>}
+            </TouchableOpacity>
+          </View>
+        )}
+        {(req.status === 'rejected' || req.status === 'more_info_needed') && (
+          <View style={s.actionRow}>
+            <TouchableOpacity style={s.rejectBtn} onPress={() => deleteRequest(req)} disabled={isProcessing}>
+              {isProcessing
+                ? <ActivityIndicator size="small" color="#F44336" />
+                : (<><Trash size={16} color="#F44336" /><Text style={s.rejectBtnText}>Delete</Text></>)}
             </TouchableOpacity>
           </View>
         )}
@@ -227,7 +399,7 @@ export default function CategoryRequests({ navigation }) {
             onPress={() => setActiveFilter(f)}
           >
             <Text style={[s.filterPillText, activeFilter === f && s.filterPillTextActive]}>
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+              {f === 'more_info_needed' ? 'More info' : f.charAt(0).toUpperCase() + f.slice(1)}
               {f !== 'all' && ` (${requests.filter(r => r.status === f).length})`}
             </Text>
           </TouchableOpacity>
@@ -341,6 +513,26 @@ const styles = theme => StyleSheet.create({
     backgroundColor: '#4CAF50',
   },
   approveBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+  moreInfoBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: '#E8A02011', borderWidth: 0.5, borderColor: '#E8A02044',
+  },
+  moreInfoBtnText: { fontSize: 13, fontWeight: '700', color: '#E8A020' },
+  revokeBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: '#C6282814', borderWidth: 0.5, borderColor: '#C62828',
+  },
+  revokeBtnText: { fontSize: 14, fontWeight: '700', color: '#C62828' },
+  notesLabel: { fontSize: 11.5, fontWeight: '700', color: theme.textSecondary },
+  notesInput: {
+    backgroundColor: theme.bgSecondary || theme.bg, borderRadius: 10, padding: 10, fontSize: 13,
+    color: theme.text, borderWidth: 0.5, borderColor: theme.border, minHeight: 50, textAlignVertical: 'top',
+  },
+  prevNotesBox: { backgroundColor: '#E8A02014', borderRadius: 10, padding: 10 },
+  prevNotesTitle: { fontSize: 11, fontWeight: '700', color: '#8A6D00', marginBottom: 3 },
+  prevNotesText: { fontSize: 12.5, color: '#8A6D00', lineHeight: 17 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: theme.text },
   emptySubtitle: { fontSize: 13, color: theme.textSecondary, textAlign: 'center', paddingHorizontal: 40 },
