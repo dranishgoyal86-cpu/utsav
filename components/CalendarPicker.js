@@ -58,7 +58,7 @@ export default function CalendarPicker({
   const todayStr = formatDate(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
 
   return (
-    <View>
+    <View style={s.root}>
       <View style={s.calendarHeader}>
         <TouchableOpacity style={s.monthBtn} onPress={() => setCurrentMonth(p => new Date(p.getFullYear(), p.getMonth() - 1, 1))}>
           <Text style={s.monthBtnText}>‹</Text>
@@ -116,6 +116,18 @@ export default function CalendarPicker({
 
 function makeStyles(theme) {
   return StyleSheet.create({
+    // Day cells are sized as a % of this View's own width (see
+    // calendarCell below), which is fine on a narrow mobile screen but,
+    // with nothing else constraining it, balloons into a huge grid once
+    // this component sits inside a wide desktop container -- both here
+    // (SlotField.js -> PlanView.js's "event details" section) and in
+    // AvailabilityScreen.js, neither of which had any desktop-specific
+    // handling of their own. Capped once at the component's own root so
+    // every embedding gets a sane calendar size regardless of how wide
+    // its parent is -- 380 is comfortably above this app's real mobile
+    // content widths (~350-374px after a screen's own padding), so this
+    // changes nothing there, only the previously-uncapped wide case.
+    root: { maxWidth: 380 },
     calendarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 13 },
     monthBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: theme.cardBg, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: theme.border },
     monthBtnText: { fontSize: 20, color: theme.text, lineHeight: 24 },
