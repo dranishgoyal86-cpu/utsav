@@ -9,6 +9,7 @@ import { supabase } from '../supabase';
 import { callEdgeFunction, confirmDestructive, showAlert } from '../helpers';
 import SparkleIcon from '../components/SparkleIcon';
 import { formatTimeLabel } from '../lib/eventContext';
+import { isNonFestive } from '../lib/inviteSchemas';
 import { PUBLIC_WEB_URL } from '../config';
 
 let accompanyingLocalIdCounter = 0;
@@ -17,11 +18,25 @@ function nextLocalId() {
   return `local-${accompanyingLocalIdCounter}`;
 }
 
-const RSVP_OPTIONS = [
-  { value: 'yes', label: 'Joyfully accept', icon: '🎉' },
-  { value: 'maybe', label: 'Maybe', icon: '🤔' },
-  { value: 'no', label: "Can't make it", icon: '😔' },
-];
+// Part 1, invite-architecture wave — the 'yes' option is the one
+// celebratory-language spot this screen had ("🎉 Joyfully accept" for
+// every event, funeral/last-rites included). 'maybe'/'no' are left
+// untouched — neither is celebratory wording to begin with, so there's
+// nothing to swap for a solemn event. Driven entirely by the centralized
+// isNonFestive() resolver (lib/inviteSchemas) — no funeral-last-rites (or
+// any other slug) is hardcoded here; a future non-festive schema flag
+// flows through automatically, same as every other invite-architecture
+// call site. No religious icon substituted (e.g. no 🙏) — plain neutral
+// text, no emoji at all, per explicit instruction.
+function getRsvpOptions(nonFestive) {
+  return [
+    nonFestive
+      ? { value: 'yes', label: 'I will attend', icon: '' }
+      : { value: 'yes', label: 'Joyfully accept', icon: '🎉' },
+    { value: 'maybe', label: 'Maybe', icon: '🤔' },
+    { value: 'no', label: "Can't make it", icon: '😔' },
+  ];
+}
 
 const FOOD_PREF_OPTIONS = [
   { value: 'any', label: 'No preference' },
@@ -107,7 +122,10 @@ export default function RSVPScreen({ route, navigation }) {
         setPhone(inv.phone || '');
         setOriginalName(inv.name || '');
         setOriginalPhone(inv.phone || '');
-        if (RSVP_OPTIONS.some(o => o.value === inv.rsvp_status)) setRsvpStatus(inv.rsvp_status);
+        // Value set (yes/maybe/no) is identical regardless of nonFestive —
+        // only the 'yes' option's label/icon vary — so this validity check
+        // doesn't need getRsvpOptions() at all.
+        if (['yes', 'maybe', 'no'].includes(inv.rsvp_status)) setRsvpStatus(inv.rsvp_status);
         setPlusOnes(inv.plus_ones || 0);
         if (FOOD_PREF_OPTIONS.some(o => o.value === inv.food_pref)) setFoodPref(inv.food_pref);
         setIsOutstation(!!inv.is_outstation);
@@ -345,6 +363,12 @@ export default function RSVPScreen({ route, navigation }) {
     ? new Date(event.event_date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     : null;
   const eventTime = formatTimeLabel(event.event_time);
+  // Part 1, invite-architecture wave. Computed directly in the render body
+  // (not memoized) so it reacts immediately once `event` (and its
+  // event_type_slug) finishes loading — same pattern lib/inviteSchemas'
+  // other call sites (ToranInvites.js, PlanView.js) already use.
+  const nonFestive = isNonFestive(event.event_type_slug);
+  const rsvpOptions = getRsvpOptions(nonFestive);
 
   return (
     <SafeAreaView style={s.container}>
@@ -383,13 +407,13 @@ export default function RSVPScreen({ route, navigation }) {
 
             <Text style={s.label}>Will you attend?</Text>
             <View style={s.rsvpRow}>
-              {RSVP_OPTIONS.map(opt => (
+              {rsvpOptions.map(opt => (
                 <TouchableOpacity
                   key={opt.value}
                   style={[s.rsvpChip, rsvpStatus === opt.value && s.rsvpChipActive]}
                   onPress={() => setRsvpStatus(opt.value)}
                 >
-                  <Text style={s.rsvpChipIcon}>{opt.icon}</Text>
+                  {opt.icon ? <Text style={s.rsvpChipIcon}>{opt.icon}</Text> : null}
                   <Text style={[s.rsvpChipText, rsvpStatus === opt.value && s.rsvpChipTextActive]}>{opt.label}</Text>
                 </TouchableOpacity>
               ))}

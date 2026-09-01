@@ -98,9 +98,15 @@ Deno.serve(async (req) => {
     // boundary. A guest can only ever act within the one event their code
     // points to; no host_id or other internal fields are ever returned to
     // the client, only used server-side for the upsert below.
+    // event_type_slug added (invite-architecture wave, Part 1) so
+    // get_event can return it to the guest client — RSVPScreen.js needs it
+    // to resolve isNonFestive(event_type_slug) and pick non-celebratory
+    // wording for a funeral/last-rites RSVP. Not used for anything else
+    // server-side in this action; still no host_id/other internal field
+    // leaves this function.
     const { data: event, error: eventError } = await supabaseAdmin
       .from("events")
-      .select("id, name, event_date, event_time, venue, host_id")
+      .select("id, name, event_date, event_time, venue, event_type_slug, host_id")
       .eq("invite_code", String(invite_code).toUpperCase())
       .maybeSingle();
 
@@ -155,7 +161,8 @@ Deno.serve(async (req) => {
       return json({
         event: {
           id: event.id, name: event.name, event_date: event.event_date, event_time: event.event_time,
-          venue: event.venue, defaultPlusOneLimit: plusOneLimit, invitee, accompanying,
+          venue: event.venue, event_type_slug: event.event_type_slug,
+          defaultPlusOneLimit: plusOneLimit, invitee, accompanying,
         },
       });
     }

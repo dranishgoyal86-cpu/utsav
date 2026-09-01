@@ -6,12 +6,21 @@ import InviteFieldRenderer from './InviteFieldRenderer';
 // field list) plus each of its fields via InviteFieldRenderer. No
 // section-level logic beyond that — grouping/ordering is entirely the
 // schema's, this just walks it.
+//
+// invite-architecture wave, Part 3 — a CONDITIONAL field (types.js's
+// FIELD_STATUS.CONDITIONAL) is skipped entirely when its own
+// `condition(values)` predicate returns false, e.g. naming-ceremony's
+// babyName field hiding while nameIsSecret is true. Every other status
+// always renders — this filter only ever touches CONDITIONAL fields.
 export default function InviteSectionRenderer({ theme, section, values, onFieldChange, onPickPhoto, photoUploadingKey }) {
   const s = makeStyles(theme);
+  const visibleFields = section.fields.filter(
+    (f) => f.status !== 'conditional' || (typeof f.condition === 'function' && f.condition(values || {}))
+  );
   return (
     <View style={s.section}>
       {section.label ? <Text style={s.sectionLabel}>{section.label}</Text> : null}
-      {section.fields.map((field) => (
+      {visibleFields.map((field) => (
         <InviteFieldRenderer
           key={field.key}
           theme={theme}
