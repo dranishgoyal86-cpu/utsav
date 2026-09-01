@@ -67,8 +67,12 @@ console.log('\n── Catalogue coverage ──');
 assert('exactly 18 archetype IDs exist in the catalogue', listCatalogueEntries().length === 18);
 assert('every one of the 18 target IDs from the brief is present', TARGET_18_IDS.every((id) => !!getCatalogueEntry(id)));
 assert('every catalogue entry has a valid implemented/planned status', listCatalogueEntries().every((e) => e.status === ARCHETYPE_STATUS.IMPLEMENTED || e.status === ARCHETYPE_STATUS.PLANNED));
-assert('exactly 3 entries are implemented (the Hindu Wedding pilot)', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.IMPLEMENTED).length === 3);
-assert('exactly 15 entries are planned', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.PLANNED).length === 15);
+// Production Batch 1 (Hindu Wedding/Engagement/Nikah/Kids Birthday) moved
+// 7 more archetypes planned->implemented: botanical-romance,
+// photo-editorial, mughal-garden, night-bloom, playful-pop,
+// illustrated-story, celestial — 10 implemented total, 8 still planned.
+assert('exactly 10 entries are implemented', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.IMPLEMENTED).length === 10);
+assert('exactly 8 entries are planned', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.PLANNED).length === 8);
 
 let allShapesValid = true;
 for (const e of listCatalogueEntries()) {
@@ -81,7 +85,11 @@ assert('every catalogue entry passes validateCatalogueEntryShape()', allShapesVa
 console.log('\n── Selectable vs. planning-only ──');
 const weddingSelectable = getSelectableArchetypes({ eventTypeSlug: 'hindu-wedding', schema: getInviteSchema('hindu-wedding'), values: { partner1Name: 'A', partner2Name: 'B' }, isNonFestive: false });
 assert('getSelectableArchetypes() never returns a planned entry', weddingSelectable.every((r) => r.status === ARCHETYPE_STATUS.IMPLEMENTED));
-assert('getSelectableArchetypes() for hindu-wedding returns all 3 implemented pilot archetypes', weddingSelectable.length === 3);
+// Production Batch 1: hindu-wedding's strong list is 10 archetypes, of
+// which toran-heritage/royal-palace/ivory-mandala/botanical-romance/
+// illustrated-story/photo-editorial/night-bloom are now implemented (7);
+// temple-heritage/folk-celebration/modern-indian remain planned.
+assert('getSelectableArchetypes() for hindu-wedding returns the 7 archetypes now implemented for it', weddingSelectable.length === 7);
 const weddingPlanning = getPlanningArchetypes({ eventTypeSlug: 'hindu-wedding', schema: getInviteSchema('hindu-wedding'), values: { partner1Name: 'A', partner2Name: 'B' }, isNonFestive: false });
 assert('getPlanningArchetypes() includes planned entries too (e.g. mughal-garden is NOT compatible with hindu-wedding, but temple-heritage/folk-celebration are)', weddingPlanning.some((r) => r.status === ARCHETYPE_STATUS.PLANNED));
 
@@ -175,7 +183,9 @@ assert('getSceneDefinitionForImplementedId bridges the working "stay" scene id t
 
 // ── 15: utility registry ──────────────────────────────────────────────────
 console.log('\n── Utility component registry ──');
-assert('utility registry has 15 semantic IDs (5 implemented + 10 planned)', listUtilityDefinitions().length === 15);
+// Production Batch 1 moved gate-pass-card/dress-code-card/wishing-wall-card
+// planned->implemented: 8 implemented + 7 planned = 15 total, same as before.
+assert('utility registry has 15 semantic IDs (8 implemented + 7 planned)', listUtilityDefinitions().length === 15);
 const utilityProblems = validateUtilityRegistry();
 if (utilityProblems.length) utilityProblems.forEach((p) => console.log('    -', p));
 assert('validateUtilityRegistry() reports zero problems', utilityProblems.length === 0);
@@ -186,9 +196,13 @@ assert('every planned utility has no componentPath yet (nothing to point at)', l
 console.log('\n── Theme tokens: implemented vs planned ──');
 const toranHeritageArchetype = getArchetype('toran-heritage');
 assert('an implemented archetype (toran-heritage) has real variantIds resolving to real tokens', toranHeritageArchetype.variantIds.length > 0);
-const mughalGardenEntry = getCatalogueEntry('mughal-garden');
-assert('a planned archetype (mughal-garden) has no variantIds/staticLayoutFamilies yet — no production tokens/components required', mughalGardenEntry.variantIds === null && mughalGardenEntry.staticLayoutFamilies === null);
-assert('validateCatalogueEntryShape() does not fail a planned entry for missing variantIds', validateCatalogueEntryShape(mughalGardenEntry).length === 0);
+// mughal-garden was this suite's original "still planned" example before
+// Production Batch 1 moved it to implemented — temple-heritage is now the
+// still-planned stand-in.
+const templeHeritageEntry = getCatalogueEntry('temple-heritage');
+assert('a planned archetype (temple-heritage) has no variantIds/staticLayoutFamilies yet — no production tokens/components required', templeHeritageEntry.variantIds === null && templeHeritageEntry.staticLayoutFamilies === null);
+assert('validateCatalogueEntryShape() does not fail a planned entry for missing variantIds', validateCatalogueEntryShape(templeHeritageEntry).length === 0);
+assert('mughal-garden (moved to implemented in Production Batch 1) now has real variantIds/staticLayoutFamilies', getCatalogueEntry('mughal-garden').variantIds?.length > 0 && getCatalogueEntry('mughal-garden').staticLayoutFamilies?.length > 0);
 
 // ── 18-19: static layout-family + PDF page-role references ───────────────
 console.log('\n── Static layout families + PDF page roles ──');
