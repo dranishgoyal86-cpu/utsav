@@ -51,7 +51,7 @@ export default function WebInvitePreview({ tokens, scenes = [], navItems = [], c
             case 'honouree':
               return <HonoureeScene key={sceneId} tokens={tokens} name={content.honoureeName} ageLine={content.honoureeAgeLine} photoUrl={content.honoureePhotoUrl} />;
             case 'family':
-              return <FamilyScene key={sceneId} tokens={tokens} hostedBy={content.hostedBy} grandparentsNote={content.grandparentsNote} familySurname={content.familySurname} />;
+              return <FamilyScene key={sceneId} tokens={tokens} hostedBy={content.hostedBy} parentsNote={content.parentsNote} grandparentsNote={content.grandparentsNote} familySurname={content.familySurname} />;
             case 'dress-code':
               return <DressCodeCard key={sceneId} tokens={tokens} dressCode={content.dressCode} />;
             case 'functions':

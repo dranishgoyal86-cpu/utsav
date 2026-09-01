@@ -151,7 +151,7 @@ export default function InviteArchetypePilot({ route, navigation }) {
     archetype,
     hasInvocationContent: !!values.invocationText,
     hasCoupleOrSubjectContent: !!(values.partner1Name || values.subjectNameLine1),
-    hasFamilyContent: !!(values.hostedBy || values.grandparentsNote || values.familySurname),
+    hasFamilyContent: !!(values.hostedBy || values.parentsNote || values.grandparentsNote || values.familySurname),
     hasHonoureeContent: !!(values.childName || values.celebrantName),
     hasDressCodeContent: !!values.dressCode,
     functionCount: functions.length,
@@ -173,7 +173,12 @@ export default function InviteArchetypePilot({ route, navigation }) {
   const staticAttribution = resolveBrandAttribution({ isNonFestive: nonFestive, surface: 'static' });
   const acquisition = resolveAcquisitionCta({ isNonFestive: nonFestive });
 
-  const heroPhotoUrl = values.couplePhotoUrl || values.honoureePhotoUrl || null;
+  // Visual QA pass fix: kids-birthday/mundan/naming-ceremony/funeral schemas
+  // store their hero photo under subjectPhotoUrl, NOT couplePhotoUrl (see
+  // lib/inviteSchemas/fields.js) — the couplePhotoUrl-only fallback here
+  // meant a child's photo silently never appeared on any kids-birthday
+  // design. Both are checked; a schema only ever populates one of them.
+  const heroPhotoUrl = values.couplePhotoUrl || values.subjectPhotoUrl || null;
 
   const staticLayoutModel = buildStaticLayoutModel({
     archetypeId: archetype.id, variantId: activeVariant.id, event, values, isNonFestive: nonFestive, qrTargetUrl, photoUrl: heroPhotoUrl,
@@ -182,7 +187,7 @@ export default function InviteArchetypePilot({ route, navigation }) {
   // applied only as a final decorative touch on top of the real layout
   // model, never a separate rendering path.
   const effectiveStaticLayoutModel = themePack
-    ? { ...staticLayoutModel, slots: { ...staticLayoutModel.slots, decoration: { motif: themePack.motifId } } }
+    ? { ...staticLayoutModel, slots: { ...staticLayoutModel.slots, decoration: { motif: themePack.motifId, icon: themePack.icons?.[0] || null } } }
     : staticLayoutModel;
   const effectiveTokens = themePack?.accentOverride
     ? { ...activeVariant.tokens, colors: { ...activeVariant.tokens.colors, accent: themePack.accentOverride } }
@@ -302,16 +307,24 @@ export default function InviteArchetypePilot({ route, navigation }) {
               scenes={scenes}
               navItems={navItems.items}
               content={{
-                kicker: values.kickerText || 'YOU ARE INVITED',
+                // ceremonyName (engagement's REQUIRED field — Ring
+                // Ceremony/Roka/Sagai) becomes the kicker fallback so an
+                // engagement invite actually says what occasion it is
+                // instead of defaulting to generic wedding-shaped copy —
+                // "Do not assume every engagement is a wedding-lite
+                // experience" (found during this QA pass: kickerText was
+                // previously the only source, and hosts rarely fill it in
+                // since ceremonyName already covers the same ground).
+                kicker: values.kickerText || values.ceremonyName?.toUpperCase() || 'YOU ARE INVITED',
                 headline: values.headlineText || event?.name,
                 subline: event?.venue,
                 invocationText: values.invocationText,
                 partner1Name: values.partner1Name, partner2Name: values.partner2Name,
-                couplePhotoUrl: values.couplePhotoUrl, coupleQuote: values.coupleQuote,
-                hostedBy: values.hostedBy, grandparentsNote: values.grandparentsNote, familySurname: values.familySurname,
+                couplePhotoUrl: heroPhotoUrl, coupleQuote: values.coupleQuote,
+                hostedBy: values.hostedBy, parentsNote: values.parentsNote, grandparentsNote: values.grandparentsNote, familySurname: values.familySurname,
                 honoureeName: values.childName || values.celebrantName || values.subjectNameLine1,
                 honoureeAgeLine: values.turningAge ? `Turning ${values.turningAge}` : null,
-                honoureePhotoUrl: values.couplePhotoUrl,
+                honoureePhotoUrl: heroPhotoUrl,
                 dressCode: values.dressCode,
                 functions, venue: event?.venue,
                 travelNote: hasTravelInfo ? 'Outstation guest details available — see Guest List.' : null,

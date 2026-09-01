@@ -1,7 +1,11 @@
 import { View, Text, StyleSheet } from 'react-native';
 
-export default function FamilyScene({ tokens, hostedBy, grandparentsNote, familySurname }) {
-  const lines = [hostedBy, grandparentsNote, familySurname].filter(Boolean);
+// parentsNote — nikah/engagement's own "both families" free-text field
+// (RECOMMENDED for nikah), distinct from hostedBy — QA pass fix: this
+// scene previously never rendered it at all, so a nikah/engagement invite
+// with real parentsNote content silently showed nothing here.
+export default function FamilyScene({ tokens, hostedBy, parentsNote, grandparentsNote, familySurname }) {
+  const lines = [hostedBy, parentsNote, grandparentsNote, familySurname].filter(Boolean);
   if (lines.length === 0) return null;
   const c = tokens?.colors;
   return (
