@@ -67,14 +67,16 @@ assert('validateArchetypeRegistry() reports zero problems', Array.isArray(proble
 if (problems.length) problems.forEach((p) => console.log('    -', p));
 
 const archetypes = listArchetypes();
-// Production Batch 1 added 7 more implemented archetypes on top of the
-// original 3-archetype Hindu Wedding pilot.
-assert('exactly 10 archetypes are implemented', archetypes.length === 10);
+// Production Batch 2 added 5 more implemented archetypes (folk-celebration,
+// temple-heritage, modern-indian, corporate-grid, luxury-black) on top of
+// Production Batch 1's 10.
+assert('exactly 15 archetypes are implemented', archetypes.length === 15);
 const ids = archetypes.map((a) => a.id);
 assert('archetype IDs are unique', new Set(ids).size === ids.length);
-assert('archetype IDs include the original pilot spec plus Production Batch 1\'s 7 new archetypes', [
+assert('archetype IDs include the original pilot spec plus Batch 1\'s 7 plus Batch 2\'s 5 new archetypes', [
   'toran-heritage', 'royal-palace', 'ivory-mandala',
   'botanical-romance', 'photo-editorial', 'mughal-garden', 'night-bloom', 'playful-pop', 'illustrated-story', 'celestial',
+  'folk-celebration', 'temple-heritage', 'modern-indian', 'corporate-grid', 'luxury-black',
 ].every((id) => ids.includes(id)));
 
 let allVariantRefsValid = true;
@@ -91,16 +93,10 @@ assert('FUTURE_ARCHETYPE_IDS lists future directions without implementing them (
 
 // ── 4: event-slug compatibility ──
 console.log('\n── Event-slug compatibility ──');
-// Production Batch 1: 7 of the 10 implemented archetypes now declare
-// hindu-wedding (toran-heritage/royal-palace/ivory-mandala from the pilot
-// plus botanical-romance/photo-editorial/night-bloom/illustrated-story).
-assert("hindu-wedding is offered by 7 of the 10 implemented archetypes", listArchetypesForEventSlug('hindu-wedding').length === 7);
-assert("funeral-last-rites is offered by no implemented archetype (no solemn archetype implemented yet)", listArchetypesForEventSlug('funeral-last-rites').length === 0);
-// 'religious-event' (not 'sports-event' — Production Batch 1's
-// photo-editorial archetype is broad enough to cover sports-event) is the
-// slug no implemented archetype declares yet (only the still-planned
-// temple-heritage/folk-celebration cover it).
-assert("an unrelated, not-yet-covered slug ('religious-event') resolves to zero archetypes, never throws", listArchetypesForEventSlug('religious-event').length === 0);
+// Production Batch 2: temple-heritage/folk-celebration/modern-indian all
+// also declare hindu-wedding, bringing the count from Batch 1's 7 to 10.
+assert("hindu-wedding is offered by 10 of the 15 implemented archetypes", listArchetypesForEventSlug('hindu-wedding').length === 10);
+assert("funeral-last-rites is offered by no implemented archetype (no solemn archetype implemented yet — 'stillness' stays planned)", listArchetypesForEventSlug('funeral-last-rites').length === 0);
 
 // ── 5: adult-birthday remains canonical ──
 console.log('\n── adult-birthday remains the canonical slug ──');

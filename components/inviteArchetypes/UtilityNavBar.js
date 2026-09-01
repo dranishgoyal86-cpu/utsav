@@ -1,10 +1,19 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 
+// Batch 2 — extended to cover every SCENE_ROLE id
+// resolveUtilityNavFromScenes() can now emit (the pilot screen switched
+// from the old hardcoded-array resolveUtilityNav() to this
+// lifecycle-priority-driven one as part of this wave's carry-forward
+// fix), not just the original 5-item wedding-shaped set.
 const LABELS = {
   invite: 'Invite', functions: 'Functions', travel: 'Travel', stay: 'Stay', rsvp: 'RSVP', more: 'More',
+  maps: 'Location', 'guest-access': 'Gate', 'wishing-wall': 'Wishes', gifts: 'Gifts',
+  registration: 'Register', speakers: 'Speakers',
 };
 const ICONS = {
   invite: '✦', functions: '📅', travel: '✈️', stay: '🏨', rsvp: '💌', more: '⋯',
+  maps: '📍', 'guest-access': '🎟️', 'wishing-wall': '💬', gifts: '🎁',
+  registration: '📝', speakers: '🎤',
 };
 
 // Persistent utility nav — items come entirely from

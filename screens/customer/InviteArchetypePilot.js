@@ -17,10 +17,54 @@ import { getSelectableArchetypes } from '../../lib/inviteDesignCompatibilityMatr
 import { getCatalogueEntry } from '../../lib/inviteDesignArchetypes/catalogue';
 import { COMPATIBILITY_LEVEL } from '../../lib/inviteDesignArchetypes/types';
 import { resolveScenes } from '../../lib/inviteSceneResolver';
-import { resolveUtilityNav } from '../../lib/inviteUtilityNav';
+import { resolveUtilityNavFromScenes } from '../../lib/inviteUtilityNav';
 import { buildStaticLayoutModel, buildPdfPageModels, buildPdfHtml } from '../../lib/staticInviteLayout';
 import { resolveBrandAttribution, resolveAcquisitionCta, buildLegacyPersonalInviteUrl } from '../../lib/inviteBrandingPolicy';
 import { resolveThemePackForPartyTheme, listThemePacks } from '../../lib/inviteDesignArchetypes/themePacks';
+
+// Batch 2 — corporate-conference/product-launch use Registration instead
+// of RSVP ("Do not use wedding-style terminology such as RSVP when
+// registration is the more appropriate semantic action").
+const PROFESSIONAL_EVENT_SLUGS = ['corporate-conference', 'product-launch'];
+
+// A plain composition of whatever schedule/ceremony-detail free text a
+// given event type actually has — reuses the generic 'story' scene rather
+// than inventing a dedicated scene per event type. Every value here is
+// host-supplied structured content (a free-text field, or a boolean the
+// host explicitly toggled) — never fabricated or inferred.
+function buildStoryText(eventTypeSlug, values) {
+  const lines = [];
+  if (eventTypeSlug === 'engagement') {
+    if (values.muhurat) lines.push(`Muhurat: ${values.muhurat}`);
+    if (values.ringExchangeTime) lines.push(`Ring exchange at ${values.ringExchangeTime}`);
+    if (values.scheduleNote) lines.push(values.scheduleNote);
+  } else if (eventTypeSlug === 'baby-shower') {
+    if (values.ritualTime) lines.push(`Ritual: ${values.ritualTime}`);
+    if (values.blessingText) lines.push(values.blessingText);
+    if (values.activitiesNote) lines.push(values.activitiesNote);
+  } else if (eventTypeSlug === 'naming-ceremony') {
+    if (values.pujaTime) lines.push(`Puja: ${values.pujaTime}`);
+    if (values.cradleCeremonyEnabled === true) lines.push('Cradle ceremony to follow.');
+  } else if (eventTypeSlug === 'housewarming') {
+    if (values.muhurat) lines.push(`Muhurat: ${values.muhurat}`);
+    if (values.havanEnabled === true) lines.push('Havan will be performed.');
+    if (values.lakshmiPujaEnabled === true) lines.push('Lakshmi Puja will be performed.');
+  } else if (eventTypeSlug === 'corporate-conference') {
+    if (values.tagline) lines.push(values.tagline);
+    if (values.chiefGuestName) lines.push(`Chief Guest: ${values.chiefGuestName}`);
+    // speakersNote is real, RECOMMENDED content, but it's a single
+    // free-text field, not structured per-speaker data — surfaced here
+    // rather than fabricated into fake individual speaker cards. See
+    // this wave's completion report for the SpeakersScene limitation.
+    if (values.speakersNote) lines.push(values.speakersNote);
+  } else if (eventTypeSlug === 'product-launch') {
+    if (values.tagline && values.productNameHidden !== true) lines.push(values.tagline);
+    if (values.founderName) lines.push(`Hosted by ${values.founderName}`);
+  } else if (eventTypeSlug === 'kids-birthday') {
+    if (values.activitiesNote) lines.push(values.activitiesNote);
+  }
+  return lines.join('  ·  ') || null;
+}
 
 // Development-only pilot screen — proves the design-archetype architecture
 // (registry, density/compatibility/scene/nav resolvers, static+web+PDF
@@ -147,27 +191,43 @@ export default function InviteArchetypePilot({ route, navigation }) {
     ? (themePackOverrideId ? listThemePacks().find((p) => p.id === themePackOverrideId) : resolveThemePackForPartyTheme(values.partyTheme))
     : null;
 
+  const isProfessionalEvent = PROFESSIONAL_EVENT_SLUGS.includes(eventTypeSlug);
+  const storyText = buildStoryText(eventTypeSlug, values);
+  const addressDetail = [values.houseName, values.towerBlock, values.landmark].filter(Boolean).join(', ') || null;
+  const gatePassNote = [values.gateEntryNote, values.parkingNote].filter(Boolean).join('  ') || null;
+
   const scenes = resolveScenes({
     archetype,
     hasInvocationContent: !!values.invocationText,
     hasCoupleOrSubjectContent: !!(values.partner1Name || values.subjectNameLine1),
-    hasFamilyContent: !!(values.hostedBy || values.parentsNote || values.grandparentsNote || values.familySurname),
-    hasHonoureeContent: !!(values.childName || values.celebrantName),
+    hasFamilyContent: !!(values.hostedBy || values.parentsNote || values.grandparentsNote || values.familySurname || values.fatherToBeNote || values.family1Note || values.family2Note),
+    hasHonoureeContent: !!(values.childName || values.celebrantName || values.babyName || values.productName),
     hasDressCodeContent: !!values.dressCode,
+    hasStoryContent: !!storyText,
     functionCount: functions.length,
     hasVenue: !!event?.venue,
     hasTravelInfo, hasAccommodationInfo,
     gatePassActive: !!passCode,
     galleryPhotoCount: 0,
     wishingWallActive: false,
+    hasRegistrationContent: isProfessionalEvent && !!values.registrationInfo,
+    // No canonical structured speaker data source exists yet (only a
+    // free-text speakersNote field, folded into storyText above instead
+    // of being fabricated into fake individual speaker cards) — see the
+    // completion report. SpeakersScene stays built/wired and will
+    // activate the moment real structured data exists.
+    hasSpeakerContent: false,
+    hasRsvpContent: !isProfessionalEvent,
   });
 
-  const navItems = resolveUtilityNav({
-    hasFunctions: functions.length > 0, travelActive: archetype.supports.travel && hasTravelInfo,
-    staysActive: archetype.supports.accommodation && hasAccommodationInfo, rsvpActive: true,
-    mapsActive: !!event?.venue, gatePassActive: archetype.supports.gatePass && !!passCode,
-    giftsActive: false, wishingWallActive: false, galleryActive: false,
-  });
+  // Carry-forward fix — switched from the old boolean/hardcoded-array
+  // resolveUtilityNav() to the semantic, lifecycle-priority-driven
+  // resolveUtilityNavFromScenes() (already built in the Design System
+  // Scaling Foundation wave, never actually adopted by this screen until
+  // now). This is what lets Gate/Location rank appropriately per event
+  // instead of always defaulting to a fixed [Functions, Travel, Stay,
+  // RSVP] order that had no way to ever surface them.
+  const navItems = resolveUtilityNavFromScenes(scenes, { maxPrimary: 5 });
 
   const attribution = resolveBrandAttribution({ isNonFestive: nonFestive, surface: 'web' });
   const staticAttribution = resolveBrandAttribution({ isNonFestive: nonFestive, surface: 'static' });
@@ -307,31 +367,47 @@ export default function InviteArchetypePilot({ route, navigation }) {
               scenes={scenes}
               navItems={navItems.items}
               content={{
-                // ceremonyName (engagement's REQUIRED field — Ring
-                // Ceremony/Roka/Sagai) becomes the kicker fallback so an
-                // engagement invite actually says what occasion it is
-                // instead of defaulting to generic wedding-shaped copy —
-                // "Do not assume every engagement is a wedding-lite
-                // experience" (found during this QA pass: kickerText was
-                // previously the only source, and hosts rarely fill it in
-                // since ceremonyName already covers the same ground).
-                kicker: values.kickerText || values.ceremonyName?.toUpperCase() || 'YOU ARE INVITED',
-                headline: values.headlineText || event?.name,
+                // ceremonyName (engagement) / ceremonyType (baby-shower,
+                // housewarming) are each their schema's own REQUIRED
+                // occasion-name field — kicker fallback so the invite
+                // always says what kind of occasion it is even with no
+                // custom kickerText. Batch 2 — a secret baby name/hidden
+                // product name gets an intentional teaser headline
+                // instead of a blank one (never leaked); mirrors
+                // lib/staticInviteLayout.js's identical fallback chain so
+                // static and web output never disagree.
+                kicker: values.kickerText || values.ceremonyName?.toUpperCase() || values.ceremonyType?.toUpperCase() || 'YOU ARE INVITED',
+                headline: values.headlineText
+                  || (values.nameIsSecret === true ? 'Join us as we welcome and name our little one' : null)
+                  || (values.productNameHidden === true ? (values.tagline || 'Something big is coming') : null)
+                  || event?.name,
                 subline: event?.venue,
                 invocationText: values.invocationText,
                 partner1Name: values.partner1Name, partner2Name: values.partner2Name,
                 couplePhotoUrl: heroPhotoUrl, coupleQuote: values.coupleQuote,
                 hostedBy: values.hostedBy, parentsNote: values.parentsNote, grandparentsNote: values.grandparentsNote, familySurname: values.familySurname,
-                honoureeName: values.childName || values.celebrantName || values.subjectNameLine1,
+                fatherToBeNote: values.fatherToBeNote, family1Note: values.family1Note, family2Note: values.family2Note,
+                // babyName/productName are already suppressed upstream by
+                // lib/inviteContentAdapter.js's applyConditionalSuppression
+                // whenever nameIsSecret/productNameHidden is true — safe
+                // to read directly here, same as every other field.
+                honoureeName: values.childName || values.celebrantName || values.babyName || values.productName || values.subjectNameLine1,
                 honoureeAgeLine: values.turningAge ? `Turning ${values.turningAge}` : null,
                 honoureePhotoUrl: heroPhotoUrl,
                 dressCode: values.dressCode,
-                functions, venue: event?.venue,
+                functions, functionsTitle: isProfessionalEvent ? 'Agenda' : (['baby-shower', 'housewarming', 'naming-ceremony'].includes(eventTypeSlug) ? 'Programme' : undefined),
+                storyText,
+                venue: event?.venue, addressDetail,
                 travelNote: hasTravelInfo ? 'Outstation guest details available — see Guest List.' : null,
                 stayNote: hasAccommodationInfo ? 'Accommodation arranged — see Guest List.' : null,
                 guestAccessNote: (archetype.supports.gatePass && !passCode) ? 'Show your gate pass at the entrance.' : null,
                 gatePassCode: archetype.supports.gatePass ? passCode : null,
+                gatePassNote,
                 onGatePassPress: () => navigation.navigate('GatePass', { eventId }),
+                speakers: [],
+                registrationNote: isProfessionalEvent ? values.registrationInfo : null,
+                registrationUrl: isProfessionalEvent ? (values.websiteOrTicketUrl || null) : null,
+                onRegisterPress: isProfessionalEvent ? () => showAlert('Registration', 'This preview does not submit a real registration.') : undefined,
                 galleryPhotoCount: 0, wishes: [],
                 isNonFestive: nonFestive,
                 rsvpStatus: null, onRsvpPress: () => showAlert('RSVP', 'This preview does not submit a real RSVP — the real flow stays screens/RSVPScreen.js, unchanged.'),

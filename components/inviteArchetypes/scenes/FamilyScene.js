@@ -4,8 +4,11 @@ import { View, Text, StyleSheet } from 'react-native';
 // (RECOMMENDED for nikah), distinct from hostedBy — QA pass fix: this
 // scene previously never rendered it at all, so a nikah/engagement invite
 // with real parentsNote content silently showed nothing here.
-export default function FamilyScene({ tokens, hostedBy, parentsNote, grandparentsNote, familySurname }) {
-  const lines = [hostedBy, parentsNote, grandparentsNote, familySurname].filter(Boolean);
+// fatherToBeNote/family1Note/family2Note (Batch 2 — baby-shower's own
+// family fields, deliberately not gendered as "mother/father" beyond the
+// schema's own optional fatherToBeNote — see fields.js).
+export default function FamilyScene({ tokens, hostedBy, parentsNote, grandparentsNote, familySurname, fatherToBeNote, family1Note, family2Note }) {
+  const lines = [hostedBy, parentsNote, fatherToBeNote, family1Note, family2Note, grandparentsNote, familySurname].filter(Boolean);
   if (lines.length === 0) return null;
   const c = tokens?.colors;
   return (

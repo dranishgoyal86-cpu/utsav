@@ -5,6 +5,8 @@ import CoupleScene from './scenes/CoupleScene';
 import HonoureeScene from './scenes/HonoureeScene';
 import FamilyScene from './scenes/FamilyScene';
 import GalleryScene from './scenes/GalleryScene';
+import StoryScene from './scenes/StoryScene';
+import SpeakersScene from './scenes/SpeakersScene';
 import WishingWallScene from './scenes/WishingWallScene';
 import GuestAccessScene from './scenes/GuestAccessScene';
 import ClosingScene from './scenes/ClosingScene';
@@ -16,6 +18,7 @@ import StayCard from './utility/StayCard';
 import GatePassCard from './utility/GatePassCard';
 import DressCodeCard from './utility/DressCodeCard';
 import WishingWallCard from './utility/WishingWallCard';
+import RegistrationCard from './utility/RegistrationCard';
 import UtilityNavBar from './UtilityNavBar';
 
 // Top-level web/mobile invite preview — composes reusable scenes in the
@@ -51,13 +54,19 @@ export default function WebInvitePreview({ tokens, scenes = [], navItems = [], c
             case 'honouree':
               return <HonoureeScene key={sceneId} tokens={tokens} name={content.honoureeName} ageLine={content.honoureeAgeLine} photoUrl={content.honoureePhotoUrl} />;
             case 'family':
-              return <FamilyScene key={sceneId} tokens={tokens} hostedBy={content.hostedBy} parentsNote={content.parentsNote} grandparentsNote={content.grandparentsNote} familySurname={content.familySurname} />;
+              return <FamilyScene key={sceneId} tokens={tokens} hostedBy={content.hostedBy} parentsNote={content.parentsNote} grandparentsNote={content.grandparentsNote} familySurname={content.familySurname} fatherToBeNote={content.fatherToBeNote} family1Note={content.family1Note} family2Note={content.family2Note} />;
             case 'dress-code':
               return <DressCodeCard key={sceneId} tokens={tokens} dressCode={content.dressCode} />;
             case 'functions':
-              return <FunctionCard key={sceneId} tokens={tokens} functions={content.functions} />;
+              return <FunctionCard key={sceneId} tokens={tokens} functions={content.functions} title={content.functionsTitle} />;
+            case 'story':
+              return <StoryScene key={sceneId} tokens={tokens} text={content.storyText} />;
+            case 'speakers':
+              return <SpeakersScene key={sceneId} tokens={tokens} speakers={content.speakers} />;
+            case 'registration':
+              return <RegistrationCard key={sceneId} tokens={tokens} registrationNote={content.registrationNote} registrationUrl={content.registrationUrl} deadline={content.registrationDeadline} onPress={content.onRegisterPress} />;
             case 'venue':
-              return <MapCard key={sceneId} tokens={tokens} venue={content.venue} />;
+              return <MapCard key={sceneId} tokens={tokens} venue={content.venue} addressDetail={content.addressDetail} />;
             case 'travel':
               return <TravelCard key={sceneId} tokens={tokens} travelNote={content.travelNote} />;
             case 'stay':
@@ -67,7 +76,7 @@ export default function WebInvitePreview({ tokens, scenes = [], navItems = [], c
               // themed CTA into the real GatePass/PassScanner system); when
               // no pass exists yet, fall back to the plain arrival note.
               return content.gatePassCode
-                ? <GatePassCard key={sceneId} tokens={tokens} passCode={content.gatePassCode} onPress={content.onGatePassPress} />
+                ? <GatePassCard key={sceneId} tokens={tokens} passCode={content.gatePassCode} note={content.gatePassNote} onPress={content.onGatePassPress} />
                 : <GuestAccessScene key={sceneId} tokens={tokens} guestAccessNote={content.guestAccessNote} />;
             case 'rsvp':
               return <RSVPCard key={sceneId} tokens={tokens} rsvpStatus={content.rsvpStatus} onPress={content.onRsvpPress} />;

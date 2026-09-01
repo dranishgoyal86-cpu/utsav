@@ -82,7 +82,8 @@ assert('every new archetype\'s variants have a complete, valid token set', allTo
 // ── 2-3: every implemented variant belongs to a valid archetype; all resolve ──
 console.log('\n── Variant/archetype resolution ──');
 assert('validateArchetypeRegistry() reports zero problems (no orphaned/mismatched variants)', validateArchetypeRegistry().length === 0);
-assert('registry now has exactly 10 implemented archetypes', listArchetypes().length === 10);
+// Batch 2 added 5 more implemented archetypes on top of Batch 1's 10.
+assert('registry now has exactly 15 implemented archetypes', listArchetypes().length === 15);
 let allVariantsResolve = true;
 for (const a of listArchetypes()) {
   for (const vId of a.variantIds) {

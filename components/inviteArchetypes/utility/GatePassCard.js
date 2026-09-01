@@ -6,12 +6,18 @@ import UtilityCardShell from './UtilityCardShell';
 // the single canonical implementation. This card never generates or
 // displays a QR code itself; it only surfaces "you have a pass, tap to view
 // it" using the active archetype's tokens, same pattern as RSVPCard.
-export default function GatePassCard({ tokens, passCode, onPress }) {
+// note: an optional override for the default "Show this at the gate for
+// check-in." line — housewarming's gateEntryNote (e.g. "Show this at the
+// [Society Name] security gate; call the host if security asks for a
+// name") is real, host-written guidance for a specific building, not a
+// cosmetic label, so it replaces the generic default rather than being
+// appended as decorative prose.
+export default function GatePassCard({ tokens, passCode, note, onPress }) {
   if (!passCode) return null;
   const c = tokens?.colors;
   return (
     <UtilityCardShell tokens={tokens} icon="🎟️" title="Entry Pass">
-      <Text style={[s.note, { color: c?.dim || '#666' }]}>Show this at the gate for check-in.</Text>
+      <Text style={[s.note, { color: c?.dim || '#666' }]}>{note || 'Show this at the gate for check-in.'}</Text>
       <TouchableOpacity style={[s.btn, { backgroundColor: c?.accent || '#E8A020' }]} onPress={onPress}>
         <Text style={s.btnText}>View my gate pass</Text>
       </TouchableOpacity>

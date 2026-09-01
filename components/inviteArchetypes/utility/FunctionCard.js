@@ -6,11 +6,16 @@ import UtilityCardShell, { s as shellStyles } from './UtilityCardShell';
 // component makes no Supabase call of its own and stores nothing). Themed
 // via `tokens`, same interaction pattern regardless of which archetype
 // selected it.
-export default function FunctionCard({ tokens, functions = [] }) {
+// title: Batch 2 — an optional override ("Agenda" for corporate/product,
+// "Programme" for baby-shower/housewarming ritual schedules) so the SAME
+// event_functions-backed component reads naturally across event
+// categories without a second list-rendering component ("Do not
+// duplicate event_functions").
+export default function FunctionCard({ tokens, functions = [], title = 'Functions' }) {
   if (!functions.length) return null;
   const c = tokens?.colors;
   return (
-    <UtilityCardShell tokens={tokens} icon="📅" title="Functions">
+    <UtilityCardShell tokens={tokens} icon="📅" title={title}>
       {functions.map((f, i) => (
         <Text key={f.id || i} style={[s.row, { color: c?.dim || '#666' }]}>
           <Text style={{ color: c?.ink || '#1A1A1A', fontWeight: '700' }}>{f.name}</Text>
