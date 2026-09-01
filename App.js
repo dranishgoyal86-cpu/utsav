@@ -102,6 +102,7 @@ import SeatingChart from './screens/customer/SeatingChart';
 import GatePass from './screens/customer/GatePass';
 import PassIssue from './screens/customer/PassIssue';
 import ToranInvites from './screens/customer/ToranInvites';
+import InviteArchetypePilot from './screens/customer/InviteArchetypePilot';
 import RsvpDashboard from './screens/customer/RsvpDashboard';
 import PassCard from './screens/customer/PassCard';
 import PassScanner from './screens/customer/PassScanner';
@@ -565,6 +566,7 @@ function MainApp() {
             <Stack.Screen name="GatePass" component={GatePass} />
             <Stack.Screen name="PassIssue" component={PassIssue} />
             <Stack.Screen name="ToranInvites" component={ToranInvites} />
+            <Stack.Screen name="InviteArchetypePilot" component={InviteArchetypePilot} />
             <Stack.Screen name="RsvpDashboard" component={RsvpDashboard} />
             <Stack.Screen name="PassCard" component={PassCard} />
             <Stack.Screen name="PassScanner" component={PassScanner} />

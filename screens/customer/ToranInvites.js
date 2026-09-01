@@ -431,6 +431,16 @@ export default function ToranInvites({ route, navigation }) {
               )}
             </View>
 
+            {/* Design-archetype wave — dev-only pilot entry point. Fully
+                separate screen/state from everything above (no
+                archetype/variant choice here is ever saved to this
+                event's event_invite_content) — this link exists purely so
+                the new architecture is reachable for real testing without
+                touching the production designer's own flow at all. */}
+            <TouchableOpacity onPress={() => navigation.navigate('InviteArchetypePilot', { eventId })}>
+              <Text style={s.pilotLink}>✨ Preview new designs (beta)</Text>
+            </TouchableOpacity>
+
             {/* Doubles as the host's live preview and the capture target
                 sendInvite() screenshots — same CardWrapper-via-ViewShot
                 pattern GuestList.js's old designer already uses. Renders
@@ -537,6 +547,7 @@ function makeStyles(theme) {
     designChip: { backgroundColor: theme.cardBg, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6, borderWidth: 0.5, borderColor: theme.border },
     designChipText: { fontSize: 13, fontWeight: '700', color: theme.textSecondary },
     designNote: { fontSize: 11, color: theme.textSecondary, flexShrink: 1 },
+    pilotLink: { fontSize: 12, fontWeight: '700', color: theme.accent, textAlign: 'center', marginBottom: 14 },
 
     formCard: { backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 0.5, borderColor: theme.border, padding: 16, marginBottom: 16 },
     saveBtn: { backgroundColor: theme.btnPrimary, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 16 },
