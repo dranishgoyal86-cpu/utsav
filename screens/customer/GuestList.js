@@ -11,7 +11,7 @@ import GuestDetailModal, { timeAgo } from '../../components/GuestDetailModal';
 import NightBloomCard from '../../components/invite/NightBloomCard';
 import ToranCoverCard from '../../components/invite/ToranCoverCard';
 import StillnessCard from '../../components/invite/StillnessCard';
-import { isCelebratory } from '../../lib/eventTypeNames';
+import { isNonFestive } from '../../lib/inviteSchemas';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import GuestTable from '../../components/desktop/GuestTable';
 import { CARD, LINE, TEXT } from '../../lib/desktopTheme';
@@ -39,7 +39,8 @@ const INVITE_STYLE_TYPES = [
 
 // Wave 11 — per-function guest-page designs. 'stillness' is filtered out
 // of this list at render time unless the event's own type is already
-// non-celebratory (isCelebratory() check, same one ToranInvites.js's
+// non-festive (isNonFestive() check, invite-architecture wave's
+// centralized resolver — lib/inviteSchemas — same one ToranInvites.js's
 // whole-event picker gates on) — never independently offered per function.
 const FUNCTION_DESIGN_OPTIONS = [
   { id: 'toran', label: 'Toran' },
@@ -4371,10 +4372,10 @@ export default function GuestList({ route, navigation }) {
                         behavior and stays selected for every function that
                         exists today — nothing changes until a host actively
                         picks something. Stillness only ever appears here
-                        when the EVENT's own type is already non-celebratory
-                        — same isCelebratory() check the whole-event picker
-                        (ToranInvites.js) itself gates on, not a new,
-                        separate mechanism. */}
+                        when the EVENT's own type is already non-festive —
+                        invite-architecture wave: same isNonFestive() check
+                        the whole-event picker (ToranInvites.js) itself
+                        gates on, not a new, separate mechanism. */}
                     <Text style={[s.fieldLabel, { marginTop: 10 }]}>Guest-page design</Text>
                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
                       <TouchableOpacity
@@ -4384,7 +4385,7 @@ export default function GuestList({ route, navigation }) {
                         <Text style={!func.template_id ? s.typeChipTextActive : s.typeChipText}>Default</Text>
                       </TouchableOpacity>
                       {FUNCTION_DESIGN_OPTIONS
-                        .filter(opt => opt.id !== 'stillness' || !isCelebratory(event?.event_type_slug))
+                        .filter(opt => opt.id !== 'stillness' || isNonFestive(event?.event_type_slug))
                         .map(opt => (
                           <TouchableOpacity
                             key={opt.id}

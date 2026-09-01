@@ -6,7 +6,8 @@ import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import { showAlert, renameEvent, googleCalendarUrl } from '../../helpers';
 import { useEventPlan } from '../../hooks/useEventPlan';
-import { eventTypeName, isCelebratory } from '../../lib/eventTypeNames';
+import { eventTypeName } from '../../lib/eventTypeNames';
+import { isNonFestive } from '../../lib/inviteSchemas';
 import { isHomeVenueType, buildContext } from '../../lib/eventContext';
 import { useEventCapabilities } from '../../hooks/useEventCapabilities';
 import SlotField, { slotApplies, slotFilled, slotDisplayValue, SLOT_LABELS } from '../../components/SlotField';
@@ -100,7 +101,13 @@ export default function PlanView({ route, navigation }) {
     return () => { cancelled = true; };
   }, [eventId]);
   const paletteAccent = inviteDesign ? resolveInviteDesignColors(inviteDesign.template_id, inviteDesign.variant)?.accent : null;
-  const isCelebratoryEvent = isCelebratory(event?.event_type_slug);
+  // invite-architecture wave — routed through the centralized non-festive
+  // resolver (lib/inviteSchemas) instead of calling eventTypeNames.js's
+  // isCelebratory() directly; identical result for every slug without a
+  // dedicated schema (isNonFestive() falls back to !isCelebratory() there),
+  // so this is a no-op today and only diverges once a future schema
+  // explicitly declares nonFestive.
+  const isCelebratoryEvent = !isNonFestive(event?.event_type_slug);
   // Non-celebratory events (Funeral/Last-Rites) never inherit the host's
   // saved invite-design color or the app's amber accent — muted gray
   // (theme.textSecondary, already a neutral token in both light/dark themes)
