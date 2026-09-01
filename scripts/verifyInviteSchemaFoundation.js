@@ -206,7 +206,7 @@ assert('interfaith-wedding uses neutral family1Note/family2Note — no bride-fam
 assert('interfaith-wedding schema has no field key containing "bride" or "groom"', !interfaithFieldKeys.some((k) => /bride|groom/i.test(k)));
 
 // ── 15-17: the three explicit conditional pairs ────────────────────────────
-console.log('\n── Conditional field pairs (naming-ceremony, birthday, product-launch) ──');
+console.log('\n── Conditional field pairs (naming-ceremony, adult-birthday, product-launch) ──');
 function findField(schema, key) {
   return listSchemaFields(schema).find((f) => f.key === key);
 }
@@ -215,9 +215,16 @@ assert('naming-ceremony: babyName is hidden when nameIsSecret is true', babyName
 assert('naming-ceremony: babyName is shown when nameIsSecret is false', babyNameField.condition({ nameIsSecret: false }) === true);
 assert('naming-ceremony: babyName is shown when nameIsSecret is unset', babyNameField.condition({}) === true);
 
+// birthdaySchema loads from schemas/birthday.js (filename kept for
+// readability) but its own declared slug — and the key it's registered
+// under in index.js — is the real canonical 'adult-birthday', re-confirmed
+// via a dedicated slug-reconciliation pass against live events.event_type_
+// slug/event_types/event_requirements/capability_rules: no literal
+// 'birthday' value exists anywhere in production. See that schema file's
+// own header comment for the full evidence trail.
 const guestArrivalField = findField(birthdaySchema, 'guestArrivalTime');
-assert('birthday: guestArrivalTime is hidden when surprisePartyEnabled is false/unset', guestArrivalField.condition({}) === false && guestArrivalField.condition({ surprisePartyEnabled: false }) === false);
-assert('birthday: guestArrivalTime is shown when surprisePartyEnabled is true', guestArrivalField.condition({ surprisePartyEnabled: true }) === true);
+assert('adult-birthday: guestArrivalTime is hidden when surprisePartyEnabled is false/unset', guestArrivalField.condition({}) === false && guestArrivalField.condition({ surprisePartyEnabled: false }) === false);
+assert('adult-birthday: guestArrivalTime is shown when surprisePartyEnabled is true', guestArrivalField.condition({ surprisePartyEnabled: true }) === true);
 
 const productNameField = findField(productLaunchSchema, 'productName');
 assert('product-launch: productName is hidden when productNameHidden is true', productNameField.condition({ productNameHidden: true }) === false);
