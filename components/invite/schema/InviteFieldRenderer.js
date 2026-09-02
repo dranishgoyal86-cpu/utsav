@@ -1,6 +1,7 @@
 import { View, Text, TextInput, TouchableOpacity, Image, ActivityIndicator, Switch, StyleSheet } from 'react-native';
 import { Camera } from 'phosphor-react-native';
 import { FIELD_KIND, FIELD_STATUS } from '../../../lib/inviteSchemas/types';
+import RepeatableSectionEditor from './RepeatableSectionEditor';
 
 // Renders exactly one schema field. Deliberately dumb: `field.kind` in, the
 // right input out — no design/template awareness, no event_type_slug
@@ -35,14 +36,19 @@ export default function InviteFieldRenderer({ theme, field, value, onChange, onP
       ? `${field.label} (optional)`
       : field.label;
 
-  // invite-architecture wave, Part 3 — SECTIONS-kind fields (customSections,
-  // interfaithCeremonies) intentionally render nothing yet: a repeating-
-  // section editor is a real interaction/visual build, out of scope for
-  // this architecture-only wave (see FIELD_KIND.SECTIONS in types.js).
-  // The adapter still round-trips whatever's already stored, this renderer
-  // just doesn't offer a way to edit it in-form today.
+  // Batch 5 — SECTIONS-kind fields (customSections on every schema,
+  // interfaithCeremonies on interfaith-wedding) now get a real editor:
+  // RepeatableSectionEditor, one generic component reused by any SECTIONS
+  // field rather than a per-field/per-tradition editor. See that
+  // component's own header comment for why interfaith-wedding was the
+  // one that made building it worthwhile this wave.
   if (field.kind === FIELD_KIND.SECTIONS) {
-    return null;
+    return (
+      <View style={s.fieldWrap}>
+        <Text style={s.label}>{label}</Text>
+        <RepeatableSectionEditor theme={theme} value={value} onChange={onChange} itemLabel={field.key === 'interfaithCeremonies' ? 'Ceremony' : 'Section'} />
+      </View>
+    );
   }
 
   if (field.kind === FIELD_KIND.BOOLEAN) {

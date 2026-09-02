@@ -56,6 +56,94 @@ function getMilestoneLabel(years) {
   return MILESTONE_LABELS[n] || null;
 }
 
+// Batch 5 — interfaithCeremonies is a FIELD_KIND.SECTIONS array (see
+// RepeatableSectionEditor.js), each item shaped { title, description,
+// date, startTime, endTime, venue, personLabel, sortOrder }. Sorted by
+// sortOrder (falls back to array position) so ordering always follows
+// what the host actually entered/reordered, never a fixed default.
+function sortedCeremonies(ceremonies) {
+  if (!Array.isArray(ceremonies)) return [];
+  return ceremonies.slice().sort((a, b) => (a?.sortOrder ?? 0) - (b?.sortOrder ?? 0));
+}
+// One line per ceremony (title — venue — description), so a host-entered
+// ceremony with real content always reads as its own paragraph rather
+// than being merged into a single run-on sentence with the others —
+// symmetric treatment, no ceremony visually favoured over another.
+function buildInterfaithCeremonyLines(ceremonies) {
+  return sortedCeremonies(ceremonies)
+    .map((c) => [c?.title, c?.venue, c?.description].filter(Boolean).join(' — '))
+    .filter(Boolean);
+}
+// Reuses FunctionCard (retitled "Ceremonies") instead of a dedicated
+// interfaith schedule component — same "do not build four event-specific
+// schedule components" discipline Batch 4 already established.
+function ceremoniesToFunctionRows(ceremonies) {
+  return sortedCeremonies(ceremonies)
+    .map((c, i) => ({
+      id: c?.id || `ceremony_${i}`,
+      name: c?.personLabel ? `${c.title} (${c.personLabel})` : c?.title,
+      date: c?.date || null,
+      time: [c?.startTime, c?.endTime].filter(Boolean).join(' – ') || null,
+    }))
+    .filter((f) => f.name);
+}
+
+// Batch 5 — each of the 5 wedding-tradition schemas models its own
+// religious content as an enabled/text pair (nikah's bismillahEnabled/
+// bismillahText, anand-karaj's ikOnkarEnabled/gurbaniLine, ...) rather
+// than hindu-wedding's single generic invocationText field. A real,
+// previously-undetected gap: nikah's own bismillah/Qur'anic-verse/dua
+// fields were never actually read anywhere in this screen — they existed
+// on the schema and round-tripped through the adapter, but had no path
+// into the SYMBOL slot or the InvocationScene, so host-supplied religious
+// text silently never appeared. applyConditionalSuppression() has
+// already blanked each *Text field whenever its own *Enabled flag is
+// false, so this only ever needs to check the text fields' own
+// truthiness — never re-reads the Enabled flags directly.
+function resolveInvocationText(eventTypeSlug, values) {
+  if (eventTypeSlug === 'nikah') {
+    return [values.bismillahText, values.quranicVerseText, values.duaText].filter(Boolean).join('\n') || null;
+  }
+  if (eventTypeSlug === 'anand-karaj') {
+    return values.gurbaniLine || null;
+  }
+  if (eventTypeSlug === 'christian-wedding') {
+    return [values.scriptureText, values.prayerText].filter(Boolean).join('\n') || null;
+  }
+  if (eventTypeSlug === 'parsi-wedding') {
+    return values.familyBlessingText || null;
+  }
+  if (eventTypeSlug === 'jain-wedding') {
+    return [values.navkarMantraText, values.familyBlessingText].filter(Boolean).join('\n') || null;
+  }
+  return values.invocationText || null;
+}
+
+// Batch 5 — folds each tradition's own guest-preparation notes into the
+// same DressCodeCard every other event type already uses ("do not create
+// religious-specific utility cards") rather than a new etiquette
+// component. anand-karaj/interfaith-wedding don't have a plain dressCode
+// field at all; every other schema (including every pre-existing one)
+// keeps using its own dressCode field unchanged via the final fallback.
+function resolveDressGuidance(eventTypeSlug, values) {
+  if (eventTypeSlug === 'anand-karaj') return values.headCoveringNote || null;
+  if (eventTypeSlug === 'interfaith-wedding') {
+    return [values.headCoveringNote, values.shoeRemovalNote, values.photographyNote, values.etiquetteNote].filter(Boolean).join('  ·  ') || null;
+  }
+  return values.dressCode || null;
+}
+
+// Batch 5 — anand-karaj/christian-wedding each have their own REQUIRED
+// primary-ceremony-venue field (gurdwaraAddress/churchAddress), more
+// specific than the generic events.venue a host fills in at plan level.
+// Every other event type keeps reading straight off event.venue,
+// unchanged.
+function resolvePrimaryVenue(eventTypeSlug, values, event) {
+  if (eventTypeSlug === 'anand-karaj') return values.gurdwaraAddress || event?.venue || null;
+  if (eventTypeSlug === 'christian-wedding') return values.churchAddress || event?.venue || null;
+  return event?.venue || null;
+}
+
 // A plain composition of whatever schedule/ceremony-detail free text a
 // given event type actually has — reuses the generic 'story' scene rather
 // than inventing a dedicated scene per event type. Every value here is
@@ -63,7 +151,40 @@ function getMilestoneLabel(years) {
 // host explicitly toggled) — never fabricated or inferred.
 function buildStoryText(eventTypeSlug, values) {
   const lines = [];
-  if (eventTypeSlug === 'engagement') {
+  // Batch 5 — mealNote/giftNote/dietaryNote are declared on 13+ schemas
+  // going back to hindu-wedding/kids-birthday/baby-shower, but were never
+  // actually read anywhere in this screen until now — a real, previously-
+  // undetected gap this wave's own new schemas (nikah, christian-wedding,
+  // parsi-wedding, jain-wedding, other all declare mealNote; jain-wedding
+  // and other declare dietaryNote) made worth fixing generically instead
+  // of duplicating the same three lines into six new per-type branches.
+  // Purely additive — surfaces previously-invisible host content, changes
+  // nothing else for any event type that already had a working story.
+  if (values.mealNote) lines.push(values.mealNote);
+  if (values.giftNote) lines.push(values.giftNote);
+  if (values.dietaryNote) lines.push(`Dietary: ${values.dietaryNote}`);
+  if (eventTypeSlug === 'nikah') {
+    if (values.officiantName) lines.push(`Officiant: ${values.officiantName}`);
+  } else if (eventTypeSlug === 'anand-karaj') {
+    if (values.langarTime) lines.push(`Langar: ${values.langarTime}`);
+  } else if (eventTypeSlug === 'christian-wedding') {
+    if (values.massType) lines.push(values.massType);
+    if (values.officiantName) lines.push(`Officiant: ${values.officiantName}`);
+    if (values.receptionVenue) lines.push(`Reception at ${values.receptionVenue}`);
+  } else if (eventTypeSlug === 'parsi-wedding') {
+    if (values.ceremonyDescriptionNote) lines.push(values.ceremonyDescriptionNote);
+    if (values.receptionVenue) lines.push(`Reception at ${values.receptionVenue}`);
+  } else if (eventTypeSlug === 'jain-wedding') {
+    if (values.muhurat) lines.push(`Muhurat: ${values.muhurat}`);
+  } else if (eventTypeSlug === 'interfaith-wedding') {
+    if (values.traditionExplainerNote) lines.push(values.traditionExplainerNote);
+    lines.push(...buildInterfaithCeremonyLines(values.interfaithCeremonies));
+  } else if (eventTypeSlug === 'other') {
+    if (values.subtitleNote) lines.push(values.subtitleNote);
+    if (values.scheduleNote) lines.push(values.scheduleNote);
+    if (values.guestNote) lines.push(values.guestNote);
+    if (values.galleryReferenceNote) lines.push(values.galleryReferenceNote);
+  } else if (eventTypeSlug === 'engagement') {
     if (values.muhurat) lines.push(`Muhurat: ${values.muhurat}`);
     if (values.ringExchangeTime) lines.push(`Ring exchange at ${values.ringExchangeTime}`);
     if (values.scheduleNote) lines.push(values.scheduleNote);
@@ -119,7 +240,6 @@ function buildStoryText(eventTypeSlug, values) {
     if (values.destinationNote) lines.push(`Destination: ${values.destinationNote}`);
     if (values.customMessage) lines.push(values.customMessage);
     if (values.activitiesNote) lines.push(values.activitiesNote);
-    if (values.dietaryNote) lines.push(`Dietary: ${values.dietaryNote}`);
     if (values.includedNote) lines.push(`Included: ${values.includedNote}`);
     if (values.notIncludedNote) lines.push(`Not included: ${values.notIncludedNote}`);
     if (values.packingListNote) lines.push(`Pack: ${values.packingListNote}`);
@@ -322,17 +442,28 @@ export default function InviteArchetypePilot({ route, navigation }) {
   const storyText = buildStoryText(eventTypeSlug, values);
   const addressDetail = [values.houseName, values.towerBlock, values.landmark].filter(Boolean).join(', ') || null;
   const gatePassNote = [values.gateEntryNote, values.parkingNote].filter(Boolean).join('  ') || null;
+  // Batch 5 — see resolveInvocationText/resolveDressGuidance/
+  // resolvePrimaryVenue's own header comments above.
+  const invocationText = resolveInvocationText(eventTypeSlug, values);
+  const dressGuidance = resolveDressGuidance(eventTypeSlug, values);
+  const primaryVenue = resolvePrimaryVenue(eventTypeSlug, values, event);
+  // interfaith-wedding's ceremonies are additional schedule rows, not a
+  // replacement for any real event_functions the host also added —
+  // ceremonies first (core to the event), canonical functions after.
+  const effectiveFunctions = eventTypeSlug === 'interfaith-wedding'
+    ? [...ceremoniesToFunctionRows(values.interfaithCeremonies), ...functions]
+    : functions;
 
   const scenes = resolveScenes({
     archetype,
-    hasInvocationContent: !!values.invocationText,
+    hasInvocationContent: !!invocationText,
     hasCoupleOrSubjectContent: !!(values.partner1Name || values.subjectNameLine1),
     hasFamilyContent: !!(values.hostedBy || values.organiserName || values.parentsNote || values.grandparentsNote || values.familySurname || values.fatherToBeNote || values.family1Note || values.family2Note),
-    hasHonoureeContent: !!(values.childName || values.celebrantName || values.babyName || values.productName || values.facilitatorName),
-    hasDressCodeContent: !!values.dressCode,
+    hasHonoureeContent: !!(values.childName || values.celebrantName || values.babyName || values.productName || values.facilitatorName || values.honoureesNote),
+    hasDressCodeContent: !!dressGuidance,
     hasStoryContent: !!storyText,
-    functionCount: functions.length,
-    hasVenue: !!event?.venue,
+    functionCount: effectiveFunctions.length,
+    hasVenue: !!primaryVenue,
     hasTravelInfo, hasAccommodationInfo,
     gatePassActive: !!passCode,
     galleryPhotoCount: 0,
@@ -372,10 +503,26 @@ export default function InviteArchetypePilot({ route, navigation }) {
   // lib/inviteSchemas/fields.js) — the couplePhotoUrl-only fallback here
   // meant a child's photo silently never appeared on any kids-birthday
   // design. Both are checked; a schema only ever populates one of them.
-  const heroPhotoUrl = values.couplePhotoUrl || values.subjectPhotoUrl || null;
+  // Batch 5 fix: values.heroPhotoUrl (exhibition/concert/festival-fair/
+  // sports-event's own generic hero field, and now other's) was already
+  // wired into Batch 4's temporary QA harness but never actually made it
+  // into this real screen — a real, previously-undetected gap where the
+  // production pilot never showed those 5 event types' host-supplied
+  // photos at all, only the deleted harness did.
+  const heroPhotoUrl = values.couplePhotoUrl || values.subjectPhotoUrl || values.heroPhotoUrl || null;
+
+  // Batch 5 — a gurdwaraAddress/churchAddress override folds into the
+  // SAME event object staticInviteLayout.js already reads event.venue
+  // from, so the more specific ceremony venue wins on both static and PDF
+  // output without needing a new buildStaticLayoutModel param. Similarly,
+  // each tradition's own religious-content fields are folded into the
+  // SAME values.invocationText the SYMBOL slot already reads — see
+  // resolveInvocationText's header comment.
+  const effectiveEvent = { ...event, venue: primaryVenue };
+  const effectiveValues = { ...values, invocationText };
 
   const staticLayoutModel = buildStaticLayoutModel({
-    archetypeId: archetype.id, variantId: activeVariant.id, event, values, isNonFestive: nonFestive, qrTargetUrl, photoUrl: heroPhotoUrl, eventTypeSlug,
+    archetypeId: archetype.id, variantId: activeVariant.id, event: effectiveEvent, values: effectiveValues, isNonFestive: nonFestive, qrTargetUrl, photoUrl: heroPhotoUrl, eventTypeSlug,
   });
   // Theme-pack motif swap — subordinate to the selected archetype/variant,
   // applied only as a final decorative touch on top of the real layout
@@ -389,7 +536,7 @@ export default function InviteArchetypePilot({ route, navigation }) {
 
   const pdfModel = buildPdfPageModels({
     staticLayoutModel: effectiveStaticLayoutModel,
-    functions,
+    functions: effectiveFunctions,
     travelNote: hasTravelInfo ? 'Outstation guest travel details collected — see Guest List for the full list.' : null,
     stayNote: hasAccommodationInfo ? 'Accommodation blocks arranged — see Guest List for room assignments.' : null,
   });
@@ -515,8 +662,8 @@ export default function InviteArchetypePilot({ route, navigation }) {
                   || (values.nameIsSecret === true ? 'Join us as we welcome and name our little one' : null)
                   || (values.productNameHidden === true ? (values.tagline || 'Something big is coming') : null)
                   || event?.name,
-                subline: event?.venue,
-                invocationText: values.invocationText,
+                subline: primaryVenue,
+                invocationText,
                 partner1Name: values.partner1Name, partner2Name: values.partner2Name,
                 couplePhotoUrl: heroPhotoUrl, coupleQuote: values.coupleQuote,
                 hostedBy: values.hostedBy || values.organiserName, parentsNote: values.parentsNote, grandparentsNote: values.grandparentsNote, familySurname: values.familySurname,
@@ -526,17 +673,22 @@ export default function InviteArchetypePilot({ route, navigation }) {
                 // lib/inviteContentAdapter.js's applyConditionalSuppression
                 // whenever nameIsSecret/productNameHidden is true — safe
                 // to read directly here, same as every other field.
-                honoureeName: values.childName || values.celebrantName || values.babyName || values.productName || values.facilitatorName || values.subjectNameLine1,
+                // Batch 5 — honoureesNote (other's own plain-text honouree
+                // list) sits at the end of this chain so it never
+                // overrides any event type that already has a real named
+                // honouree.
+                honoureeName: values.childName || values.celebrantName || values.babyName || values.productName || values.facilitatorName || values.subjectNameLine1 || values.honoureesNote,
                 honoureeAgeLine: values.turningAge ? `Turning ${values.turningAge}` : null,
                 honoureePhotoUrl: heroPhotoUrl,
-                dressCode: values.dressCode,
-                functions, functionsTitle: isProfessionalEvent ? 'Agenda'
+                dressCode: dressGuidance,
+                functions: effectiveFunctions, functionsTitle: isProfessionalEvent ? 'Agenda'
                   : eventTypeSlug === 'sports-event' ? 'Fixtures'
                   : eventTypeSlug === 'concert' ? 'Schedule'
+                  : eventTypeSlug === 'interfaith-wedding' ? 'Ceremonies'
                   : ['baby-shower', 'housewarming', 'naming-ceremony', 'exhibition', 'festival-fair', 'team-offsite', 'wellness-retreat'].includes(eventTypeSlug) ? 'Programme'
                   : undefined,
                 storyText,
-                venue: event?.venue, addressDetail,
+                venue: primaryVenue, addressDetail,
                 travelNote: hasTravelInfo ? 'Outstation guest details available — see Guest List.' : null,
                 stayNote: hasAccommodationInfo ? 'Accommodation arranged — see Guest List.' : null,
                 guestAccessNote: (archetype.supports.gatePass && !passCode) ? 'Show your gate pass at the entrance.' : null,

@@ -81,6 +81,43 @@ function longestPrimaryNameChars(primaryNames) {
   return Math.max(0, ...candidates.filter(Boolean).map((s) => s.length));
 }
 
+// Batch 5 fix (found via Playwright, an interfaith fixture pairing a long
+// multi-word name with a long HYPHENATED compound surname): the total-
+// length-based shrink above spreads its penalty across the whole name,
+// but text only wraps at whitespace — a single very long WORD/token
+// (e.g. "Konstantinopoulos-Fernandez", 28 characters, the hyphen didn't
+// give react-native-web a wrap point) has to fit on one line by itself no
+// matter how short the rest of the name is or how many lines are
+// available. A name that "isn't that long overall" could still clip mid-
+// word if its one surname segment alone is. This computes a hard font-
+// size ceiling from the single longest word actually present, independent
+// of computeCompaction/the total-length penalty — whichever constraint
+// (this or the existing one) demands the smaller font wins.
+function longestWordChars(text) {
+  if (!text) return 0;
+  return Math.max(0, ...String(text).split(/\s+/).map((w) => w.length));
+}
+function longestPrimaryWordChars(primaryNames, headline) {
+  const texts = primaryNames
+    ? (primaryNames.mode === 'couple' ? [primaryNames.name1, primaryNames.name2]
+      : primaryNames.mode === 'subject' ? [primaryNames.line1, primaryNames.line2]
+      : primaryNames.mode === 'single' ? [primaryNames.name]
+      : [])
+    : (headline ? [headline] : []);
+  return Math.max(0, ...texts.filter(Boolean).map(longestWordChars));
+}
+// Empirical, deliberately conservative (slightly over-shrinks on a
+// narrower font rather than risk clipping on a wider one) width-per-
+// character-per-px estimate for this card's serif/sans headline faces at
+// the 324px-wide (288px content) card size — see PhotoSlot/computeCompaction's
+// own "deterministic, not adjustsFontSizeToFit" rule.
+const WORD_FIT_FACTOR = 0.65;
+const CARD_CONTENT_WIDTH = 288;
+function maxFontSizeForWord(chars) {
+  if (chars <= 0) return 32;
+  return Math.floor(CARD_CONTENT_WIDTH / (WORD_FIT_FACTOR * chars));
+}
+
 // Photo-crop treatment — used only by layouts that declare a photo slot
 // (split-photo, photo-editorial). 'hero' fills a wide banner (object-fit
 // cover, no stretching), 'portrait' a tall panel, 'circle' a round framed
@@ -130,7 +167,12 @@ export default function StaticInviteCard({ layoutModel, tokens }) {
   const longestNameChars = slots.primaryNames ? longestPrimaryNameChars(slots.primaryNames) : (slots.headline?.length || 0);
   const lengthPenaltyCap = isHeadlineOnly ? 16 : 10;
   const lengthPenalty = longestNameChars > 20 ? Math.min(lengthPenaltyCap, Math.floor((longestNameChars - 20) * 0.45)) : 0;
-  const nameFontSize = Math.max(isHeadlineOnly ? 15 : 14, 32 - compaction * 2 - lengthPenalty); // 32 (roomy, short) down to a 14-15px floor (very tight, very long)
+  // Hard word-fit ceiling — whichever constraint (this or the total-length
+  // penalty above) demands the smaller font wins, so a single long
+  // hyphenated/compound word can never clip even when the overall name
+  // "isn't that long" (see longestPrimaryWordChars()'s own comment).
+  const wordFitFontSize = maxFontSizeForWord(longestPrimaryWordChars(slots.primaryNames, slots.headline));
+  const nameFontSize = Math.max(isHeadlineOnly ? 15 : 14, Math.min(wordFitFontSize, 32 - compaction * 2 - lengthPenalty)); // 32 (roomy, short) down to a 14-15px floor (very tight, very long)
   const spacingScale = 1 - compaction * 0.08; // 1.0 down to 0.6
 
   const content = (
