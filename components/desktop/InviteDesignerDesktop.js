@@ -1,18 +1,25 @@
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
-import ToranCoverCard from '../invite/ToranCoverCard';
-import StillnessCard from '../invite/StillnessCard';
+import ProductionInviteCard from '../invite/ProductionInviteCard';
 import InviteSchemaForm from '../invite/schema/InviteSchemaForm';
-import { mapToToranCoverCardProps, mapToStillnessCardProps } from '../../lib/inviteContentAdapter';
+import { buildArchetypeTemplateId } from '../../lib/inviteProductionDesign';
+import { getArchetype, getVariant } from '../../lib/inviteDesignArchetypes';
+import { getCatalogueEntry } from '../../lib/inviteDesignArchetypes/catalogue';
 import { MAROON, MUTED, TEXT, CARD, LINE, EYEBROW, CREAM } from '../../lib/desktopTheme';
 
 // Wave 13 — Task 2. New pattern: a document-editor shape, not a table —
 // editable fields on the left, the real live invite preview on the right,
-// updating as fields change. Reuses ToranCoverCard/StillnessCard exactly
-// as the mobile designer's own preview already does (same components,
-// same props, now both built via lib/inviteContentAdapter.js's mapping
-// functions instead of each screen hand-assembling them) — this pane's
-// whole point is that it's the REAL card, not a second approximation of
-// one.
+// updating as fields change.
+//
+// Production Integration Wave — the preview pane now renders through
+// ProductionInviteCard, the same production rendering bridge
+// ToranInvites.js's mobile preview uses (legacy ToranCoverCard/
+// StillnessCard for a legacy selection, StaticInviteCard for a new
+// archetype/variant selection) — no second, desktop-only card-selection
+// ternary. designOptions/parsedDesign are computed once by the parent
+// screen (getProductionDesignOptions()/parseProductionDesign(), see
+// lib/inviteProductionDesign.js) and passed down, same as every other
+// prop here — this component still owns no Supabase/registry calls of
+// its own.
 //
 // invite-architecture wave — the hand-written per-design TextInput blocks
 // this file used to carry (one copy of ToranInvites.js's own field JSX,
@@ -23,21 +30,10 @@ import { MAROON, MUTED, TEXT, CARD, LINE, EYEBROW, CREAM } from '../../lib/deskt
 // expects a theme-shaped object ({ text, textSecondary, textTertiary,
 // accent, border, inputBg }), and this desktop shell has never used that
 // shape — it uses lib/desktopTheme.js's flat exported constants instead.
-// Mapping those onto the same shape here (once) lets the shared renderer
-// stay completely theme-system-agnostic rather than special-casing
-// desktop internally.
-//
-// Known, accepted visual delta from this consolidation: input border-
-// radius/padding and the couple-photo picker's size/shape now match
-// mobile's exactly (a smaller circle) instead of this screen's previous
-// bespoke 120x120 rounded-square picker. Flagged in the implementation
-// report as a follow-up polish candidate, not silently changed.
 //
 // Per-function design assignment is deliberately NOT here — that's a real
 // screen already (GuestList.js's Functions modal, built Wave 9-11), not
-// something this screen owns today. Duplicating it here would be a second,
-// competing place to do the same thing; flagged in the wave's report
-// rather than silently built.
+// something this screen owns today.
 const fieldTheme = {
   text: TEXT,
   textSecondary: MUTED,
@@ -49,11 +45,13 @@ const fieldTheme = {
 
 export default function InviteDesignerDesktop({
   design, setDesign, allowedDesigns, celebratory, designLabels,
+  designOptions, parsedDesign,
   schema, values, onFieldChange, onPickPhoto, photoUploadingKey,
   saving, saveContent, contentSaved,
   event,
 }) {
-  const isStillness = design === 'stillness';
+  const showArchetypeSection = celebratory && designOptions && (designOptions.recommended.length > 0 || designOptions.moreStyles.length > 0);
+  const selectedArchetype = parsedDesign?.kind === 'archetype' ? getArchetype(parsedDesign.archetypeId) : null;
 
   return (
     <View style={s.wrap}>
@@ -72,6 +70,46 @@ export default function InviteDesignerDesktop({
           </View>
           {!celebratory && <Text style={s.hint}>Restricted to Stillness for this event type</Text>}
         </View>
+
+        {showArchetypeSection && (
+          <View style={{ marginBottom: 14 }}>
+            <Text style={s.label}>Or a new production design</Text>
+            {[['Recommended', designOptions.recommended], ['More styles', designOptions.moreStyles]].map(([label, ids]) => ids.length > 0 && (
+              <View key={label} style={{ marginBottom: 10 }}>
+                <Text style={s.groupLabel}>{label.toUpperCase()}</Text>
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  {ids.map((archetypeId) => {
+                    const a = getArchetype(archetypeId);
+                    const active = parsedDesign?.kind === 'archetype' && parsedDesign.archetypeId === archetypeId;
+                    const descriptor = (getCatalogueEntry(archetypeId)?.tones || []).slice(0, 2).join(' · ');
+                    return (
+                      <TouchableOpacity key={archetypeId} style={[s.designChip, active && s.designChipActive]} onPress={() => setDesign(buildArchetypeTemplateId(archetypeId, a.variantIds[0]))}>
+                        <Text style={[s.designChipText, active && s.designChipTextActive]}>{a.name}</Text>
+                        {descriptor ? <Text style={[s.descriptor, active && s.descriptorActive]}>{descriptor}</Text> : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+            {selectedArchetype && selectedArchetype.variantIds.length > 1 && (
+              <View>
+                <Text style={s.groupLabel}>VARIANT</Text>
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  {selectedArchetype.variantIds.map((variantId) => {
+                    const v = getVariant(variantId);
+                    const active = variantId === parsedDesign.variantId;
+                    return (
+                      <TouchableOpacity key={variantId} style={[s.designChip, active && s.designChipActive]} onPress={() => setDesign(buildArchetypeTemplateId(parsedDesign.archetypeId, variantId))}>
+                        <Text style={[s.designChipText, active && s.designChipTextActive]}>{v.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+          </View>
+        )}
 
         {!design ? (
           <Text style={s.hint}>Choose a design above to continue.</Text>
@@ -97,11 +135,7 @@ export default function InviteDesignerDesktop({
         <Text style={s.previewLabel}>Live preview</Text>
         {design ? (
           <View style={s.previewCardWrap}>
-            {isStillness ? (
-              <StillnessCard {...mapToStillnessCardProps(values)} />
-            ) : (
-              <ToranCoverCard {...mapToToranCoverCardProps(design, values, event)} />
-            )}
+            <ProductionInviteCard templateId={design} eventTypeSlug={event?.event_type_slug} values={values} event={event} />
           </View>
         ) : (
           <Text style={s.hint}>Pick a design to see the real card here.</Text>
@@ -117,11 +151,14 @@ const s = StyleSheet.create({
   eyebrow: { fontSize: 11, letterSpacing: 1.4, textTransform: 'uppercase', color: EYEBROW, fontWeight: '700', marginBottom: 4 },
   h1: { fontFamily: 'Fraunces-SemiBold', fontSize: 24, color: MAROON, marginBottom: 20 },
   label: { fontSize: 12, fontWeight: '700', color: TEXT, marginBottom: 6 },
+  groupLabel: { fontSize: 10, fontWeight: '700', color: MUTED, letterSpacing: 0.5, marginBottom: 6 },
   hint: { fontSize: 12, color: MUTED, marginTop: 4 },
   designChip: { borderWidth: 1.5, borderColor: LINE, backgroundColor: CREAM, borderRadius: 100, paddingVertical: 8, paddingHorizontal: 16 },
   designChipActive: { backgroundColor: MAROON, borderColor: MAROON },
   designChipText: { fontSize: 12.5, fontWeight: '700', color: MUTED },
   designChipTextActive: { color: '#fff' },
+  descriptor: { fontSize: 9, color: MUTED, marginTop: 1 },
+  descriptorActive: { fontSize: 9, color: '#fff', opacity: 0.85, marginTop: 1 },
   saveBtn: { backgroundColor: MAROON, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 10 },
   saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   previewPane: { width: 380, alignItems: 'center' },

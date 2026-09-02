@@ -10,60 +10,33 @@ import { showAlert, resolveGuestPartySize, uploadToCloudinary } from '../../help
 import { insertGuestPassesWithRetry } from '../../lib/capabilities';
 import { useEventContext } from '../../hooks/useEventContext';
 import AppHeader from '../../components/AppHeader';
-import ToranCoverCard from '../../components/invite/ToranCoverCard';
-import StillnessCard from '../../components/invite/StillnessCard';
+import ProductionInviteCard from '../../components/invite/ProductionInviteCard';
 import InviteSchemaForm from '../../components/invite/schema/InviteSchemaForm';
 import { DEFAULT_DESIGN } from '../../lib/inviteThemes';
 import { getInviteSchema, isNonFestive } from '../../lib/inviteSchemas';
-import { normalizeInviteContent, buildContentPatch, mapToToranCoverCardProps, mapToStillnessCardProps } from '../../lib/inviteContentAdapter';
+import { normalizeInviteContent, buildContentPatch } from '../../lib/inviteContentAdapter';
 import { buildLegacyPersonalInviteUrl } from '../../lib/inviteBrandingPolicy';
+import {
+  DESIGN_LABELS, CELEBRATORY_DESIGNS, SOLEMN_DESIGNS, DESIGN_SUGGESTIONS,
+  parseProductionDesign, buildArchetypeTemplateId, getProductionDesignOptions,
+} from '../../lib/inviteProductionDesign';
+import { getArchetype, getVariant } from '../../lib/inviteDesignArchetypes';
+import { getCatalogueEntry } from '../../lib/inviteDesignArchetypes/catalogue';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import InviteDesignerDesktop from '../../components/desktop/InviteDesignerDesktop';
 
 // Wave 13 — same shared breakpoint every desktop screen in this app uses.
 const DESKTOP_BREAKPOINT = 768;
 
-const DESIGN_LABELS = { toran: 'Toran', kalamkari: 'Kalamkari', stillness: 'Stillness', ivory: 'Ivory', diya: 'Diya' };
-// Wave 8 — Ivory joins Kalamkari as a second neutral, non-Hindu-coded
-// option. No entry in DESIGN_SUGGESTIONS below (same as Kalamkari) —
-// available, never suggested toward any specific event type.
-// Wave 10 — Diya joins the celebratory set too (housewarming/religious-
-// event/festival-fair are all celebratory:true per eventTypeNames.js), NOT
-// a third gated bucket alongside SOLEMN_DESIGNS — it's still offered
-// alongside Toran/Kalamkari/Ivory for any celebratory event, just suggested
-// more strongly for its three real occasions below.
-//
-// invite-architecture wave — this list, and everything else about WHICH
-// visual designs exist and which is suggested, stays entirely here (design
-// selection), not in lib/inviteSchemas (content). The two are deliberately
-// decoupled: switching between any of these no longer changes which
-// content fields are collected — see the schema-driven form below.
-const CELEBRATORY_DESIGNS = ['toran', 'kalamkari', 'ivory', 'diya'];
-const SOLEMN_DESIGNS = ['stillness'];
-
-// Wave 7 — suggestion, not gating. Every event type in CELEBRATORY_DESIGNS
-// can still pick either Toran or Kalamkari regardless of what's suggested
-// here; funeral-last-rites isn't listed because Wave 6's restriction to
-// Stillness already makes it the only option, nothing to "suggest" among.
-// Deliberately no entry for nikah/anand-karaj/christian-wedding/
-// parsi-wedding/jain-wedding/interfaith-wedding or any non-wedding
-// celebratory type — neither Toran nor Kalamkari leans toward any of
-// them, so no suggestion is made rather than silently defaulting to a
-// Hindu-coded design.
-//
-// Wave 10 — Diya suggested for its three real occasions. There is no
-// dedicated "puja" slug in the live taxonomy (confirmed live: zero events
-// use one) — religious-event is the real slug that covers it, same way
-// festival-fair covers Diwali/other festivals (GuestList.js's own DM_STYLES
-// comment already notes nothing in the taxonomy distinguishes a Diwali
-// party from any other festival-fair). griha-pravesh (the old event_types
-// table's slug) is stale/unused — housewarming is the real, live one.
-const DESIGN_SUGGESTIONS = {
-  'hindu-wedding': 'toran',
-  'housewarming': 'diya',
-  'religious-event': 'diya',
-  'festival-fair': 'diya',
-};
+// Production Integration Wave — DESIGN_LABELS/CELEBRATORY_DESIGNS/
+// SOLEMN_DESIGNS/DESIGN_SUGGESTIONS moved into lib/inviteProductionDesign.js
+// (this screen's own local constants until now) so the desktop designer
+// shares exactly the same definitions instead of receiving them as props
+// with no independent source of truth. ToranCoverCard/StillnessCard are no
+// longer imported directly here — ProductionInviteCard (imported above) is
+// now the one rendering bridge both this screen and the desktop designer
+// use, so a legacy OR a new archetype-system selection renders correctly
+// without this screen needing to know which kind it is.
 
 // react-native-share + react-native-view-shot, same pattern GuestList.js's
 // old designer already uses — image and text/link go out together in one
@@ -136,6 +109,14 @@ export default function ToranInvites({ route, navigation }) {
   const [guests, setGuests] = useState([]);
   const [passes, setPasses] = useState([]);
   const [currentUserName, setCurrentUserName] = useState(null);
+  // Production Integration Wave — density signals for the new archetype
+  // selector's Recommended/More Styles grouping only (getSelectableArchetypes'
+  // own density-range check); counts only, same lightweight pattern
+  // InviteArchetypePilot.js already uses, no full row fetch needed since
+  // the static card itself never renders a functions/schedule list.
+  const [functionCount, setFunctionCount] = useState(0);
+  const [hasTravelInfo, setHasTravelInfo] = useState(false);
+  const [hasAccommodationInfo, setHasAccommodationInfo] = useState(false);
   const cardRef = useRef(null);
 
   const schema = getInviteSchema(event?.event_type_slug);
@@ -174,6 +155,26 @@ export default function ToranInvites({ route, navigation }) {
   const celebratory = !isNonFestive(event?.event_type_slug);
   const allowedDesigns = celebratory ? CELEBRATORY_DESIGNS : SOLEMN_DESIGNS;
 
+  // Production Integration Wave — the same getSelectableArchetypes()
+  // grouping InviteArchetypePilot.js already uses, now feeding the real
+  // production picker too. Empty recommended/moreStyles for a solemn
+  // event (isNonFestive true) — funeral-last-rites only ever sees
+  // SOLEMN_DESIGNS, exactly as before this wave.
+  const densitySignals = { functionCount, hasTravelInfo, hasAccommodationInfo };
+  const designOptions = getProductionDesignOptions({ eventTypeSlug: event?.event_type_slug, schema, values, densitySignals, isNonFestive: !celebratory });
+  const parsedDesign = parseProductionDesign(design);
+
+  // A design (legacy OR archetype) is still offerable for this event
+  // exactly when it appears somewhere in the currently-computed
+  // designOptions — a single check that replaces the old
+  // allowedDesigns.includes(design)-only test.
+  function isDesignStillValid(templateId) {
+    const parsed = parseProductionDesign(templateId);
+    if (parsed.kind === 'legacy') return allowedDesigns.includes(parsed.legacyDesignId);
+    if (parsed.kind === 'archetype') return designOptions.recommended.includes(parsed.archetypeId) || designOptions.moreStyles.includes(parsed.archetypeId);
+    return false;
+  }
+
   // Corrects an already-chosen design that's no longer valid for this
   // event's allowed set (e.g. saved as Toran, event type later edited to
   // something solemn). Only acts once a design is actually chosen —
@@ -181,7 +182,7 @@ export default function ToranInvites({ route, navigation }) {
   // suggestion effect below owns.
   useEffect(() => {
     if (!event || !design) return;
-    if (!allowedDesigns.includes(design)) setDesign(allowedDesigns[0]);
+    if (!isDesignStillValid(design)) setDesign(allowedDesigns[0]);
   }, [event?.event_type_slug, design]);
 
   // Wave 7, Task 3 — suggestion, not a default. Only fires for a fresh
@@ -191,7 +192,9 @@ export default function ToranInvites({ route, navigation }) {
   // one real case (Hindu wedding -> Toran). Everything else stays
   // unselected — the picker shows a neutral "no suggestion" state instead
   // of silently landing on a Hindu-coded design for a Nikah or any other
-  // event type nothing here leans toward.
+  // event type nothing here leans toward. Unchanged this wave — the new
+  // archetype options are never auto-suggested either, same "don't fake a
+  // suggestion" rule, host always picks explicitly.
   useEffect(() => {
     if (!event || design || contentSaved) return;
     if (allowedDesigns.length === 1) { setDesign(allowedDesigns[0]); return; }
@@ -243,6 +246,20 @@ export default function ToranInvites({ route, navigation }) {
 
       setGuests(guestRows || []);
       setPasses(passRows || []);
+
+      // Production Integration Wave — same three counts
+      // InviteArchetypePilot.js already fetches, so the real selector's
+      // Recommended/More Styles grouping matches what a host would see in
+      // the pilot for the same event.
+      const { count: functionsCount } = await supabase
+        .from('event_functions').select('id', { count: 'exact', head: true }).eq('event_id', eventId);
+      setFunctionCount(functionsCount || 0);
+      const { count: outstationCount } = await supabase
+        .from('event_invitees').select('id', { count: 'exact', head: true }).eq('event_id', eventId).eq('is_outstation', true);
+      setHasTravelInfo((outstationCount || 0) > 0);
+      const { count: accommodationCount } = await supabase
+        .from('event_accommodations').select('id', { count: 'exact', head: true }).eq('event_id', eventId);
+      setHasAccommodationInfo((accommodationCount || 0) > 0);
     } catch (err) {
       showAlert('Error', err.message);
     } finally {
@@ -348,7 +365,14 @@ export default function ToranInvites({ route, navigation }) {
     // Stillness gets its own, non-celebratory wording — no "invited",
     // no "celebration". Names the subject when known rather than staying
     // fully generic, matching the reference's dignified-but-specific tone.
-    const message = design === 'stillness'
+    // Production Integration Wave — was `design === 'stillness'`; switched
+    // to the same isNonFestive() check every other festive/solemn branch
+    // in this codebase already uses, so the wording stays correct
+    // regardless of which legacy design or archetype/variant is selected
+    // (funeral-last-rites never offers anything but Stillness anyway — see
+    // designOptions above — so this is a no-op change in practice, just
+    // the more correct source of truth).
+    const message = isNonFestive(event?.event_type_slug)
       ? `Hi ${guest.name}. Sharing the details${values.subjectNameLine1 ? ` for ${values.subjectNameLine1}${values.subjectNameLine2 ? ` ${values.subjectNameLine2}` : ''}` : ''}: ${link}`
       : `Hi ${guest.name}! You're invited${values.partner1Name ? ` to ${values.partner1Name}${values.partner2Name ? ` & ${values.partner2Name}` : ''}'s celebration` : ''}. Open your invite: ${link}`;
 
@@ -394,6 +418,7 @@ export default function ToranInvites({ route, navigation }) {
       <DesktopEventShell activeItem="invites" event={event} guestCount={guests.length} guestCountLabel="receiving" currentUserName={currentUserName} navigation={navigation}>
         <InviteDesignerDesktop
           design={design} setDesign={setDesign} allowedDesigns={allowedDesigns} celebratory={celebratory} designLabels={DESIGN_LABELS}
+          designOptions={designOptions} parsedDesign={parsedDesign}
           schema={schema} values={values} onFieldChange={handleFieldChange} onPickPhoto={pickPhoto} photoUploadingKey={uploadingPhotoKey}
           saving={saving} saveContent={saveContent} contentSaved={contentSaved}
           event={event}
@@ -431,14 +456,66 @@ export default function ToranInvites({ route, navigation }) {
               )}
             </View>
 
-            {/* Design-archetype wave — dev-only pilot entry point. Fully
-                separate screen/state from everything above (no
-                archetype/variant choice here is ever saved to this
-                event's event_invite_content) — this link exists purely so
-                the new architecture is reachable for real testing without
-                touching the production designer's own flow at all. */}
+            {/* Production Integration Wave — the archetype system's own
+                Recommended/More Styles picker, now inline in the real
+                designer instead of only reachable via the dev-only pilot
+                below. Hidden entirely for a solemn event (designOptions.
+                recommended/moreStyles are always [] there — see
+                lib/inviteProductionDesign.js). Only a name and short style
+                descriptor are shown — no density/capability/registry
+                vocabulary, same discipline InviteArchetypePilot.js already
+                established. */}
+            {celebratory && (designOptions.recommended.length > 0 || designOptions.moreStyles.length > 0) && (
+              <>
+                <Text style={s.sectionLabel}>OR A NEW PRODUCTION DESIGN</Text>
+                {[['Recommended', designOptions.recommended], ['More styles', designOptions.moreStyles]].map(([label, ids]) => ids.length > 0 && (
+                  <View key={label} style={{ marginBottom: 10 }}>
+                    <Text style={s.designGroupLabel}>{label.toUpperCase()}</Text>
+                    <View style={s.designRow}>
+                      {ids.map((archetypeId) => {
+                        const a = getArchetype(archetypeId);
+                        const active = parsedDesign.kind === 'archetype' && parsedDesign.archetypeId === archetypeId;
+                        const descriptor = (getCatalogueEntry(archetypeId)?.tones || []).slice(0, 2).join(' · ');
+                        return (
+                          <TouchableOpacity
+                            key={archetypeId}
+                            style={active ? s.designChipActive : s.designChip}
+                            onPress={() => setDesign(buildArchetypeTemplateId(archetypeId, a.variantIds[0]))}
+                          >
+                            <Text style={active ? s.designChipActiveText : s.designChipText}>{a.name}</Text>
+                            {descriptor ? <Text style={active ? s.designDescriptorActive : s.designDescriptor}>{descriptor}</Text> : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ))}
+                {parsedDesign.kind === 'archetype' && getArchetype(parsedDesign.archetypeId).variantIds.length > 1 && (
+                  <View style={{ marginBottom: 10 }}>
+                    <Text style={s.designGroupLabel}>VARIANT</Text>
+                    <View style={s.designRow}>
+                      {getArchetype(parsedDesign.archetypeId).variantIds.map((variantId) => {
+                        const v = getVariant(variantId);
+                        const active = variantId === parsedDesign.variantId;
+                        return (
+                          <TouchableOpacity key={variantId} style={active ? s.designChipActive : s.designChip} onPress={() => setDesign(buildArchetypeTemplateId(parsedDesign.archetypeId, variantId))}>
+                            <Text style={active ? s.designChipActiveText : s.designChipText}>{v.name}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+              </>
+            )}
+
+            {/* Design-archetype wave — dev-only pilot entry point, kept as
+                a secondary path for the fuller web/PDF preview (not yet
+                production-connected — see the Production Integration
+                Wave's own report). No archetype/variant choice made THERE
+                is ever saved; a choice made in the picker above is. */}
             <TouchableOpacity onPress={() => navigation.navigate('InviteArchetypePilot', { eventId })}>
-              <Text style={s.pilotLink}>✨ Preview new designs (beta)</Text>
+              <Text style={s.pilotLink}>✨ Preview more (static/web/PDF beta)</Text>
             </TouchableOpacity>
 
             {/* Doubles as the host's live preview and the capture target
@@ -446,24 +523,18 @@ export default function ToranInvites({ route, navigation }) {
                 pattern GuestList.js's old designer already uses. Renders
                 nothing (not a silent Toran fallback) when no design is
                 chosen yet — Wave 7's "don't fake a suggestion" rule
-                applies to the preview just as much as the chip row. Card
-                props now come entirely from lib/inviteContentAdapter.js's
-                mapping functions — ToranCoverCard/StillnessCard themselves
-                are unchanged. */}
+                applies to the preview just as much as the chip row.
+                ProductionInviteCard is the one real rendering bridge for
+                BOTH a legacy design and a new archetype/variant selection
+                — see that component's own header comment. */}
             {design && (
               <View style={s.previewWrap}>
                 {Platform.OS !== 'web' && ViewShot ? (
                   <ViewShot ref={cardRef} options={{ format: 'jpg', quality: 0.92 }}>
-                    {design === 'stillness' ? (
-                      <StillnessCard {...mapToStillnessCardProps(values)} />
-                    ) : (
-                      <ToranCoverCard {...mapToToranCoverCardProps(design, values, event)} />
-                    )}
+                    <ProductionInviteCard templateId={design} eventTypeSlug={event?.event_type_slug} values={values} event={event} />
                   </ViewShot>
-                ) : design === 'stillness' ? (
-                  <StillnessCard {...mapToStillnessCardProps(values)} />
                 ) : (
-                  <ToranCoverCard {...mapToToranCoverCardProps(design, values, event)} />
+                  <ProductionInviteCard templateId={design} eventTypeSlug={event?.event_type_slug} values={values} event={event} />
                 )}
               </View>
             )}
@@ -540,13 +611,16 @@ function makeStyles(theme) {
     container: { flex: 1, backgroundColor: theme.bg },
     list: { paddingHorizontal: 16, paddingBottom: 40 },
 
-    designRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16, marginBottom: 16 },
+    designRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16, marginBottom: 16, flexWrap: 'wrap' },
     previewWrap: { alignItems: 'center', marginBottom: 16 },
     designChipActive: { backgroundColor: theme.accent, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6 },
     designChipActiveText: { fontSize: 13, fontWeight: '700', color: theme.accentText },
     designChip: { backgroundColor: theme.cardBg, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6, borderWidth: 0.5, borderColor: theme.border },
     designChipText: { fontSize: 13, fontWeight: '700', color: theme.textSecondary },
     designNote: { fontSize: 11, color: theme.textSecondary, flexShrink: 1 },
+    designGroupLabel: { fontSize: 10.5, fontWeight: '700', color: theme.textTertiary, letterSpacing: 0.5, marginBottom: 6 },
+    designDescriptor: { fontSize: 9, color: theme.textTertiary, marginTop: 1 },
+    designDescriptorActive: { fontSize: 9, color: theme.accentText, opacity: 0.85, marginTop: 1 },
     pilotLink: { fontSize: 12, fontWeight: '700', color: theme.accent, textAlign: 'center', marginBottom: 14 },
 
     formCard: { backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 0.5, borderColor: theme.border, padding: 16, marginBottom: 16 },
