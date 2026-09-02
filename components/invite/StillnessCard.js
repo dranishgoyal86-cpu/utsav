@@ -27,11 +27,22 @@ export default function StillnessCard({
   functionName,
   functionDate,
   functionTime,
+  // Launch-readiness audit — riteType (Last Rites/Cremation/Burial/Prayer
+  // Meeting/Chautha/Uthala/Tehravi/Bhog/...) reuses this same uppercase
+  // small-caps slot functionName already occupies on a per-function card;
+  // the two never appear together (riteType is only ever passed for the
+  // main event card, functionName only for a per-function one — see
+  // mapToStillnessCardProps()). contactInfo is one small additional line
+  // below the existing detail lines, shown only when the family supplied
+  // it.
+  riteType,
+  contactInfo,
 }) {
   const theme = inviteThemes.stillness;
   const isFunctionCard = !!functionName;
   const detail1 = isFunctionCard ? formatFunctionDate(functionDate) : detailLine1;
   const detail2 = isFunctionCard ? functionTime : detailLine2;
+  const smallCapsLabel = isFunctionCard ? functionName : riteType;
 
   return (
     <View style={[s.card, { backgroundColor: theme.colors.bg }]}>
@@ -48,8 +59,8 @@ export default function StillnessCard({
 
       {years ? <Text style={[s.years, { color: theme.colors.dim }]}>{years}</Text> : null}
 
-      {isFunctionCard ? (
-        <Text style={[s.functionName, { color: theme.colors.dim }]}>{functionName.toUpperCase()}</Text>
+      {smallCapsLabel ? (
+        <Text style={[s.functionName, { color: theme.colors.dim }]}>{smallCapsLabel.toUpperCase()}</Text>
       ) : null}
 
       <Svg width={120} height={2} viewBox="0 0 120 2" style={{ marginTop: 24, marginBottom: 20 }}>
@@ -58,6 +69,7 @@ export default function StillnessCard({
 
       {detail1 ? <Text style={[s.detail1, { color: theme.colors.body }]}>{detail1}</Text> : null}
       {detail2 ? <Text style={[s.detail2, { color: theme.colors.dim }]}>{detail2}</Text> : null}
+      {contactInfo ? <Text style={[s.detail2, { color: theme.colors.dim, marginTop: 6 }]}>{contactInfo}</Text> : null}
     </View>
   );
 }

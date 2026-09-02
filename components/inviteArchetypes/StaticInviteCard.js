@@ -118,6 +118,25 @@ function maxFontSizeForWord(chars) {
   return Math.floor(CARD_CONTENT_WIDTH / (WORD_FIT_FACTOR * chars));
 }
 
+// Launch-readiness audit fix: a 118-character public-event title (a real
+// stress fixture, longer than the ~84-char case the original headline-
+// only fix was tuned against) still ellipsis-clipped on its 3rd line —
+// the old fixed 16-point penalty cap/15px floor/3-line budget was itself
+// just another arbitrary ceiling, doomed to clip again at the next
+// longer real title. Replaced with a geometric fit computed directly from
+// the actual line budget (4 lines) and total length, the same
+// "compute the constraint, don't guess a cap" approach maxFontSizeForWord
+// already uses — this generalizes to any future length instead of
+// needing another manual bump. LENGTH_FIT_FACTOR is slightly more
+// conservative than WORD_FIT_FACTOR (0.72 vs 0.65) because real word-wrap
+// never packs every line to full width the way a single word does.
+const LENGTH_FIT_FACTOR = 0.72;
+const HEADLINE_ONLY_LINES = 4;
+function maxFontSizeForLength(chars, lines) {
+  if (chars <= 0) return 32;
+  return Math.floor((CARD_CONTENT_WIDTH * lines) / (LENGTH_FIT_FACTOR * chars));
+}
+
 // Photo-crop treatment — used only by layouts that declare a photo slot
 // (split-photo, photo-editorial). 'hero' fills a wide banner (object-fit
 // cover, no stretching), 'portrait' a tall panel, 'circle' a round framed
@@ -165,14 +184,21 @@ export default function StaticInviteCard({ layoutModel, tokens }) {
   // the 2-line budget names use.
   const isHeadlineOnly = !slots.primaryNames && !!slots.headline;
   const longestNameChars = slots.primaryNames ? longestPrimaryNameChars(slots.primaryNames) : (slots.headline?.length || 0);
-  const lengthPenaltyCap = isHeadlineOnly ? 16 : 10;
-  const lengthPenalty = longestNameChars > 20 ? Math.min(lengthPenaltyCap, Math.floor((longestNameChars - 20) * 0.45)) : 0;
+  const lengthPenalty = longestNameChars > 20 ? Math.min(10, Math.floor((longestNameChars - 20) * 0.45)) : 0;
   // Hard word-fit ceiling — whichever constraint (this or the total-length
   // penalty above) demands the smaller font wins, so a single long
   // hyphenated/compound word can never clip even when the overall name
   // "isn't that long" (see longestPrimaryWordChars()'s own comment).
   const wordFitFontSize = maxFontSizeForWord(longestPrimaryWordChars(slots.primaryNames, slots.headline));
-  const nameFontSize = Math.max(isHeadlineOnly ? 15 : 14, Math.min(wordFitFontSize, 32 - compaction * 2 - lengthPenalty)); // 32 (roomy, short) down to a 14-15px floor (very tight, very long)
+  // Headline-only mode uses the geometric length-fit ceiling instead of
+  // the linear penalty (see maxFontSizeForLength()'s own comment) — a
+  // full sentence title needs a computed fit, not a guessed cap. Name
+  // modes (couple/subject/single) keep the original, already-proven
+  // linear-penalty approach unchanged.
+  const lengthFitFontSize = isHeadlineOnly ? maxFontSizeForLength(longestNameChars, HEADLINE_ONLY_LINES) : Infinity;
+  const nameFontSize = isHeadlineOnly
+    ? Math.max(13, Math.min(wordFitFontSize, lengthFitFontSize, 32 - compaction * 2))
+    : Math.max(14, Math.min(wordFitFontSize, 32 - compaction * 2 - lengthPenalty)); // 32 (roomy, short) down to a 13-14px floor (very tight, very long)
   const spacingScale = 1 - compaction * 0.08; // 1.0 down to 0.6
 
   const content = (
@@ -236,7 +262,7 @@ export default function StaticInviteCard({ layoutModel, tokens }) {
       ) : slots.primaryNames?.mode === 'single' ? (
         <Text style={[s.name, { fontSize: nameFontSize, marginTop: 8 * spacingScale, color: c.ink, fontFamily: tokens.fonts.headline }]} numberOfLines={2} adjustsFontSizeToFit>{slots.primaryNames.name}</Text>
       ) : slots.headline ? (
-        <Text style={[s.name, { fontSize: nameFontSize, marginTop: 8 * spacingScale, color: c.ink, fontFamily: tokens.fonts.headline }]} numberOfLines={3} adjustsFontSizeToFit>{slots.headline}</Text>
+        <Text style={[s.name, { fontSize: nameFontSize, marginTop: 8 * spacingScale, color: c.ink, fontFamily: tokens.fonts.headline }]} numberOfLines={HEADLINE_ONLY_LINES} adjustsFontSizeToFit>{slots.headline}</Text>
       ) : null}
 
       {slots.secondaryDetail ? (

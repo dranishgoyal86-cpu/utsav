@@ -212,6 +212,20 @@ function buildStoryText(eventTypeSlug, values) {
     if (values.founderName) lines.push(`Hosted by ${values.founderName}`);
   } else if (eventTypeSlug === 'kids-birthday') {
     if (values.activitiesNote) lines.push(values.activitiesNote);
+  } else if (eventTypeSlug === 'adult-birthday') {
+    // Launch-readiness audit fix — adult-birthday had never had its own
+    // buildStoryText branch at all: tagline/activitiesNote and the whole
+    // surprise-party signal (surprisePartyEnabled + its 3 conditional
+    // fields) were collected by the builder form but had no path into the
+    // invite. milestoneAge is handled separately, in honoureeAgeLine below
+    // (a more prominent slot than story text) — not duplicated here.
+    if (values.tagline) lines.push(values.tagline);
+    if (values.activitiesNote) lines.push(values.activitiesNote);
+    if (values.surprisePartyEnabled === true) {
+      if (values.secrecyNote) lines.push(values.secrecyNote);
+      if (values.guestArrivalTime) lines.push(`Guests, please arrive by ${values.guestArrivalTime} — it's a surprise!`);
+      if (values.celebrantArrivalTime) lines.push(`${values.celebrantName || 'The celebrant'} arrives at ${values.celebrantArrivalTime}.`);
+    }
   } else if (eventTypeSlug === 'anniversary') {
     const milestone = getMilestoneLabel(values.anniversaryYears);
     if (values.anniversaryYears) lines.push(milestone ? `${values.anniversaryYears} Years — ${milestone} Anniversary` : `${values.anniversaryYears} Years Together`);
@@ -678,7 +692,12 @@ export default function InviteArchetypePilot({ route, navigation }) {
                 // overrides any event type that already has a real named
                 // honouree.
                 honoureeName: values.childName || values.celebrantName || values.babyName || values.productName || values.facilitatorName || values.subjectNameLine1 || values.honoureesNote,
-                honoureeAgeLine: values.turningAge ? `Turning ${values.turningAge}` : null,
+                // Launch-readiness audit fix — adult-birthday's own age
+                // field is milestoneAge, not kids-birthday's turningAge (a
+                // different key); milestoneAge was declared on the schema
+                // but never read anywhere, so an adult-birthday invite
+                // never showed the age being celebrated at all.
+                honoureeAgeLine: values.turningAge ? `Turning ${values.turningAge}` : (values.milestoneAge ? `Turning ${values.milestoneAge}` : null),
                 honoureePhotoUrl: heroPhotoUrl,
                 dressCode: dressGuidance,
                 functions: effectiveFunctions, functionsTitle: isProfessionalEvent ? 'Agenda'
