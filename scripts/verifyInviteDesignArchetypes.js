@@ -70,7 +70,7 @@ const archetypes = listArchetypes();
 // Production Batch 2 added 5 more implemented archetypes (folk-celebration,
 // temple-heritage, modern-indian, corporate-grid, luxury-black) on top of
 // Production Batch 1's 10.
-assert('exactly 15 archetypes are implemented', archetypes.length === 15);
+assert('exactly 16 archetypes are implemented', archetypes.length === 16); // Batch 3 added wellness-earth
 const ids = archetypes.map((a) => a.id);
 assert('archetype IDs are unique', new Set(ids).size === ids.length);
 assert('archetype IDs include the original pilot spec plus Batch 1\'s 7 plus Batch 2\'s 5 new archetypes', [

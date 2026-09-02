@@ -19,6 +19,8 @@ import GatePassCard from './utility/GatePassCard';
 import DressCodeCard from './utility/DressCodeCard';
 import WishingWallCard from './utility/WishingWallCard';
 import RegistrationCard from './utility/RegistrationCard';
+import TransportCard from './utility/TransportCard';
+import ContactCard from './utility/ContactCard';
 import UtilityNavBar from './UtilityNavBar';
 
 // Top-level web/mobile invite preview — composes reusable scenes in the
@@ -71,6 +73,10 @@ export default function WebInvitePreview({ tokens, scenes = [], navItems = [], c
               return <TravelCard key={sceneId} tokens={tokens} travelNote={content.travelNote} />;
             case 'stay':
               return <StayCard key={sceneId} tokens={tokens} stayNote={content.stayNote} />;
+            case 'transport':
+              return <TransportCard key={sceneId} tokens={tokens} meetingPoint={content.meetingPoint} departureTime={content.departureTime} returnTime={content.returnTime} />;
+            case 'contact':
+              return <ContactCard key={sceneId} tokens={tokens} contactInfo={content.contactInfo} />;
             case 'guest-access':
               // A real bound gate pass takes precedence (GatePassCard is a
               // themed CTA into the real GatePass/PassScanner system); when

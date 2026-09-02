@@ -75,8 +75,9 @@ assert('every catalogue entry has a valid implemented/planned status', listCatal
 // folk-celebration, temple-heritage, modern-indian, corporate-grid,
 // luxury-black — 15 implemented total, 3 still planned (cultural-poster,
 // stillness, wellness-earth).
-assert('exactly 15 entries are implemented', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.IMPLEMENTED).length === 15);
-assert('exactly 3 entries are planned', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.PLANNED).length === 3);
+// Batch 3 moved wellness-earth planned->implemented: 16 implemented, 2 still planned (cultural-poster, stillness).
+assert('exactly 16 entries are implemented', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.IMPLEMENTED).length === 16);
+assert('exactly 2 entries are planned', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.PLANNED).length === 2);
 
 let allShapesValid = true;
 for (const e of listCatalogueEntries()) {
@@ -96,10 +97,10 @@ assert('getSelectableArchetypes() never returns a planned entry', weddingSelecta
 assert('getSelectableArchetypes() for hindu-wedding returns all 10 archetypes implemented for it', weddingSelectable.length === 10);
 // hindu-wedding itself has no planned catalogue entries left, so this
 // checks a slug that still mixes implemented + planned: team-offsite
-// (photo-editorial/modern-indian/botanical-romance implemented,
-// cultural-poster/wellness-earth still planned).
+// (photo-editorial/modern-indian/botanical-romance/wellness-earth
+// implemented as of Batch 3, cultural-poster still planned).
 const offsitePlanning = getPlanningArchetypes({ eventTypeSlug: 'team-offsite', schema: getInviteSchema('team-offsite'), values: {}, isNonFestive: false });
-assert('getPlanningArchetypes() includes planned entries too (e.g. cultural-poster/wellness-earth are NOT yet implemented but still show for team-offsite)', offsitePlanning.some((r) => r.status === ARCHETYPE_STATUS.PLANNED));
+assert('getPlanningArchetypes() includes planned entries too (e.g. cultural-poster is NOT yet implemented but still shows for team-offsite)', offsitePlanning.some((r) => r.status === ARCHETYPE_STATUS.PLANNED));
 
 // ── 4: all 26 canonical event slugs have >=1 planned compatible archetype ─
 console.log('\n── Full event-type coverage ──');

@@ -27,6 +27,15 @@ import { resolveThemePackForPartyTheme, listThemePacks } from '../../lib/inviteD
 // registration is the more appropriate semantic action").
 const PROFESSIONAL_EVENT_SLUGS = ['corporate-conference', 'product-launch'];
 
+// Batch 3 — anniversary's derived milestone label (host content always
+// wins; this is decorative wording only, never a fact this app invents —
+// the year count itself is always the host's own anniversaryYears value).
+const MILESTONE_LABELS = { 25: 'Silver', 50: 'Golden', 60: 'Diamond' };
+function getMilestoneLabel(years) {
+  const n = parseInt(years, 10);
+  return MILESTONE_LABELS[n] || null;
+}
+
 // A plain composition of whatever schedule/ceremony-detail free text a
 // given event type actually has — reuses the generic 'story' scene rather
 // than inventing a dedicated scene per event type. Every value here is
@@ -62,6 +71,40 @@ function buildStoryText(eventTypeSlug, values) {
     if (values.founderName) lines.push(`Hosted by ${values.founderName}`);
   } else if (eventTypeSlug === 'kids-birthday') {
     if (values.activitiesNote) lines.push(values.activitiesNote);
+  } else if (eventTypeSlug === 'anniversary') {
+    const milestone = getMilestoneLabel(values.anniversaryYears);
+    if (values.anniversaryYears) lines.push(milestone ? `${values.anniversaryYears} Years — ${milestone} Anniversary` : `${values.anniversaryYears} Years Together`);
+    if (values.originalWeddingDate) lines.push(`Married on ${values.originalWeddingDate}`);
+    if (values.vowRenewalEnabled === true) lines.push('Vow renewal ceremony to follow.');
+    if (values.childrenAsHosts) lines.push(values.childrenAsHosts);
+  } else if (eventTypeSlug === 'mundan') {
+    if (values.muhurat) lines.push(`Muhurat: ${values.muhurat}`);
+    if (values.prasadNote) lines.push(values.prasadNote);
+  } else if (eventTypeSlug === 'religious-event') {
+    if (values.traditionNote) lines.push(values.traditionNote);
+    if (values.religiousLeaderName) lines.push(`Led by ${values.religiousLeaderName}`);
+    if (values.aartiTime) lines.push(`Aarti: ${values.aartiTime}`);
+    if (values.bhajanTime) lines.push(`Bhajan: ${values.bhajanTime}`);
+    if (values.scheduleNote) lines.push(values.scheduleNote);
+    if (values.prasadNote) lines.push(values.prasadNote);
+    if (values.bhandaraNote) lines.push(values.bhandaraNote);
+    if (values.headCoveringNote) lines.push(values.headCoveringNote);
+    if (values.shoeRemovalNote) lines.push(values.shoeRemovalNote);
+  } else if (eventTypeSlug === 'team-offsite') {
+    if (values.destinationNote) lines.push(`Destination: ${values.destinationNote}`);
+    if (values.activitiesNote) lines.push(values.activitiesNote);
+    if (values.packingListNote) lines.push(`Pack: ${values.packingListNote}`);
+    if (values.documentsToCarryNote) lines.push(`Carry: ${values.documentsToCarryNote}`);
+  } else if (eventTypeSlug === 'wellness-retreat') {
+    if (values.destinationNote) lines.push(`Destination: ${values.destinationNote}`);
+    if (values.customMessage) lines.push(values.customMessage);
+    if (values.activitiesNote) lines.push(values.activitiesNote);
+    if (values.dietaryNote) lines.push(`Dietary: ${values.dietaryNote}`);
+    if (values.includedNote) lines.push(`Included: ${values.includedNote}`);
+    if (values.notIncludedNote) lines.push(`Not included: ${values.notIncludedNote}`);
+    if (values.packingListNote) lines.push(`Pack: ${values.packingListNote}`);
+    if (values.fitnessLevelNote) lines.push(`Fitness level: ${values.fitnessLevelNote}`);
+    if (values.medicalNote) lines.push(values.medicalNote);
   }
   return lines.join('  ·  ') || null;
 }
@@ -192,6 +235,9 @@ export default function InviteArchetypePilot({ route, navigation }) {
     : null;
 
   const isProfessionalEvent = PROFESSIONAL_EVENT_SLUGS.includes(eventTypeSlug);
+  // Batch 3 — wellness-retreat's bookingInfoNote is the same "Book/Register
+  // instead of RSVP" semantic action as corporate/product's registrationInfo.
+  const registrationText = isProfessionalEvent ? values.registrationInfo : (eventTypeSlug === 'wellness-retreat' ? values.bookingInfoNote : null);
   const storyText = buildStoryText(eventTypeSlug, values);
   const addressDetail = [values.houseName, values.towerBlock, values.landmark].filter(Boolean).join(', ') || null;
   const gatePassNote = [values.gateEntryNote, values.parkingNote].filter(Boolean).join('  ') || null;
@@ -201,7 +247,7 @@ export default function InviteArchetypePilot({ route, navigation }) {
     hasInvocationContent: !!values.invocationText,
     hasCoupleOrSubjectContent: !!(values.partner1Name || values.subjectNameLine1),
     hasFamilyContent: !!(values.hostedBy || values.parentsNote || values.grandparentsNote || values.familySurname || values.fatherToBeNote || values.family1Note || values.family2Note),
-    hasHonoureeContent: !!(values.childName || values.celebrantName || values.babyName || values.productName),
+    hasHonoureeContent: !!(values.childName || values.celebrantName || values.babyName || values.productName || values.facilitatorName),
     hasDressCodeContent: !!values.dressCode,
     hasStoryContent: !!storyText,
     functionCount: functions.length,
@@ -210,7 +256,7 @@ export default function InviteArchetypePilot({ route, navigation }) {
     gatePassActive: !!passCode,
     galleryPhotoCount: 0,
     wishingWallActive: false,
-    hasRegistrationContent: isProfessionalEvent && !!values.registrationInfo,
+    hasRegistrationContent: !!registrationText,
     // No canonical structured speaker data source exists yet (only a
     // free-text speakersNote field, folded into storyText above instead
     // of being fabricated into fake individual speaker cards) — see the
@@ -218,6 +264,8 @@ export default function InviteArchetypePilot({ route, navigation }) {
     // activate the moment real structured data exists.
     hasSpeakerContent: false,
     hasRsvpContent: !isProfessionalEvent,
+    hasTransportContent: !!(values.meetingPoint || values.departureTime || values.returnTime),
+    hasContactContent: !!values.contactInfo,
   });
 
   // Carry-forward fix — switched from the old boolean/hardcoded-array
@@ -241,7 +289,7 @@ export default function InviteArchetypePilot({ route, navigation }) {
   const heroPhotoUrl = values.couplePhotoUrl || values.subjectPhotoUrl || null;
 
   const staticLayoutModel = buildStaticLayoutModel({
-    archetypeId: archetype.id, variantId: activeVariant.id, event, values, isNonFestive: nonFestive, qrTargetUrl, photoUrl: heroPhotoUrl,
+    archetypeId: archetype.id, variantId: activeVariant.id, event, values, isNonFestive: nonFestive, qrTargetUrl, photoUrl: heroPhotoUrl, eventTypeSlug,
   });
   // Theme-pack motif swap — subordinate to the selected archetype/variant,
   // applied only as a final decorative touch on top of the real layout
@@ -376,7 +424,7 @@ export default function InviteArchetypePilot({ route, navigation }) {
                 // instead of a blank one (never leaked); mirrors
                 // lib/staticInviteLayout.js's identical fallback chain so
                 // static and web output never disagree.
-                kicker: values.kickerText || values.ceremonyName?.toUpperCase() || values.ceremonyType?.toUpperCase() || 'YOU ARE INVITED',
+                kicker: values.kickerText || values.ceremonyName?.toUpperCase() || values.ceremonyType?.toUpperCase() || values.ceremonyCustomName?.toUpperCase() || values.religiousEventType?.toUpperCase() || 'YOU ARE INVITED',
                 headline: values.headlineText
                   || (values.nameIsSecret === true ? 'Join us as we welcome and name our little one' : null)
                   || (values.productNameHidden === true ? (values.tagline || 'Something big is coming') : null)
@@ -391,7 +439,7 @@ export default function InviteArchetypePilot({ route, navigation }) {
                 // lib/inviteContentAdapter.js's applyConditionalSuppression
                 // whenever nameIsSecret/productNameHidden is true — safe
                 // to read directly here, same as every other field.
-                honoureeName: values.childName || values.celebrantName || values.babyName || values.productName || values.subjectNameLine1,
+                honoureeName: values.childName || values.celebrantName || values.babyName || values.productName || values.facilitatorName || values.subjectNameLine1,
                 honoureeAgeLine: values.turningAge ? `Turning ${values.turningAge}` : null,
                 honoureePhotoUrl: heroPhotoUrl,
                 dressCode: values.dressCode,
@@ -405,9 +453,11 @@ export default function InviteArchetypePilot({ route, navigation }) {
                 gatePassNote,
                 onGatePassPress: () => navigation.navigate('GatePass', { eventId }),
                 speakers: [],
-                registrationNote: isProfessionalEvent ? values.registrationInfo : null,
-                registrationUrl: isProfessionalEvent ? (values.websiteOrTicketUrl || null) : null,
-                onRegisterPress: isProfessionalEvent ? () => showAlert('Registration', 'This preview does not submit a real registration.') : undefined,
+                registrationNote: registrationText,
+                registrationUrl: values.websiteOrTicketUrl || null,
+                onRegisterPress: registrationText ? () => showAlert('Registration', 'This preview does not submit a real registration.') : undefined,
+                meetingPoint: values.meetingPoint, departureTime: values.departureTime, returnTime: values.returnTime,
+                contactInfo: values.contactInfo,
                 galleryPhotoCount: 0, wishes: [],
                 isNonFestive: nonFestive,
                 rsvpStatus: null, onRsvpPress: () => showAlert('RSVP', 'This preview does not submit a real RSVP — the real flow stays screens/RSVPScreen.js, unchanged.'),

@@ -11,16 +11,10 @@ import StorybookFrame from '../invite/motifs/StorybookFrame';
 
 // Renders a static-layout model (lib/staticInviteLayout.js's
 // buildStaticLayoutModel output) into an actual 4:5 card — a REAL
-// compositional layout, not a screenshot of the web page (the brief's own
-// explicit rule). Targets the same 1080x1350 primary format the model
-// declares, scaled down to a screen-sized 324x405 box here (same pattern
-// components/invite/ToranCoverCard.js already uses at 320x400 — this
-// component is capturable via react-native-view-shot exactly the same
-// way for a real WhatsApp-share pipeline, not wired to one this wave).
-//
-// `tokens` comes from the selected variant (lib/inviteDesignArchetypes'
-// getVariant(variantId).tokens) — this component never looks up a variant
-// itself, keeping it a pure presentational renderer like ToranCoverCard.js.
+// compositional layout, not a screenshot. Targets 1080x1350, scaled down
+// to a 324x405 box (same pattern as ToranCoverCard.js at 320x400, capturable
+// via react-native-view-shot the same way). `tokens` is the selected
+// variant's tokens; this component never looks one up itself.
 function Motif({ motifId, color, width }) {
   if (motifId === 'toran-arch') return <TornArch width={width} height={100} color={color} />;
   if (motifId === 'jharokha') return <Jharokha width={width} height={90} color={color} />;
@@ -63,6 +57,24 @@ function computeCompaction(slots, hasPhoto) {
   return Math.min(score, 5); // 0 (roomy) .. 5 (very tight)
 }
 
+// The single longest name/line string that will render at the big
+// `name` style — used to shrink the font BEFORE render rather than
+// relying on `adjustsFontSizeToFit`. Found via Playwright: RN's
+// adjustsFontSizeToFit does not reliably auto-shrink on react-native-web
+// (only `numberOfLines` actually clips there), so a genuinely long single
+// name (not just "two names stacked", which computeCompaction already
+// handles) could still overflow its 2-line box and get cut mid-word —
+// confirmed on a 37-character second name at Fraunces-SemiBold, a wider
+// face than the Cormorant Garamond default that had happened to fit.
+function longestPrimaryNameChars(primaryNames) {
+  if (!primaryNames) return 0;
+  const candidates = primaryNames.mode === 'couple' ? [primaryNames.name1, primaryNames.name2]
+    : primaryNames.mode === 'subject' ? [primaryNames.line1, primaryNames.line2]
+    : primaryNames.mode === 'single' ? [primaryNames.name]
+    : [];
+  return Math.max(0, ...candidates.filter(Boolean).map((s) => s.length));
+}
+
 // Photo-crop treatment — used only by layouts that declare a photo slot
 // (split-photo, photo-editorial). 'hero' fills a wide banner (object-fit
 // cover, no stretching), 'portrait' a tall panel, 'circle' a round framed
@@ -96,7 +108,11 @@ export default function StaticInviteCard({ layoutModel, tokens }) {
   // biggest cause of clipped content. The motif still renders on its own
   // for every archetype/variant that has no photo, unchanged.
   const showMotif = !hasPhoto;
-  const nameFontSize = 32 - compaction * 2; // 32 (roomy) down to 22 (very tight)
+  // Length-based shrink is deterministic (character count), not relying
+  // on the browser to auto-fit — see longestPrimaryNameChars()'s comment.
+  const longestNameChars = slots.primaryNames ? longestPrimaryNameChars(slots.primaryNames) : (slots.headline?.length || 0);
+  const lengthPenalty = longestNameChars > 20 ? Math.min(10, Math.floor((longestNameChars - 20) * 0.45)) : 0;
+  const nameFontSize = Math.max(14, 32 - compaction * 2 - lengthPenalty); // 32 (roomy, short name) down to a 14px floor (very tight, very long name)
   const spacingScale = 1 - compaction * 0.08; // 1.0 down to 0.6
 
   const content = (
@@ -147,7 +163,7 @@ export default function StaticInviteCard({ layoutModel, tokens }) {
           <Text style={[s.name, { fontSize: nameFontSize, marginTop: 8 * spacingScale, color: c.ink, fontFamily: tokens.fonts.headline }]} numberOfLines={2} adjustsFontSizeToFit>{slots.primaryNames.name1}</Text>
           {slots.primaryNames.name2 ? (
             <>
-              <Text style={[s.connector, { color: c.accent, fontFamily: tokens.fonts.headline }]}>weds</Text>
+              <Text style={[s.connector, { color: c.accent, fontFamily: tokens.fonts.headline }]}>{slots.primaryNames.connector || 'weds'}</Text>
               <Text style={[s.name, { fontSize: nameFontSize, marginTop: 8 * spacingScale, color: c.ink, fontFamily: tokens.fonts.headline }]} numberOfLines={2} adjustsFontSizeToFit>{slots.primaryNames.name2}</Text>
             </>
           ) : null}

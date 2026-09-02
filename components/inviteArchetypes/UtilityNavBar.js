@@ -5,15 +5,23 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 // from the old hardcoded-array resolveUtilityNav() to this
 // lifecycle-priority-driven one as part of this wave's carry-forward
 // fix), not just the original 5-item wedding-shaped set.
+// Batch 3 fix: resolveUtilityNavFromScenes() emits each SCENE_ROLE's own
+// `id` (e.g. 'accommodation' for the Stay role, 'maps' for the Location
+// role — see sceneRegistry.js's own id-vs-implementedAs split), NOT the
+// working SCENE id resolveUtilityNav() used ('stay'). Found via
+// scripts/verifyProductionBatch3.js: 'accommodation' had no label/icon at
+// all, so a destination event's Stay item would have rendered blank.
+// Both keys are kept — 'stay' for resolveUtilityNav()'s older callers,
+// 'accommodation' for resolveUtilityNavFromScenes().
 const LABELS = {
-  invite: 'Invite', functions: 'Functions', travel: 'Travel', stay: 'Stay', rsvp: 'RSVP', more: 'More',
+  invite: 'Invite', functions: 'Functions', travel: 'Travel', stay: 'Stay', accommodation: 'Stay', rsvp: 'RSVP', more: 'More',
   maps: 'Location', 'guest-access': 'Gate', 'wishing-wall': 'Wishes', gifts: 'Gifts',
-  registration: 'Register', speakers: 'Speakers',
+  registration: 'Register', speakers: 'Speakers', transport: 'Transport', contact: 'Contact',
 };
 const ICONS = {
-  invite: '✦', functions: '📅', travel: '✈️', stay: '🏨', rsvp: '💌', more: '⋯',
+  invite: '✦', functions: '📅', travel: '✈️', stay: '🏨', accommodation: '🏨', rsvp: '💌', more: '⋯',
   maps: '📍', 'guest-access': '🎟️', 'wishing-wall': '💬', gifts: '🎁',
-  registration: '📝', speakers: '🎤',
+  registration: '📝', speakers: '🎤', transport: '🚌', contact: '✉️',
 };
 
 // Persistent utility nav — items come entirely from
