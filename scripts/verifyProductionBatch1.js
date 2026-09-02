@@ -83,7 +83,7 @@ assert('every new archetype\'s variants have a complete, valid token set', allTo
 console.log('\n── Variant/archetype resolution ──');
 assert('validateArchetypeRegistry() reports zero problems (no orphaned/mismatched variants)', validateArchetypeRegistry().length === 0);
 // Batch 2 added 5 more implemented archetypes on top of Batch 1's 10.
-assert('registry now has exactly 16 implemented archetypes', listArchetypes().length === 16); // Batch 3 added wellness-earth
+assert('registry now has exactly 17 implemented archetypes', listArchetypes().length === 17); // Batch 4 added cultural-poster
 let allVariantsResolve = true;
 for (const a of listArchetypes()) {
   for (const vId of a.variantIds) {

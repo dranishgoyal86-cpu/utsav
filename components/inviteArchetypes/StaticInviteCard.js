@@ -54,6 +54,12 @@ function computeCompaction(slots, hasPhoto) {
   const twoLineNames = (slots.primaryNames?.mode === 'couple' && !!slots.primaryNames.name2)
     || (slots.primaryNames?.mode === 'subject' && !!slots.primaryNames.line2);
   if (twoLineNames) score++;
+  // QA-pass fix: a headline-only title now renders up to 3 lines instead
+  // of 2 (see isHeadlineOnly below) — a long one needs the same extra
+  // spacing tightening a two-line name gets, especially stacked on top of
+  // a poster hero photo, so the mandatory footer never gets pushed past
+  // the card's clipped edge.
+  if (!slots.primaryNames && (slots.headline?.length || 0) > 40) score++;
   return Math.min(score, 5); // 0 (roomy) .. 5 (very tight)
 }
 
@@ -87,6 +93,7 @@ function PhotoSlot({ uri, style, shape = 'hero', compaction = 0 }) {
   const shapeStyle = shape === 'circle' ? s.photoCircle
     : shape === 'portrait' ? s.photoPortrait
     : shape === 'arch' ? s.photoArch
+    : shape === 'poster' ? s.photoPoster
     : s.photoHero;
   // The photo itself also shrinks a little further under heavy text load
   // (found alongside the same overflow this pass fixed via
@@ -110,9 +117,20 @@ export default function StaticInviteCard({ layoutModel, tokens }) {
   const showMotif = !hasPhoto;
   // Length-based shrink is deterministic (character count), not relying
   // on the browser to auto-fit — see longestPrimaryNameChars()'s comment.
+  // QA-pass fix: a public-event fixture with no couple/subject/single name
+  // (cultural-poster and any other headline-only layout, e.g. a concert's
+  // full programme title) falls into the HEADLINE branch below, which is a
+  // full sentence, not a short name — an 80+ char title blew straight
+  // through the old 10-point penalty cap (tuned for a ~37-char person's
+  // name) and got ellipsis-clipped mid-word past the card edge even after
+  // shrinking to the font floor. Headline-only titles get a taller penalty
+  // cap and their own 3-line budget (see numberOfLines below) instead of
+  // the 2-line budget names use.
+  const isHeadlineOnly = !slots.primaryNames && !!slots.headline;
   const longestNameChars = slots.primaryNames ? longestPrimaryNameChars(slots.primaryNames) : (slots.headline?.length || 0);
-  const lengthPenalty = longestNameChars > 20 ? Math.min(10, Math.floor((longestNameChars - 20) * 0.45)) : 0;
-  const nameFontSize = Math.max(14, 32 - compaction * 2 - lengthPenalty); // 32 (roomy, short name) down to a 14px floor (very tight, very long name)
+  const lengthPenaltyCap = isHeadlineOnly ? 16 : 10;
+  const lengthPenalty = longestNameChars > 20 ? Math.min(lengthPenaltyCap, Math.floor((longestNameChars - 20) * 0.45)) : 0;
+  const nameFontSize = Math.max(isHeadlineOnly ? 15 : 14, 32 - compaction * 2 - lengthPenalty); // 32 (roomy, short) down to a 14-15px floor (very tight, very long)
   const spacingScale = 1 - compaction * 0.08; // 1.0 down to 0.6
 
   const content = (
@@ -176,7 +194,7 @@ export default function StaticInviteCard({ layoutModel, tokens }) {
       ) : slots.primaryNames?.mode === 'single' ? (
         <Text style={[s.name, { fontSize: nameFontSize, marginTop: 8 * spacingScale, color: c.ink, fontFamily: tokens.fonts.headline }]} numberOfLines={2} adjustsFontSizeToFit>{slots.primaryNames.name}</Text>
       ) : slots.headline ? (
-        <Text style={[s.name, { fontSize: nameFontSize, marginTop: 8 * spacingScale, color: c.ink, fontFamily: tokens.fonts.headline }]} numberOfLines={2} adjustsFontSizeToFit>{slots.headline}</Text>
+        <Text style={[s.name, { fontSize: nameFontSize, marginTop: 8 * spacingScale, color: c.ink, fontFamily: tokens.fonts.headline }]} numberOfLines={3} adjustsFontSizeToFit>{slots.headline}</Text>
       ) : null}
 
       {slots.secondaryDetail ? (
@@ -224,6 +242,11 @@ const s = StyleSheet.create({
   // footer, and sometimes the couple's own names, past the card's clipped
   // bottom edge.
   photoHero: { width: 288, height: 110, borderRadius: 8 },
+  // Poster's hero image/artwork carries far more visual weight than any
+  // other layout's photo — closer to square than 'hero' so square
+  // exhibition artwork isn't cropped down to a thin band ("do not
+  // aggressively crop artwork in ways that destroy the work").
+  photoPoster: { width: 288, height: 170, borderRadius: 8 },
   photoPortrait: { width: 140, height: 150, borderRadius: 8 },
   photoCircle: { width: 100, height: 100, borderRadius: 50 },
   photoArch: { width: 160, height: 140, borderTopLeftRadius: 80, borderTopRightRadius: 80, borderBottomLeftRadius: 8, borderBottomRightRadius: 8 },

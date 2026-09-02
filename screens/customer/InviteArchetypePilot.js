@@ -27,6 +27,26 @@ import { resolveThemePackForPartyTheme, listThemePacks } from '../../lib/inviteD
 // registration is the more appropriate semantic action").
 const PROFESSIONAL_EVENT_SLUGS = ['corporate-conference', 'product-launch'];
 
+// Batch 4 — public events use Tickets/Registration instead of RSVP too
+// ("Avoid forcing RSVP across all public events"). A ticketed event with
+// neither ticket nor registration content simply shows no action at all
+// (a legitimate "Free Entry, just show up" state), rather than a
+// generic RSVP fallback that isn't the canonical action here.
+const TICKETED_EVENT_SLUGS = ['exhibition', 'concert', 'festival-fair', 'sports-event'];
+// Per-event-type "what matters most" for the nav bar — this is the
+// content-mapping-layer branching resolveUtilityNavFromScenes()'s own
+// header comment describes; the resolver itself stays a pure, generic
+// ranking function with zero per-slug knowledge.
+const NAV_BOOST_BY_EVENT_TYPE = {
+  concert: ['tickets'], 'festival-fair': ['tickets'], exhibition: ['registration'], 'sports-event': ['registration', 'tickets'],
+  'team-offsite': ['travel', 'accommodation'], 'wellness-retreat': ['functions', 'accommodation'],
+};
+// QA-pass fix — FamilyScene's default "WITH LOVE FROM" heading is right
+// for a wedding/family celebration but reads oddly on a corporate/public-
+// event organiser line ("WITH LOVE FROM TechCorp India"). Every event
+// type outside the family-celebration set uses the neutral label instead.
+const NON_FAMILY_TONE_EVENT_SLUGS = [...PROFESSIONAL_EVENT_SLUGS, ...TICKETED_EVENT_SLUGS, 'team-offsite', 'wellness-retreat'];
+
 // Batch 3 — anniversary's derived milestone label (host content always
 // wins; this is decorative wording only, never a fact this app invents —
 // the year count itself is always the host's own anniversaryYears value).
@@ -105,8 +125,49 @@ function buildStoryText(eventTypeSlug, values) {
     if (values.packingListNote) lines.push(`Pack: ${values.packingListNote}`);
     if (values.fitnessLevelNote) lines.push(`Fitness level: ${values.fitnessLevelNote}`);
     if (values.medicalNote) lines.push(values.medicalNote);
+  } else if (eventTypeSlug === 'exhibition') {
+    if (values.artistNamesNote) lines.push(values.artistNamesNote);
+    if (values.curatorName) lines.push(`Curated by ${values.curatorName}`);
+    if (values.galleryName) lines.push(values.galleryName);
+    if (values.openingHoursNote) lines.push(values.openingHoursNote);
+    if (values.closingDate) lines.push(`On view through ${values.closingDate}`);
+    if (values.chiefGuestName) lines.push(`Chief Guest: ${values.chiefGuestName}`);
+  } else if (eventTypeSlug === 'concert') {
+    if (values.artistNamesNote) lines.push(values.artistNamesNote);
+    if (values.doorsOpenTime) lines.push(`Doors open ${values.doorsOpenTime}`);
+    if (values.ageGuidance) lines.push(values.ageGuidance);
+    if (values.prohibitedItemsNote) lines.push(values.prohibitedItemsNote);
+    if (values.parkingNote) lines.push(values.parkingNote);
+  } else if (eventTypeSlug === 'festival-fair') {
+    if (values.tagline) lines.push(values.tagline);
+    if (values.featuredAttractionsNote) lines.push(values.featuredAttractionsNote);
+    if (values.openingHoursNote) lines.push(values.openingHoursNote);
+    if (values.closingDate) lines.push(`Through ${values.closingDate}`);
+    if (values.scheduleNote) lines.push(values.scheduleNote);
+    if (values.chiefGuestName) lines.push(`Chief Guest: ${values.chiefGuestName}`);
+    if (values.vendorStallInfoNote) lines.push(values.vendorStallInfoNote);
+    if (values.shuttleNote) lines.push(values.shuttleNote);
+    if (values.parkingNote) lines.push(values.parkingNote);
+    if (values.sponsorsNote) lines.push(`Sponsors: ${values.sponsorsNote}`);
+  } else if (eventTypeSlug === 'sports-event') {
+    if (values.tournamentType) lines.push(values.tournamentType);
+    if (values.categoryNote) lines.push(values.categoryNote);
+    if (values.reportingTime) lines.push(`Reporting time: ${values.reportingTime}`);
+    if (values.prizesNote) lines.push(`Prizes: ${values.prizesNote}`);
+    if (values.kitEquipmentNote) lines.push(`Kit/equipment: ${values.kitEquipmentNote}`);
+    if (values.parkingNote) lines.push(values.parkingNote);
+    if (values.sponsorsNote) lines.push(`Sponsors: ${values.sponsorsNote}`);
+    if (values.liveScoreUrl) lines.push(`Live score: ${values.liveScoreUrl}`);
   }
   return lines.join('  ·  ') || null;
+}
+
+// Batch 4 — sports-event's participationMode is free text ("Participant
+// event", "Spectator event", "Both", etc., per the schema's own
+// placeholder hint), not an enum — simple substring matching on whatever
+// the host actually typed, never a guess when the field is empty.
+function participationIncludes(participationMode, kind) {
+  return (participationMode || '').toLowerCase().includes(kind);
 }
 
 // Development-only pilot screen — proves the design-archetype architecture
@@ -235,9 +296,29 @@ export default function InviteArchetypePilot({ route, navigation }) {
     : null;
 
   const isProfessionalEvent = PROFESSIONAL_EVENT_SLUGS.includes(eventTypeSlug);
+  const isTicketedEvent = TICKETED_EVENT_SLUGS.includes(eventTypeSlug);
   // Batch 3 — wellness-retreat's bookingInfoNote is the same "Book/Register
   // instead of RSVP" semantic action as corporate/product's registrationInfo.
-  const registrationText = isProfessionalEvent ? values.registrationInfo : (eventTypeSlug === 'wellness-retreat' ? values.bookingInfoNote : null);
+  // Batch 4 — exhibition always Registers (no ticket fields exist on its
+  // schema); sports-event Registers only in a participant-facing mode
+  // (registrationInfo is meant for entrants, not spectators).
+  const registrationText = isProfessionalEvent ? values.registrationInfo
+    : eventTypeSlug === 'wellness-retreat' ? values.bookingInfoNote
+    : eventTypeSlug === 'exhibition' ? values.registrationInfo
+    : (eventTypeSlug === 'sports-event' && participationIncludes(values.participationMode, 'participant')) ? values.registrationInfo
+    : null;
+  // Ticket content — concert is the only schema with real ticket-URL/tier
+  // fields; festival-fair and sports-event (spectator mode) only ever
+  // have a plain entryFeeNote, which TicketCard shows gracefully with no
+  // button (including a simple "Free Entry" case). Never shown alongside
+  // Registration for the SAME audience — sports-event's "both" mode is
+  // the one case where both legitimately appear, for two different
+  // audiences (entrants vs. spectators), not a redundant duplicate.
+  const ticketUrl = eventTypeSlug === 'concert' ? (values.websiteOrTicketUrl || null) : null;
+  const tierNote = eventTypeSlug === 'concert' ? (values.ticketTiersNote || null) : null;
+  const entryNote = eventTypeSlug === 'festival-fair' ? values.entryFeeNote
+    : (eventTypeSlug === 'sports-event' && participationIncludes(values.participationMode, 'spectator')) ? values.entryFeeNote
+    : null;
   const storyText = buildStoryText(eventTypeSlug, values);
   const addressDetail = [values.houseName, values.towerBlock, values.landmark].filter(Boolean).join(', ') || null;
   const gatePassNote = [values.gateEntryNote, values.parkingNote].filter(Boolean).join('  ') || null;
@@ -246,7 +327,7 @@ export default function InviteArchetypePilot({ route, navigation }) {
     archetype,
     hasInvocationContent: !!values.invocationText,
     hasCoupleOrSubjectContent: !!(values.partner1Name || values.subjectNameLine1),
-    hasFamilyContent: !!(values.hostedBy || values.parentsNote || values.grandparentsNote || values.familySurname || values.fatherToBeNote || values.family1Note || values.family2Note),
+    hasFamilyContent: !!(values.hostedBy || values.organiserName || values.parentsNote || values.grandparentsNote || values.familySurname || values.fatherToBeNote || values.family1Note || values.family2Note),
     hasHonoureeContent: !!(values.childName || values.celebrantName || values.babyName || values.productName || values.facilitatorName),
     hasDressCodeContent: !!values.dressCode,
     hasStoryContent: !!storyText,
@@ -258,14 +339,15 @@ export default function InviteArchetypePilot({ route, navigation }) {
     wishingWallActive: false,
     hasRegistrationContent: !!registrationText,
     // No canonical structured speaker data source exists yet (only a
-    // free-text speakersNote field, folded into storyText above instead
-    // of being fabricated into fake individual speaker cards) — see the
-    // completion report. SpeakersScene stays built/wired and will
-    // activate the moment real structured data exists.
+    // free-text speakersNote/artistNamesNote field, folded into storyText
+    // above instead of being fabricated into fake individual speaker/
+    // artist cards) — see the completion report. SpeakersScene stays
+    // built/wired and will activate the moment real structured data exists.
     hasSpeakerContent: false,
-    hasRsvpContent: !isProfessionalEvent,
+    hasRsvpContent: !isProfessionalEvent && !isTicketedEvent,
     hasTransportContent: !!(values.meetingPoint || values.departureTime || values.returnTime),
     hasContactContent: !!values.contactInfo,
+    hasTicketContent: !!(ticketUrl || tierNote || entryNote),
   });
 
   // Carry-forward fix — switched from the old boolean/hardcoded-array
@@ -274,8 +356,12 @@ export default function InviteArchetypePilot({ route, navigation }) {
   // Scaling Foundation wave, never actually adopted by this screen until
   // now). This is what lets Gate/Location rank appropriately per event
   // instead of always defaulting to a fixed [Functions, Travel, Stay,
-  // RSVP] order that had no way to ever surface them.
-  const navItems = resolveUtilityNavFromScenes(scenes, { maxPrimary: 5 });
+  // RSVP] order that had no way to ever surface them. Batch 4 —
+  // boostedSceneIds lets each event type's own canonical action (Tickets
+  // for a concert, Register for an exhibition, ...) rank above the
+  // generic lifecycle table without a hardcoded per-slug array inside the
+  // resolver itself.
+  const navItems = resolveUtilityNavFromScenes(scenes, { maxPrimary: 5, boostedSceneIds: NAV_BOOST_BY_EVENT_TYPE[eventTypeSlug] || [] });
 
   const attribution = resolveBrandAttribution({ isNonFestive: nonFestive, surface: 'web' });
   const staticAttribution = resolveBrandAttribution({ isNonFestive: nonFestive, surface: 'static' });
@@ -424,7 +510,7 @@ export default function InviteArchetypePilot({ route, navigation }) {
                 // instead of a blank one (never leaked); mirrors
                 // lib/staticInviteLayout.js's identical fallback chain so
                 // static and web output never disagree.
-                kicker: values.kickerText || values.ceremonyName?.toUpperCase() || values.ceremonyType?.toUpperCase() || values.ceremonyCustomName?.toUpperCase() || values.religiousEventType?.toUpperCase() || 'YOU ARE INVITED',
+                kicker: values.kickerText || values.ceremonyName?.toUpperCase() || values.ceremonyType?.toUpperCase() || values.ceremonyCustomName?.toUpperCase() || values.religiousEventType?.toUpperCase() || values.sportName?.toUpperCase() || values.genreNote?.toUpperCase() || 'YOU ARE INVITED',
                 headline: values.headlineText
                   || (values.nameIsSecret === true ? 'Join us as we welcome and name our little one' : null)
                   || (values.productNameHidden === true ? (values.tagline || 'Something big is coming') : null)
@@ -433,8 +519,9 @@ export default function InviteArchetypePilot({ route, navigation }) {
                 invocationText: values.invocationText,
                 partner1Name: values.partner1Name, partner2Name: values.partner2Name,
                 couplePhotoUrl: heroPhotoUrl, coupleQuote: values.coupleQuote,
-                hostedBy: values.hostedBy, parentsNote: values.parentsNote, grandparentsNote: values.grandparentsNote, familySurname: values.familySurname,
+                hostedBy: values.hostedBy || values.organiserName, parentsNote: values.parentsNote, grandparentsNote: values.grandparentsNote, familySurname: values.familySurname,
                 fatherToBeNote: values.fatherToBeNote, family1Note: values.family1Note, family2Note: values.family2Note,
+                familyKickerLabel: NON_FAMILY_TONE_EVENT_SLUGS.includes(eventTypeSlug) ? 'HOSTED BY' : undefined,
                 // babyName/productName are already suppressed upstream by
                 // lib/inviteContentAdapter.js's applyConditionalSuppression
                 // whenever nameIsSecret/productNameHidden is true — safe
@@ -443,7 +530,11 @@ export default function InviteArchetypePilot({ route, navigation }) {
                 honoureeAgeLine: values.turningAge ? `Turning ${values.turningAge}` : null,
                 honoureePhotoUrl: heroPhotoUrl,
                 dressCode: values.dressCode,
-                functions, functionsTitle: isProfessionalEvent ? 'Agenda' : (['baby-shower', 'housewarming', 'naming-ceremony'].includes(eventTypeSlug) ? 'Programme' : undefined),
+                functions, functionsTitle: isProfessionalEvent ? 'Agenda'
+                  : eventTypeSlug === 'sports-event' ? 'Fixtures'
+                  : eventTypeSlug === 'concert' ? 'Schedule'
+                  : ['baby-shower', 'housewarming', 'naming-ceremony', 'exhibition', 'festival-fair', 'team-offsite', 'wellness-retreat'].includes(eventTypeSlug) ? 'Programme'
+                  : undefined,
                 storyText,
                 venue: event?.venue, addressDetail,
                 travelNote: hasTravelInfo ? 'Outstation guest details available — see Guest List.' : null,
@@ -454,8 +545,14 @@ export default function InviteArchetypePilot({ route, navigation }) {
                 onGatePassPress: () => navigation.navigate('GatePass', { eventId }),
                 speakers: [],
                 registrationNote: registrationText,
-                registrationUrl: values.websiteOrTicketUrl || null,
+                registrationUrl: isTicketedEvent ? null : (values.websiteOrTicketUrl || null),
                 onRegisterPress: registrationText ? () => showAlert('Registration', 'This preview does not submit a real registration.') : undefined,
+                entryNote, tierNote, ticketUrl,
+                // No button for an entry-note-only case (e.g. plain "Free
+                // entry" text) — there's genuinely nothing to tap; a
+                // button only appears when there's a real ticket URL or
+                // paid tiers implying an actual purchase flow exists.
+                onTicketPress: (ticketUrl || tierNote) ? () => showAlert('Tickets', 'This preview does not submit a real ticket purchase.') : undefined,
                 meetingPoint: values.meetingPoint, departureTime: values.departureTime, returnTime: values.returnTime,
                 contactInfo: values.contactInfo,
                 galleryPhotoCount: 0, wishes: [],

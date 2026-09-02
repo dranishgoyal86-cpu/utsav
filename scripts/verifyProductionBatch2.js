@@ -65,7 +65,7 @@ const NEW_VARIANT_IDS = ['festive-blessing', 'sacred-threshold', 'modern-home', 
 // ── 1-2: new archetypes/variants resolve; planned->implemented correct ─────
 console.log('\n── New archetypes/variants resolve, status correct ──');
 assert('validateArchetypeRegistry() reports zero problems', validateArchetypeRegistry().length === 0);
-assert('registry now has exactly 16 implemented archetypes', listArchetypes().length === 16); // Batch 3 added wellness-earth
+assert('registry now has exactly 17 implemented archetypes', listArchetypes().length === 17); // Batch 4 added cultural-poster
 for (const id of NEW_ARCHETYPE_IDS) {
   assert(`"${id}" archetype resolves and is a real object`, !!getArchetype(id));
   assert(`catalogue entry "${id}" is IMPLEMENTED with real variantIds`, getCatalogueEntry(id)?.status === ARCHETYPE_STATUS.IMPLEMENTED && getCatalogueEntry(id)?.variantIds?.length > 0);

@@ -59,7 +59,7 @@ const { resolveBrandAttribution } = loadEsmAsCjs(LIB('inviteBrandingPolicy.js'))
 // ── 1-2: wellness-earth implemented, new variant resolves ──────────────────
 console.log('\n── wellness-earth archetype/variant ──');
 assert('validateArchetypeRegistry() reports zero problems', validateArchetypeRegistry().length === 0);
-assert('registry has exactly 16 implemented archetypes', listArchetypes().length === 16);
+assert('registry has exactly 17 implemented archetypes', listArchetypes().length === 17); // Batch 4 added cultural-poster
 assert('wellness-earth catalogue entry is IMPLEMENTED with real variantIds', getCatalogueEntry('wellness-earth')?.status === ARCHETYPE_STATUS.IMPLEMENTED && getCatalogueEntry('wellness-earth')?.variantIds?.length > 0);
 const forestRetreat = getVariant('forest-retreat');
 assert('forest-retreat variant resolves and passes validateVariantShape()', !!forestRetreat && validateVariantShape(forestRetreat, forestRetreat?.archetypeId).length === 0);

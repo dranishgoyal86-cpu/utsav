@@ -75,9 +75,10 @@ assert('every catalogue entry has a valid implemented/planned status', listCatal
 // folk-celebration, temple-heritage, modern-indian, corporate-grid,
 // luxury-black — 15 implemented total, 3 still planned (cultural-poster,
 // stillness, wellness-earth).
-// Batch 3 moved wellness-earth planned->implemented: 16 implemented, 2 still planned (cultural-poster, stillness).
-assert('exactly 16 entries are implemented', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.IMPLEMENTED).length === 16);
-assert('exactly 2 entries are planned', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.PLANNED).length === 2);
+// Batch 4 moved cultural-poster planned->implemented: 17 implemented, only
+// 'stillness' remains planned.
+assert('exactly 17 entries are implemented', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.IMPLEMENTED).length === 17);
+assert('exactly 1 entry is planned', listCatalogueEntries().filter((e) => e.status === ARCHETYPE_STATUS.PLANNED).length === 1);
 
 let allShapesValid = true;
 for (const e of listCatalogueEntries()) {
@@ -95,12 +96,14 @@ assert('getSelectableArchetypes() never returns a planned entry', weddingSelecta
 // planned->implemented, so all 10 of hindu-wedding's strong-list
 // archetypes are now implemented.
 assert('getSelectableArchetypes() for hindu-wedding returns all 10 archetypes implemented for it', weddingSelectable.length === 10);
-// hindu-wedding itself has no planned catalogue entries left, so this
-// checks a slug that still mixes implemented + planned: team-offsite
-// (photo-editorial/modern-indian/botanical-romance/wellness-earth
-// implemented as of Batch 3, cultural-poster still planned).
-const offsitePlanning = getPlanningArchetypes({ eventTypeSlug: 'team-offsite', schema: getInviteSchema('team-offsite'), values: {}, isNonFestive: false });
-assert('getPlanningArchetypes() includes planned entries too (e.g. cultural-poster is NOT yet implemented but still shows for team-offsite)', offsitePlanning.some((r) => r.status === ARCHETYPE_STATUS.PLANNED));
+// Batch 4 moved cultural-poster (team-offsite's own last planned entry)
+// to implemented, so team-offsite no longer mixes implemented + planned.
+// 'stillness' is now the ONLY planned entry left, and only appears for
+// funeral-last-rites — reused here purely to exercise
+// getPlanningArchetypes()'s "includes planned too" behaviour, unrelated
+// to that slug's own solemn-safeguard tests elsewhere in this file.
+const funeralPlanning = getPlanningArchetypes({ eventTypeSlug: 'funeral-last-rites', schema: getInviteSchema('funeral-last-rites'), values: {}, isNonFestive: true });
+assert('getPlanningArchetypes() includes planned entries too (e.g. stillness is NOT yet implemented but still shows for funeral-last-rites)', funeralPlanning.some((r) => r.status === ARCHETYPE_STATUS.PLANNED));
 
 // ── 4: all 26 canonical event slugs have >=1 planned compatible archetype ─
 console.log('\n── Full event-type coverage ──');
@@ -194,7 +197,9 @@ assert('getSceneDefinitionForImplementedId bridges the working "stay" scene id t
 console.log('\n── Utility component registry ──');
 // Production Batch 2 moved registration-card/speaker-card
 // planned->implemented: 10 implemented + 5 planned = 15 total, same as before.
-assert('utility registry has 15 semantic IDs (10 implemented + 5 planned)', listUtilityDefinitions().length === 15);
+// Batch 4 moved ticket-card/schedule-card planned->implemented: 14
+// implemented + 1 planned (gift-card) = 15 total, same as before.
+assert('utility registry has 15 semantic IDs (14 implemented + 1 planned)', listUtilityDefinitions().length === 15);
 const utilityProblems = validateUtilityRegistry();
 if (utilityProblems.length) utilityProblems.forEach((p) => console.log('    -', p));
 assert('validateUtilityRegistry() reports zero problems', utilityProblems.length === 0);
@@ -205,13 +210,13 @@ assert('every planned utility has no componentPath yet (nothing to point at)', l
 console.log('\n── Theme tokens: implemented vs planned ──');
 const toranHeritageArchetype = getArchetype('toran-heritage');
 assert('an implemented archetype (toran-heritage) has real variantIds resolving to real tokens', toranHeritageArchetype.variantIds.length > 0);
-// temple-heritage was this suite's "still planned" example before
-// Production Batch 2 moved it to implemented — cultural-poster is now the
-// still-planned stand-in.
-const culturalPosterEntry = getCatalogueEntry('cultural-poster');
-assert('a planned archetype (cultural-poster) has no variantIds/staticLayoutFamilies yet — no production tokens/components required', culturalPosterEntry.variantIds === null && culturalPosterEntry.staticLayoutFamilies === null);
-assert('validateCatalogueEntryShape() does not fail a planned entry for missing variantIds', validateCatalogueEntryShape(culturalPosterEntry).length === 0);
-assert('temple-heritage (moved to implemented in Production Batch 2) now has real variantIds/staticLayoutFamilies', getCatalogueEntry('temple-heritage').variantIds?.length > 0 && getCatalogueEntry('temple-heritage').staticLayoutFamilies?.length > 0);
+// cultural-poster was this suite's "still planned" example before
+// Production Batch 4 moved it to implemented — 'stillness' is now the
+// ONLY remaining planned entry, and the stand-in here.
+const stillnessEntry = getCatalogueEntry('stillness');
+assert('a planned archetype (stillness) has no variantIds/staticLayoutFamilies yet — no production tokens/components required', stillnessEntry.variantIds === null && stillnessEntry.staticLayoutFamilies === null);
+assert('validateCatalogueEntryShape() does not fail a planned entry for missing variantIds', validateCatalogueEntryShape(stillnessEntry).length === 0);
+assert('cultural-poster (moved to implemented in Production Batch 4) now has real variantIds/staticLayoutFamilies', getCatalogueEntry('cultural-poster').variantIds?.length > 0 && getCatalogueEntry('cultural-poster').staticLayoutFamilies?.length > 0);
 
 // ── 18-19: static layout-family + PDF page-role references ───────────────
 console.log('\n── Static layout families + PDF page roles ──');

@@ -21,6 +21,7 @@ import WishingWallCard from './utility/WishingWallCard';
 import RegistrationCard from './utility/RegistrationCard';
 import TransportCard from './utility/TransportCard';
 import ContactCard from './utility/ContactCard';
+import TicketCard from './utility/TicketCard';
 import UtilityNavBar from './UtilityNavBar';
 
 // Top-level web/mobile invite preview — composes reusable scenes in the
@@ -56,7 +57,7 @@ export default function WebInvitePreview({ tokens, scenes = [], navItems = [], c
             case 'honouree':
               return <HonoureeScene key={sceneId} tokens={tokens} name={content.honoureeName} ageLine={content.honoureeAgeLine} photoUrl={content.honoureePhotoUrl} />;
             case 'family':
-              return <FamilyScene key={sceneId} tokens={tokens} hostedBy={content.hostedBy} parentsNote={content.parentsNote} grandparentsNote={content.grandparentsNote} familySurname={content.familySurname} fatherToBeNote={content.fatherToBeNote} family1Note={content.family1Note} family2Note={content.family2Note} />;
+              return <FamilyScene key={sceneId} tokens={tokens} hostedBy={content.hostedBy} parentsNote={content.parentsNote} grandparentsNote={content.grandparentsNote} familySurname={content.familySurname} fatherToBeNote={content.fatherToBeNote} family1Note={content.family1Note} family2Note={content.family2Note} kickerLabel={content.familyKickerLabel} />;
             case 'dress-code':
               return <DressCodeCard key={sceneId} tokens={tokens} dressCode={content.dressCode} />;
             case 'functions':
@@ -67,6 +68,8 @@ export default function WebInvitePreview({ tokens, scenes = [], navItems = [], c
               return <SpeakersScene key={sceneId} tokens={tokens} speakers={content.speakers} />;
             case 'registration':
               return <RegistrationCard key={sceneId} tokens={tokens} registrationNote={content.registrationNote} registrationUrl={content.registrationUrl} deadline={content.registrationDeadline} onPress={content.onRegisterPress} />;
+            case 'tickets':
+              return <TicketCard key={sceneId} tokens={tokens} entryNote={content.entryNote} tierNote={content.tierNote} ticketUrl={content.ticketUrl} onPress={content.onTicketPress} />;
             case 'venue':
               return <MapCard key={sceneId} tokens={tokens} venue={content.venue} addressDetail={content.addressDetail} />;
             case 'travel':
