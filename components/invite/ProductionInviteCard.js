@@ -6,6 +6,7 @@ import { parseProductionDesign, isValidArchetypeSelection } from '../../lib/invi
 import { buildPresentationContent } from '../../lib/invitePresentationModel';
 import { buildStaticLayoutModel } from '../../lib/staticInviteLayout';
 import { getVariant } from '../../lib/inviteDesignArchetypes';
+import { isNonFestive } from '../../lib/inviteSchemas';
 
 // Production Integration Wave — the ONE real rendering bridge between a
 // host's saved template_id (see lib/inviteProductionDesign.js's storage
@@ -41,7 +42,18 @@ export default function ProductionInviteCard({ templateId, eventTypeSlug, values
   }
 
   if (parsed.kind === 'archetype') {
-    if (!isValidArchetypeSelection(parsed.archetypeId, parsed.variantId)) return null;
+    // Launch-hardening: a corrupted/unknown archetype:<id>:<variant>
+    // string (should never happen via the app's own picker — this guards
+    // hand-edited DB rows, a future schema drift, or a variant that gets
+    // retired) must never render blank or crash. Fall back to the same
+    // safe legacy design every pre-archetype invite already uses — never
+    // silently rewrite the stored template_id just because a render
+    // encountered an unknown value.
+    if (!isValidArchetypeSelection(parsed.archetypeId, parsed.variantId)) {
+      const fallbackId = isNonFestive(eventTypeSlug) ? 'stillness' : 'toran';
+      if (fallbackId === 'stillness') return <StillnessCard {...mapToStillnessCardProps(values)} />;
+      return <ToranCoverCard {...mapToToranCoverCardProps(fallbackId, values, event)} />;
+    }
     const variant = getVariant(parsed.variantId);
     const presentation = buildPresentationContent({ eventTypeSlug, values, event, functions });
     const effectiveValues = { ...values, invocationText: presentation.invocationText };

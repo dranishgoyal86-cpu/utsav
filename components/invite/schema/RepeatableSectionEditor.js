@@ -1,4 +1,5 @@
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { reorderSection, removeSection, addSection } from '../../../lib/repeatableSectionLogic';
 
 // Batch 5 — the smallest generic editor for a FIELD_KIND.SECTIONS field
 // (lib/inviteSchemas/types.js). Before this, InviteFieldRenderer.js
@@ -21,18 +22,6 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-nativ
 // host-facing field — it's silently kept in sync with array position on
 // every change, so a consumer can rely on either the array order or the
 // stored sortOrder interchangeably.
-function newItem(sortOrder) {
-  return {
-    id: `sec_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    title: '', description: '', date: '', startTime: '', endTime: '', venue: '', personLabel: '',
-    sortOrder,
-  };
-}
-
-function withResyncedSortOrder(items) {
-  return items.map((item, i) => ({ ...item, sortOrder: i }));
-}
-
 export default function RepeatableSectionEditor({ theme, value, onChange, itemLabel = 'Section' }) {
   const s = makeStyles(theme);
   const items = Array.isArray(value) ? value : [];
@@ -42,17 +31,18 @@ export default function RepeatableSectionEditor({ theme, value, onChange, itemLa
     onChange(next);
   }
   function removeItem(index) {
-    onChange(withResyncedSortOrder(items.filter((_, i) => i !== index)));
+    onChange(removeSection(items, index));
   }
   function moveItem(index, direction) {
-    const target = index + direction;
-    if (target < 0 || target >= items.length) return;
-    const next = [...items];
-    [next[index], next[target]] = [next[target], next[index]];
-    onChange(withResyncedSortOrder(next));
+    // reorderSection() returns the same array reference as a no-op at the
+    // edges (guarded here too, matching the buttons' own disabled state,
+    // so an edge no-op never fires an onChange the way the old inline
+    // early-return version didn't either).
+    const next = reorderSection(items, index, direction);
+    if (next !== items) onChange(next);
   }
   function addItem() {
-    onChange([...items, newItem(items.length)]);
+    onChange(addSection(items));
   }
 
   return (

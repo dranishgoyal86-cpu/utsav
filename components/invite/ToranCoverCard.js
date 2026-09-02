@@ -5,6 +5,13 @@ import HairRule from './motifs/HairRule';
 import { KalamkariFrame } from './motifs/Bloom';
 import { Rangoli, DiyaRow } from './motifs/Diya';
 import { resolveTheme } from '../../lib/inviteThemes';
+import { fitNames } from '../../lib/toranNameFit';
+
+// Launch Verification & Hardening Pass — legacy long-name overflow fix.
+// See lib/toranNameFit.js for the deterministic word-fit/length-fit/
+// spacing-compaction logic itself and its full rationale (extracted there,
+// not defined inline, so it's directly unit-testable without needing a
+// full RN render — requiring react-native outside Metro throws).
 
 // Native equivalent of the marketing site's cover components — same
 // palettes (via inviteThemes, not re-hardcoded here), same text roles,
@@ -40,6 +47,7 @@ export default function ToranCoverCard({
   const theme = resolveTheme(design);
   const twoNames = !!(partner1Name && partner2Name);
   const singleName = partner1Name && !partner2Name ? partner1Name : !partner1Name ? eventName : null;
+  const nameList = twoNames ? [partner1Name, partner2Name] : [singleName];
   const isFunctionCard = !!functionName;
   const dateText = isFunctionCard
     ? [functionDate && formatDate(functionDate), functionTime].filter(Boolean).join(' · ')
@@ -74,6 +82,9 @@ export default function ToranCoverCard({
 
   if (theme.motif === 'minimal') {
     const kicker = kickerText || theme.kicker;
+    const ivoryFit = fitNames(nameList, 32);
+    const ivorySpacingScale = 1 - ivoryFit.compaction * 0.12;
+    const ivoryNameStyle = { fontSize: ivoryFit.fontSize, marginTop: 8 * ivorySpacingScale };
     return (
       <View style={[s.card, s.ivoryCard, { backgroundColor: theme.colors.bg }]}>
         <HairRule width={40} color={theme.colors.accent} />
@@ -81,12 +92,12 @@ export default function ToranCoverCard({
 
         {twoNames ? (
           <>
-            <Text style={[s.ivoryName, { color: theme.colors.ink }]}>{partner1Name}</Text>
+            <Text style={[s.ivoryName, ivoryNameStyle, { color: theme.colors.ink }]} numberOfLines={2}>{partner1Name}</Text>
             <Text style={[s.ivoryConnector, { color: theme.colors.ink }]}>{theme.connector}</Text>
-            <Text style={[s.ivoryName, { color: theme.colors.ink }]}>{partner2Name}</Text>
+            <Text style={[s.ivoryName, ivoryNameStyle, { color: theme.colors.ink }]} numberOfLines={2}>{partner2Name}</Text>
           </>
         ) : (
-          <Text style={[s.ivoryName, { color: theme.colors.ink }]}>{singleName}</Text>
+          <Text style={[s.ivoryName, ivoryNameStyle, { color: theme.colors.ink }]} numberOfLines={2}>{singleName}</Text>
         )}
 
         {/* Wave 11 — which function this card is for, when in per-function
@@ -95,7 +106,7 @@ export default function ToranCoverCard({
           <Text style={[s.ivoryFunctionName, { color: theme.colors.accent }]}>{functionName.toUpperCase()}</Text>
         ) : null}
 
-        <View style={s.ivoryDividerWrap}>
+        <View style={[s.ivoryDividerWrap, { marginTop: 22 * ivorySpacingScale, marginBottom: 14 * ivorySpacingScale }]}>
           <HairRule width={288} color={theme.colors.line} />
         </View>
 
@@ -108,6 +119,10 @@ export default function ToranCoverCard({
       </View>
     );
   }
+
+  const nameFit = fitNames(nameList, 34);
+  const spacingScale = 1 - nameFit.compaction * 0.12;
+  const nameStyle = { fontSize: nameFit.fontSize, marginTop: 10 * spacingScale };
 
   const content = (
     <>
@@ -139,12 +154,12 @@ export default function ToranCoverCard({
 
       {twoNames ? (
         <>
-          <Text style={[s.name, { color: theme.colors.ink }]}>{partner1Name}</Text>
+          <Text style={[s.name, nameStyle, { color: theme.colors.ink }]} numberOfLines={2}>{partner1Name}</Text>
           <Text style={[s.connector, { color: theme.colors.accent }]}>{theme.connector}</Text>
-          <Text style={[s.name, { color: theme.colors.ink }]}>{partner2Name}</Text>
+          <Text style={[s.name, nameStyle, { color: theme.colors.ink }]} numberOfLines={2}>{partner2Name}</Text>
         </>
       ) : (
-        <Text style={[s.name, { color: theme.colors.ink }]}>{singleName}</Text>
+        <Text style={[s.name, nameStyle, { color: theme.colors.ink }]} numberOfLines={2}>{singleName}</Text>
       )}
 
       {/* Wave 11 — which function this card is for, when in per-function
@@ -154,7 +169,7 @@ export default function ToranCoverCard({
         <Text style={[s.functionNameTag, { color: theme.colors.accent }]}>{functionName.toUpperCase()}</Text>
       ) : null}
 
-      <View style={s.hairlineWrap}>
+      <View style={[s.hairlineWrap, { marginTop: 18 * spacingScale, marginBottom: 12 * spacingScale }]}>
         <HairRule width={140} color={theme.colors.line} />
       </View>
 
@@ -162,7 +177,7 @@ export default function ToranCoverCard({
       {venue ? <Text style={[s.venue, { color: theme.colors.dim }]}>{venue}</Text> : null}
 
       {theme.motif !== 'bloom' && (
-        <View style={s.bottomArchWrap}>
+        <View style={[s.bottomArchWrap, { marginBottom: 20 * spacingScale }]}>
           <HairRule width={320} color={theme.colors.line} curve />
         </View>
       )}
