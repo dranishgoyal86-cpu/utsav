@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Modal, TextInput, Linking, KeyboardAvoidingView, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PencilSimple } from 'phosphor-react-native';
@@ -56,7 +56,22 @@ export default function PlanView({ route, navigation }) {
   const s = makeStyles(theme);
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
-  const { resolved, estimates, progress, allocation, event, venue, resolvedByFunction, itemHandledByName, extraActivities, loading, error, refresh } = useEventPlan(eventId);
+  const { resolved, estimates, progress, allocation, event: rawEvent, venue, resolvedByFunction, itemHandledByName, extraActivities, loading, error, refresh } = useEventPlan(eventId);
+
+  // Sept 2026 UX pass — "the other options in the plan are too slow when
+  // clicked ... sometimes presses it twice". saveField() below writes to
+  // Supabase and then calls refresh(), which re-runs useEventPlan's whole
+  // resolution pass (requirements/estimates/budget allocation, not just a
+  // re-fetch of the events row) — real work, so on a mid/low-end phone
+  // there's a visible gap between tapping a chip and it actually looking
+  // selected, which reads as "nothing happened" and invites a second tap.
+  // pendingPatch is an optimistic overlay: the instant a save starts, its
+  // patch is merged into what every SlotField renders, so the tapped chip
+  // highlights immediately instead of waiting for the round trip. It's
+  // cleared once refresh() resolves, at which point the real event object
+  // is authoritative again (whether the save succeeded or not).
+  const [pendingPatch, setPendingPatch] = useState({});
+  const event = useMemo(() => (rawEvent ? { ...rawEvent, ...pendingPatch } : rawEvent), [rawEvent, pendingPatch]);
 
   // Activity Ideas Library (Piece 3) — the library component itself is
   // purely presentational (same split as SlotField's onSave), so the actual
@@ -188,6 +203,10 @@ export default function PlanView({ route, navigation }) {
   }, [progress.p1Handled, progress.p1Total]);
 
   async function saveField(patch) {
+    // Optimistic UI first (see pendingPatch comment above) — every
+    // SlotField reading `event` sees the new value immediately, before the
+    // network round trip even starts.
+    setPendingPatch(prev => ({ ...prev, ...patch }));
     setSaving(true);
     try {
       const { error: err } = await supabase.from('events').update(patch).eq('id', eventId);
@@ -209,6 +228,11 @@ export default function PlanView({ route, navigation }) {
       showAlert('Error', err.message);
     } finally {
       setSaving(false);
+      // Whether the save succeeded or failed, refresh() has now put the
+      // authoritative row into rawEvent — drop the overlay so it can't go
+      // stale (e.g. a failed save silently continuing to show the tapped
+      // value as if it had saved).
+      setPendingPatch({});
     }
   }
 

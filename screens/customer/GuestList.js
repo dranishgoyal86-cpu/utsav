@@ -53,7 +53,7 @@ const FUNCTION_DESIGN_OPTIONS = [
 import { callEdgeFunction, renameEvent, showAlert, confirmDestructive, confirmAction, deleteEventCascade, toWhatsappNumber, resolveGuestPartySize, getSignedGuestDocumentUrl } from '../../helpers';
 import { buildHotelGuestListText, buildHotelGuestListPdfHtml } from '../../hotelGuestListTemplate';
 import AppHeader from '../../components/AppHeader';
-import { resolveVenue, resolveDietary, formatTimeLabel } from '../../lib/eventContext';
+import { resolveVenue, resolveDietary, formatTimeLabel, formatTimeRangeLabel } from '../../lib/eventContext';
 import { PUBLIC_WEB_URL } from '../../config';
 import { useCapabilities } from '../../hooks/useCapabilities';
 import { isEnabled } from '../../lib/capabilities';
@@ -583,7 +583,7 @@ export default function GuestList({ route, navigation }) {
   useEffect(() => {
     if (!event?.id) return;
     supabase.from('events')
-      .select('venue_type, venue_id, venue, is_dry_event, is_veg_only, dietary_profile, event_type_slug, guest_count, child_age, budget_total, event_date, event_time, rsvp_deadline')
+      .select('venue_type, venue_id, venue, is_dry_event, is_veg_only, dietary_profile, event_type_slug, guest_count, child_age, budget_total, event_date, event_time, event_duration_hours, rsvp_deadline')
       .eq('id', event.id).maybeSingle()
       .then(({ data }) => {
         if (!data) return;
@@ -1030,7 +1030,7 @@ export default function GuestList({ route, navigation }) {
       dateLabel: capFields.event_date
         ? new Date(capFields.event_date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
         : '',
-      timeLabel: formatTimeLabel(capFields.event_time) || '',
+      timeLabel: formatTimeRangeLabel(capFields.event_time, capFields.event_duration_hours) || '',
       // No host-facing UI sets rsvp_deadline anywhere in this app yet, so
       // it's always null in practice — default to 5 days before the event
       // instead of leaving the invite's RSVP-by field permanently blank.

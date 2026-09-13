@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform, useWindowDimensions } from 'react-native';
 import { useTheme } from '../ThemeContext';
 import CalendarPicker from './CalendarPicker';
 import SuggestionChips from './SuggestionChips';
@@ -7,7 +7,13 @@ import { useInputHistory } from '../hooks/useInputHistory';
 import { getSubTypeOptions } from '../lib/eventSubTypes';
 import { getThemeOptions } from '../lib/eventThemes';
 import { CITY_GROUPS } from '../planLogic';
-import { isHomeVenueType, formatTimeLabel } from '../lib/eventContext';
+import { isHomeVenueType, formatTimeLabel, formatTimeRangeLabel } from '../lib/eventContext';
+
+// Same convention already used by CalendarPicker.js/GuestList.js/
+// ProviderERP.js for their own desktop-specific sizing — kept identical
+// (768) so a screen never straddles two different breakpoints depending on
+// which component happens to be rendering.
+const DESKTOP_BREAKPOINT = 768;
 
 const VENUE_TYPE_OPTIONS = [
   { value: 'home', label: '🏠 At home' },
@@ -100,7 +106,7 @@ export function slotDisplayValue(slotKey, event, venue) {
         ? new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
         : null;
     case 'event_time':
-      return formatTimeLabel(event.event_time);
+      return formatTimeRangeLabel(event.event_time, event.event_duration_hours);
     case 'city':
       return event.city || null;
     case 'venue_type': {
@@ -171,11 +177,35 @@ function SubTypeField({ event, onSave, theme, s }) {
   );
 }
 
+// Sept 2026 UX pass — "calendar should be collapsible": starts collapsed
+// whenever a date is already set (nothing to fix, no reason to take up
+// space), and open the first time there's no date yet, same "only show the
+// full control when there's a real decision left to make" idea as
+// ThemeField's grid/palette/other modes above. Re-collapses itself right
+// after a date is picked, since at that point the summary line already
+// shows the answer and staying open just means an extra tap to get past it
+// next time this section scrolls into view.
 function EventDateField({ event, onSave, theme, s }) {
+  const [open, setOpen] = useState(!event.event_date);
+  const dateLabel = event.event_date
+    ? new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
+
   return (
     <View>
       <Text style={s.label}>When is it?</Text>
-      <CalendarPicker value={event.event_date} onChange={dateStr => onSave({ event_date: dateStr })} />
+      <TouchableOpacity style={s.dateSummaryBtn} onPress={() => setOpen(o => !o)} activeOpacity={0.7}>
+        <Text style={s.dateSummaryText}>📅 {dateLabel || 'Choose a date'}</Text>
+        <Text style={s.dateSummaryCaret}>{open ? 'Hide ▲' : 'Change ▼'}</Text>
+      </TouchableOpacity>
+      {open && (
+        <View style={{ marginTop: 12 }}>
+          <CalendarPicker
+            value={event.event_date}
+            onChange={dateStr => { onSave({ event_date: dateStr }); setOpen(false); }}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -192,27 +222,43 @@ const QUICK_TIME_PRESETS = [
   { label: 'Evening · 6:00 PM', value: '18:00' },
   { label: 'Night · 8:00 PM', value: '20:00' },
 ];
-const HOUR_OPTIONS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-const MINUTE_OPTIONS = ['00', '15', '30', '45'];
 
-// No @react-native-community/datetimepicker anywhere in this project (same
-// constraint the date picker already works around) — three short horizontal
-// chip rows (hour / minute / AM-PM) instead of a native wheel, plus one-tap
-// common-time presets above them for the typical case.
-function EventTimeField({ event, onSave, theme, s }) {
-  const [hh, mm] = (event.event_time || '').split(':');
-  const parsedHour = parseInt(hh, 10);
-  const selectedHour24 = Number.isInteger(parsedHour) ? parsedHour : null;
-  const selectedHour12 = selectedHour24 == null ? null : (selectedHour24 % 12 === 0 ? 12 : selectedHour24 % 12);
-  const selectedPeriod = selectedHour24 == null ? null : (selectedHour24 >= 12 ? 'PM' : 'AM');
-  const selectedMinute = mm || null;
-
-  function commit(hour12, minute, period) {
-    if (hour12 == null || !minute || !period) return;
-    let hour24 = hour12 % 12;
-    if (period === 'PM') hour24 += 12;
-    onSave({ event_time: `${String(hour24).padStart(2, '0')}:${minute}` });
+// Sept 2026 UX pass — "time is too complex, make it easy to just put time
+// of event": the old control was three stacked chip rows (12 hour chips +
+// 4 minute chips + 2 AM/PM chips = 18 taps' worth of options just to see),
+// on top of the quick presets above it. Replaced with one horizontal row
+// of real clock times in 30-minute steps, 6:00 AM through 11:30 PM — a
+// single tap sets the exact time, same as the quick presets already did,
+// just covering the rest of the day too instead of a second whole
+// interaction pattern next to them.
+function buildTimeSlots() {
+  const slots = [];
+  for (let h = 6; h <= 23; h++) {
+    for (const m of ['00', '30']) {
+      slots.push(`${String(h).padStart(2, '0')}:${m}`);
+    }
   }
+  return slots;
+}
+const TIME_SLOTS = buildTimeSlots();
+
+// "timings/duration of event should also be confirmed in the plan only, to
+// be intimated to guests through invites" — event_duration_hours (new
+// column) is optional, and once set, lib/eventContext.js's
+// formatTimeRangeLabel turns it + the start time into the "6:00 PM –
+// 9:00 PM" guests actually see on their invite, so there's nowhere else in
+// the app a host has to re-enter or re-confirm this.
+const DURATION_OPTIONS = [
+  { label: '1 hr', value: 1 },
+  { label: '2 hrs', value: 2 },
+  { label: '3 hrs', value: 3 },
+  { label: '4 hrs', value: 4 },
+  { label: '5+ hrs', value: 5 },
+];
+
+function EventTimeField({ event, onSave, theme, s }) {
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
 
   return (
     <View>
@@ -229,55 +275,68 @@ function EventTimeField({ event, onSave, theme, s }) {
         ))}
       </View>
 
-      <Text style={[s.label, { marginTop: 14, fontSize: 12 }]}>Or pick exactly</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+      <Text style={[s.label, { marginTop: 14, fontSize: 12 }]}>Or pick the exact time</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.timeSlotScroll, isDesktopWeb && { maxWidth: 420 }]}>
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          {HOUR_OPTIONS.map(h => (
+          {TIME_SLOTS.map(slot => (
             <TouchableOpacity
-              key={h}
-              style={[s.chip, selectedHour12 === h && s.chipActive]}
-              onPress={() => commit(h, selectedMinute || '00', selectedPeriod || 'AM')}
+              key={slot}
+              style={[s.chip, event.event_time === slot && s.chipActive]}
+              onPress={() => onSave({ event_time: slot })}
             >
-              <Text style={[s.chipText, selectedHour12 === h && s.chipTextActive]}>{h}</Text>
+              <Text style={[s.chipText, event.event_time === slot && s.chipTextActive]}>{formatTimeLabel(slot)}</Text>
             </TouchableOpacity>
           ))}
         </View>
       </ScrollView>
-      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-        {MINUTE_OPTIONS.map(m => (
+
+      <Text style={[s.label, { marginTop: 14, fontSize: 12 }]}>How long does it run? (optional — this is what guests see on the invite)</Text>
+      <View style={s.chipsWrap}>
+        {DURATION_OPTIONS.map(opt => (
           <TouchableOpacity
-            key={m}
-            style={[s.chip, selectedMinute === m && s.chipActive]}
-            onPress={() => commit(selectedHour12 || 12, m, selectedPeriod || 'AM')}
+            key={opt.value}
+            style={[s.chip, event.event_duration_hours === opt.value && s.chipActive]}
+            onPress={() => onSave({ event_duration_hours: opt.value })}
           >
-            <Text style={[s.chipText, selectedMinute === m && s.chipTextActive]}>:{m}</Text>
+            <Text style={[s.chipText, event.event_duration_hours === opt.value && s.chipTextActive]}>{opt.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        {['AM', 'PM'].map(p => (
-          <TouchableOpacity
-            key={p}
-            style={[s.chip, selectedPeriod === p && s.chipActive]}
-            onPress={() => commit(selectedHour12 || 12, selectedMinute || '00', p)}
-          >
-            <Text style={[s.chipText, selectedPeriod === p && s.chipTextActive]}>{p}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {event.event_time && (
+        <Text style={[s.chipText, { color: theme.textSecondary, fontWeight: '500', marginTop: 10, fontSize: 12.5 }]}>
+          Guests will see: {formatTimeRangeLabel(event.event_time, event.event_duration_hours)}
+        </Text>
+      )}
     </View>
   );
 }
 
+// Sept 2026 UX pass — "which city should also have an option to add any
+// city possible": CITY_GROUPS (planLogic.js) is a fixed shortlist of the
+// cities this app actively markets in, which is fine as a fast path but
+// was previously the only path — a host planning an event anywhere else
+// had no way to answer this slot at all. The free-text row below is always
+// visible (not hidden behind "Other"), and takes over as the shown value
+// whenever event.city isn't one of the listed cities, so a typed city
+// reads back correctly next time this field renders.
 function CityField({ event, onSave, theme, s }) {
   // cityGroup is UI-only scaffolding (which chip row to show), same as the
   // old EventPlanner.js form — only the resolved city itself is persisted.
   const [cityGroup, setCityGroup] = useState(CITY_GROUPS.find(g => g.cities.includes(event.city))?.id || '');
   const activeGroup = CITY_GROUPS.find(g => g.id === cityGroup);
+  const isListedCity = CITY_GROUPS.some(g => g.cities.includes(event.city));
+  const [customCity, setCustomCity] = useState(!isListedCity ? (event.city || '') : '');
 
   function selectGroup(group) {
     setCityGroup(group.id);
+    setCustomCity('');
     if (group.cities.length === 1) onSave({ city: group.cities[0] });
+  }
+
+  function saveCustomCity() {
+    if (!customCity.trim()) return;
+    setCityGroup('');
+    onSave({ city: customCity.trim() });
   }
 
   return (
@@ -307,6 +366,17 @@ function CityField({ event, onSave, theme, s }) {
           ))}
         </View>
       )}
+
+      <Text style={[s.label, { marginTop: 14, fontSize: 12 }]}>Don't see your city? Type it in</Text>
+      <TextInput
+        style={s.input}
+        placeholder="e.g. Bhopal, Kochi, Dehradun…"
+        placeholderTextColor={theme.textTertiary}
+        value={customCity}
+        onChangeText={setCustomCity}
+        onBlur={saveCustomCity}
+        onSubmitEditing={saveCustomCity}
+      />
     </View>
   );
 }
@@ -601,5 +671,13 @@ function makeStyles(theme) {
     input: { backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 13, fontSize: 14, color: theme.text },
     primaryBtn: { backgroundColor: theme.btnPrimary, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
     primaryBtnText: { color: theme.btnPrimaryText, fontSize: 14, fontWeight: '700' },
+    dateSummaryBtn: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border,
+      paddingHorizontal: 14, paddingVertical: 13,
+    },
+    dateSummaryText: { fontSize: 14, fontWeight: '700', color: theme.text },
+    dateSummaryCaret: { fontSize: 12.5, fontWeight: '600', color: theme.textSecondary },
+    timeSlotScroll: { marginBottom: 8 },
   });
 }
