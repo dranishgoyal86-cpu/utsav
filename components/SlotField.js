@@ -115,8 +115,10 @@ export function slotDisplayValue(slotKey, event, venue) {
       return venue?.name || (event.venue_id ? 'Venue selected' : null);
     case 'guest_count':
       return event.guest_count != null ? `${event.guest_count} guests` : null;
-    case 'theme':
-      return event.theme || null;
+    case 'theme': {
+      if (!event.theme) return null;
+      return event.theme_palette ? `${event.theme} · ${event.theme_palette}` : event.theme;
+    }
     case 'dietary_restrictions': {
       const parts = [];
       if (event.is_dry_event) parts.push('Dry event');
@@ -327,6 +329,19 @@ function DryVegField({ event, onSave, theme, s }) {
           <Text style={[s.chipText, event.is_veg_only && s.chipTextActive]}>🥦 Vegetarian only</Text>
         </TouchableOpacity>
       </View>
+      {/* is_veg_only is read everywhere food preference matters — RSVPScreen.js
+          (guest food-pref options), GuestDetailModal.js (host meal-preference
+          editor), submit-rsvp's edge function (server-side clamp), and
+          ItemDetail.js (hides pure non-veg caterers from the marketplace
+          results for this event's checklist). This stays a plain toggle —
+          switching it back off immediately un-restricts all of those again —
+          the hint just makes the downstream effect visible at the point
+          where it's turned on. */}
+      {event.is_veg_only && (
+        <Text style={[s.chipText, { color: theme.textSecondary, fontWeight: '500', marginTop: 10, fontSize: 12.5, lineHeight: 17 }]}>
+          Guests won't be able to pick non-veg on RSVP, and caterers who only serve non-veg won't show up when you search for catering for this event.
+        </Text>
+      )}
     </View>
   );
 }
@@ -445,21 +460,97 @@ function GuestCountField({ event, onSave, theme, s }) {
   );
 }
 
+// Three-screen flow, all inline (no navigation): theme grid → color palette
+// for whichever theme was picked → an "Other" free-text screen for a
+// host's own custom name (including any branded name they want privately —
+// see lib/eventThemes.js's file header for why the app's own list only ever
+// offers generic names). `mode` is local UI state only; the actual answer
+// lives in event.theme/theme_slug/theme_palette, which is why it's seeded
+// from those on mount rather than always starting at 'grid'.
 function ThemeField({ event, onSave, theme, s }) {
   const options = getThemeOptions(event.event_type_slug);
+  const selectedOption = options.find(o => o.slug === event.theme_slug);
+  const [mode, setMode] = useState(selectedOption ? 'palette' : (event.theme ? 'other' : 'grid'));
+  const [customText, setCustomText] = useState(event.theme_slug ? '' : (event.theme || ''));
+
+  function pickTheme(opt) {
+    onSave({ theme: opt.label, theme_slug: opt.slug, theme_palette: null });
+    setMode('palette');
+  }
+
+  function saveCustom() {
+    if (!customText.trim()) return;
+    onSave({ theme: customText.trim(), theme_slug: null, theme_palette: null });
+  }
+
+  if (mode === 'palette' && selectedOption) {
+    return (
+      <View>
+        <TouchableOpacity onPress={() => setMode('grid')} style={{ marginBottom: 10 }}>
+          <Text style={[s.chipText, { color: theme.textSecondary }]}>‹ Change theme</Text>
+        </TouchableOpacity>
+        <Text style={s.label}>{selectedOption.emoji} {selectedOption.label}</Text>
+        {selectedOption.motifs?.length > 0 && (
+          <Text style={[s.chipText, { color: theme.textSecondary, fontWeight: '500', marginBottom: 12, fontSize: 12.5 }]}>
+            Ideas: {selectedOption.motifs.join(', ')}
+          </Text>
+        )}
+        <Text style={[s.label, { fontSize: 13 }]}>Pick a color palette</Text>
+        <View style={s.chipsWrap}>
+          {selectedOption.palettes.map(p => (
+            <TouchableOpacity
+              key={p.name}
+              style={[s.chip, event.theme_palette === p.name && s.chipActive, { flexDirection: 'row', alignItems: 'center', gap: 8 }]}
+              onPress={() => onSave({ theme_palette: p.name })}
+            >
+              <View style={{ flexDirection: 'row' }}>
+                {p.colors.map((c, i) => (
+                  <View key={i} style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: c, marginLeft: i > 0 ? -4 : 0, borderWidth: 1, borderColor: theme.bg }} />
+                ))}
+              </View>
+              <Text style={[s.chipText, event.theme_palette === p.name && s.chipTextActive]}>{p.name}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    );
+  }
+
+  if (mode === 'other') {
+    return (
+      <View>
+        <TouchableOpacity onPress={() => setMode('grid')} style={{ marginBottom: 10 }}>
+          <Text style={[s.chipText, { color: theme.textSecondary }]}>‹ Choose from list instead</Text>
+        </TouchableOpacity>
+        <Text style={s.label}>Your own theme</Text>
+        <TextInput
+          style={s.input}
+          placeholder="e.g. Wizarding World, Frozen, Cricket Stars"
+          placeholderTextColor={theme.textTertiary}
+          value={customText}
+          onChangeText={setCustomText}
+          onBlur={saveCustom}
+        />
+      </View>
+    );
+  }
+
   return (
     <View>
       <Text style={s.label}>Pick a theme</Text>
       <View style={s.chipsWrap}>
         {options.map(opt => (
           <TouchableOpacity
-            key={opt}
-            style={[s.chip, event.theme === opt && s.chipActive]}
-            onPress={() => onSave({ theme: opt })}
+            key={opt.slug}
+            style={[s.chip, event.theme_slug === opt.slug && s.chipActive]}
+            onPress={() => pickTheme(opt)}
           >
-            <Text style={[s.chipText, event.theme === opt && s.chipTextActive]}>{opt}</Text>
+            <Text style={[s.chipText, event.theme_slug === opt.slug && s.chipTextActive]}>{opt.emoji} {opt.label}</Text>
           </TouchableOpacity>
         ))}
+        <TouchableOpacity style={s.chip} onPress={() => setMode('other')}>
+          <Text style={s.chipText}>✏️ Other (type your own)</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );

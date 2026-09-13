@@ -53,9 +53,12 @@ export default function ItemDetail({ route, navigation }) {
       // not the service (confirmed against the live schema — services has
       // no city column at all), so the city filter has to happen on the
       // providers query below, not here.
+      // package_details is pulled too — needed below for the vegetarian-only
+      // caterer filter (mealType lives in there, see serviceTemplates.js's
+      // CATERERS_FIELDS).
       const { data: activeServices, error: servicesError } = await supabase
         .from('services')
-        .select('id, provider_id, category')
+        .select('id, provider_id, category, package_details')
         .eq('is_active', true);
       if (servicesError) throw servicesError;
 
@@ -68,9 +71,29 @@ export default function ItemDetail({ route, navigation }) {
       const { data: { session } } = await supabase.auth.getSession();
       const avoidProviderIds = session ? await getAvoidProviderIds(session.user.id) : [];
 
+      // Vegetarian-only events (events.is_veg_only) hide caterers whose
+      // "Meal type" package field is set to exactly "Non-veg available" —
+      // a caterer who serves "Both available" still shows (they can run an
+      // all-veg menu for this event), and any service outside "Food &
+      // Beverages > Caterers" (Bartending Services, Mocktail Bars, etc.)
+      // is untouched — is_veg_only is a food restriction only, it doesn't
+      // imply a dry event (that's the separate is_dry_event toggle).
+      const isCaterersCategory = categorySlug === 'Food & Beverages > Caterers';
+      // Dry events (events.is_dry_event) mirror this for alcohol instead of
+      // food: Bartending Services is the one Food & Beverages subcategory
+      // that's inherently alcohol (Mocktail Bars is explicitly non-alcoholic
+      // and stays untouched), so a dry event drops the whole category rather
+      // than filtering individual services within it. This is a defense-in-
+      // depth check alongside lib/eventResolver.js's suppressed_when_dry
+      // requirement flag, which already keeps a dry event's checklist from
+      // surfacing a "Bar Service" item in the first place — this covers
+      // anyone who still lands here directly (e.g. via Search/CategoryList).
+      const isBartendingCategory = categorySlug === 'Food & Beverages > Bartending Services';
       const matchingProviderIds = [...new Set(
         (activeServices || [])
           .filter(sv => resolveMatchKey(sv.category) === categorySlug)
+          .filter(() => !(isBartendingCategory && eventData.is_dry_event))
+          .filter(sv => !(isCaterersCategory && eventData.is_veg_only && sv.package_details?.mealType === 'Non-veg available'))
           .map(sv => sv.provider_id)
           .filter(Boolean)
       )].filter(id => !avoidProviderIds.includes(id));

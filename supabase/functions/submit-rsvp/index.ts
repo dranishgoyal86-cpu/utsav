@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
     // leaves this function.
     const { data: event, error: eventError } = await supabaseAdmin
       .from("events")
-      .select("id, name, event_date, event_time, venue, event_type_slug, host_id")
+      .select("id, name, event_date, event_time, venue, event_type_slug, host_id, is_veg_only")
       .eq("invite_code", String(invite_code).toUpperCase())
       .maybeSingle();
 
@@ -161,7 +161,7 @@ Deno.serve(async (req) => {
       return json({
         event: {
           id: event.id, name: event.name, event_date: event.event_date, event_time: event.event_time,
-          venue: event.venue, event_type_slug: event.event_type_slug,
+          venue: event.venue, event_type_slug: event.event_type_slug, is_veg_only: !!event.is_veg_only,
           defaultPlusOneLimit: plusOneLimit, invitee, accompanying,
         },
       });
@@ -177,7 +177,15 @@ Deno.serve(async (req) => {
       const accompanying = Math.max(0, Math.min(50, parseInt(plus_ones, 10) || 0));
       // A "no" RSVP has no food_pref sent by the client at all — default to
       // "any" rather than rejecting, since it's irrelevant either way.
-      const cleanFoodPref = FOOD_PREFS.includes(food_pref) ? food_pref : "any";
+      let cleanFoodPref = FOOD_PREFS.includes(food_pref) ? food_pref : "any";
+      // Server-side backstop for the vegetarian-only event restriction —
+      // RSVPScreen.js already hides the "Non-vegetarian" option client-side
+      // when event.is_veg_only, but this is the actual security boundary
+      // (nothing stops a direct call to this function). Clamps to "veg"
+      // rather than rejecting the submission outright, since the guest's
+      // RSVP itself is still valid — only their stated food preference was
+      // impossible for this event.
+      if (event.is_veg_only && cleanFoodPref === "nonveg") cleanFoodPref = "veg";
 
       // Outstation travel — guest-writable fields only (see
       // supabase/migrations/outstation_travel.sql). pickup_notes/

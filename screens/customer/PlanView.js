@@ -12,6 +12,7 @@ import { isHomeVenueType, buildContext } from '../../lib/eventContext';
 import { useEventCapabilities } from '../../hooks/useEventCapabilities';
 import SlotField, { slotApplies, slotFilled, slotDisplayValue, SLOT_LABELS } from '../../components/SlotField';
 import AppHeader from '../../components/AppHeader';
+import ActivityIdeasLibrary from '../../components/ActivityIdeasLibrary';
 import { resolveInviteDesignColors } from './GuestList';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import { CARD, LINE, TEXT } from '../../lib/desktopTheme';
@@ -55,7 +56,47 @@ export default function PlanView({ route, navigation }) {
   const s = makeStyles(theme);
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
-  const { resolved, estimates, progress, allocation, event, venue, resolvedByFunction, itemHandledByName, loading, error, refresh } = useEventPlan(eventId);
+  const { resolved, estimates, progress, allocation, event, venue, resolvedByFunction, itemHandledByName, extraActivities, loading, error, refresh } = useEventPlan(eventId);
+
+  // Activity Ideas Library (Piece 3) — the library component itself is
+  // purely presentational (same split as SlotField's onSave), so the actual
+  // insert/delete against event_extra_activities lives here, right next to
+  // every other supabase.from('events')-style mutation on this screen.
+  async function handleAddActivity(item) {
+    const { error: err } = await supabase.from('event_extra_activities').insert({
+      event_id: eventId,
+      activity_slug: item.slug,
+      item_name: item.name,
+      category_slug: item.categorySlug,
+      age_hint: item.ages || null,
+      note: item.note || null,
+    });
+    if (err) { showAlert('Could not add that', err.message); return; }
+    refresh();
+  }
+
+  async function handleRemoveActivity(row) {
+    const { error: err } = await supabase.from('event_extra_activities').delete().eq('id', row.id);
+    if (err) { showAlert('Could not remove that', err.message); return; }
+    refresh();
+  }
+
+  // Piece 4 — starring/unstarring which added activities feature on the
+  // invite's "What to expect" line (ToranInvites.js reads is_featured_on_invite
+  // straight off this same table).
+  async function handleToggleFeatureActivity(row) {
+    const { error: err } = await supabase
+      .from('event_extra_activities').update({ is_featured_on_invite: !row.is_featured_on_invite }).eq('id', row.id);
+    if (err) { showAlert('Could not update that', err.message); return; }
+    refresh();
+  }
+
+  // Menu planner (Piece 5, rebuilt) — used to be an inline collapsible
+  // section here (course-size model, menu_type/menu_course_size/
+  // menu_provider_note on the events row + event_menu_selections rows
+  // fetched locally). It's now its own screen, MenuPlanner.js, reached via
+  // the header icon below — so all of that state/fetch/handler logic moved
+  // there with it. Nothing menu-related is fetched on this screen anymore.
   const capabilities = useEventCapabilities(eventId);
   const entryControl = capabilities.entryControl;
 
@@ -533,6 +574,15 @@ export default function PlanView({ route, navigation }) {
           </View>
         )}
 
+        <ActivityIdeasLibrary
+          event={event}
+          added={extraActivities}
+          onAdd={handleAddActivity}
+          onRemove={handleRemoveActivity}
+          onToggleFeature={handleToggleFeatureActivity}
+          theme={theme}
+        />
+
         <View style={{ height: 60 }} />
     </>
   );
@@ -575,6 +625,9 @@ export default function PlanView({ route, navigation }) {
           <TouchableOpacity style={ds.quickBtn} onPress={() => navigation.navigate('GuestList', { event })}>
             <Text style={ds.quickBtnText}>👥 Guests</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={ds.quickBtn} onPress={() => navigation.navigate('MenuPlanner', { event })}>
+            <Text style={ds.quickBtnText}>🍽️ Menu</Text>
+          </TouchableOpacity>
           {event.event_date && (
             <TouchableOpacity style={ds.quickBtn} onPress={addToGoogleCalendar}>
               <Text style={ds.quickBtnText}>📅 Add to calendar</Text>
@@ -600,6 +653,9 @@ export default function PlanView({ route, navigation }) {
         rightActions={[
           <TouchableOpacity key="guests" onPress={() => navigation.navigate('GuestList', { event })} style={s.calendarBtn}>
             <Text style={s.calendarBtnText}>👥</Text>
+          </TouchableOpacity>,
+          <TouchableOpacity key="menu" onPress={() => navigation.navigate('MenuPlanner', { event })} style={s.calendarBtn}>
+            <Text style={s.calendarBtnText}>🍽️</Text>
           </TouchableOpacity>,
           ...(event.event_date ? [
             <TouchableOpacity key="calendar" onPress={addToGoogleCalendar} style={s.calendarBtn}>

@@ -148,7 +148,7 @@ export function useEventPlan(eventId) {
   const [state, setState] = useState({
     resolved: EMPTY_RESOLVED, estimates: {}, progress: EMPTY_PROGRESS,
     allocation: EMPTY_ALLOCATION, event: null, venue: null, resolvedByFunction: [],
-    itemHandledByName: {},
+    itemHandledByName: {}, extraActivities: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -201,6 +201,27 @@ export function useEventPlan(eventId) {
       };
 
       const resolved = resolveRequirements(requirements, context, venueForResolver);
+
+      // Activity Ideas Library extras (Piece 3) — host-picked, per-event
+      // rows from event_extra_activities, folded straight into the P5
+      // ("You may also love") bucket so they flow through the exact same
+      // estimates/booking-matching pipeline below with no special-casing.
+      // Never touches P1/P2, so computeProgress()'s percentComplete (P1-only)
+      // is unaffected by anything added here — these are always optional.
+      const { data: extraActivityRows } = await supabase
+        .from('event_extra_activities').select('*').eq('event_id', eventId);
+      const extraActivities = extraActivityRows || [];
+      resolved.P5 = [
+        ...resolved.P5,
+        ...extraActivities.map(a => ({
+          item_name: a.item_name,
+          category_slug: a.category_slug,
+          legacy_category_slug: null,
+          contextual_label: a.note || null,
+          priority: 'P5',
+          sort_order: 999,
+        })),
+      ];
 
       // ── Per-function extras (Step 4/6) ──────────────────────────────
       // Per-function resolution is real and tested (verifyPlanEngine.js),
@@ -411,7 +432,7 @@ export function useEventPlan(eventId) {
         return { ...fn, allocation: fnAllocation };
       });
 
-      setState({ resolved, estimates, progress, allocation, event, venue, resolvedByFunction, itemHandledByName });
+      setState({ resolved, estimates, progress, allocation, event, venue, resolvedByFunction, itemHandledByName, extraActivities });
       setError(null);
     } catch (err) {
       setError(err.message || 'Failed to load plan');

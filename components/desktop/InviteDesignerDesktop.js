@@ -48,7 +48,7 @@ export default function InviteDesignerDesktop({
   designOptions, parsedDesign,
   schema, values, onFieldChange, onPickPhoto, photoUploadingKey,
   saving, saveContent, contentSaved,
-  event,
+  event, featuredActivities,
 }) {
   const showArchetypeSection = celebratory && designOptions && (designOptions.recommended.length > 0 || designOptions.moreStyles.length > 0);
   const selectedArchetype = parsedDesign?.kind === 'archetype' ? getArchetype(parsedDesign.archetypeId) : null;
@@ -135,7 +135,7 @@ export default function InviteDesignerDesktop({
         <Text style={s.previewLabel}>Live preview</Text>
         {design ? (
           <View style={s.previewCardWrap}>
-            <ProductionInviteCard templateId={design} eventTypeSlug={event?.event_type_slug} values={values} event={event} />
+            <ProductionInviteCard templateId={design} eventTypeSlug={event?.event_type_slug} values={values} event={event} featuredActivities={featuredActivities} />
           </View>
         ) : (
           <Text style={s.hint}>Pick a design to see the real card here.</Text>

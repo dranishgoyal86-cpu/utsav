@@ -31,7 +31,7 @@ import { isNonFestive } from '../../lib/inviteSchemas';
 // would leak one guest's pass into everyone else's share. Matches the
 // legacy cards' own behavior (ToranCoverCard/StillnessCard have never had
 // a QR slot at all).
-export default function ProductionInviteCard({ templateId, eventTypeSlug, values, event, functions = [] }) {
+export default function ProductionInviteCard({ templateId, eventTypeSlug, values, event, functions = [], featuredActivities = [] }) {
   const parsed = parseProductionDesign(templateId);
 
   if (parsed.kind === 'legacy') {
@@ -55,7 +55,7 @@ export default function ProductionInviteCard({ templateId, eventTypeSlug, values
       return <ToranCoverCard {...mapToToranCoverCardProps(fallbackId, values, event)} />;
     }
     const variant = getVariant(parsed.variantId);
-    const presentation = buildPresentationContent({ eventTypeSlug, values, event, functions });
+    const presentation = buildPresentationContent({ eventTypeSlug, values, event, functions, featuredActivities });
     const effectiveValues = { ...values, invocationText: presentation.invocationText };
     const effectiveEvent = { ...event, venue: presentation.primaryVenue };
     const layoutModel = buildStaticLayoutModel({

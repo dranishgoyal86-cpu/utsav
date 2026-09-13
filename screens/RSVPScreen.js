@@ -38,12 +38,22 @@ function getRsvpOptions(nonFestive) {
   ];
 }
 
-const FOOD_PREF_OPTIONS = [
+const ALL_FOOD_PREF_OPTIONS = [
   { value: 'any', label: 'No preference' },
   { value: 'veg', label: 'Vegetarian' },
   { value: 'nonveg', label: 'Non-vegetarian' },
   { value: 'jain', label: 'Jain' },
 ];
+
+// Vegetarian-only is a per-event restriction (events.is_veg_only, set in
+// PlanView.js's "Any restrictions?" field) — a guest RSVPing to a veg-only
+// event should never even see "Non-vegetarian" as a choice. Mirrored
+// server-side in submit-rsvp/index.ts's submit_rsvp action, which is the
+// actual security boundary (nothing stops a direct API call bypassing this
+// client-side filter).
+function getFoodPrefOptions(isVegOnly) {
+  return isVegOnly ? ALL_FOOD_PREF_OPTIONS.filter(o => o.value !== 'nonveg') : ALL_FOOD_PREF_OPTIONS;
+}
 
 function googleMapsUrl(address) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
@@ -127,7 +137,7 @@ export default function RSVPScreen({ route, navigation }) {
         // doesn't need getRsvpOptions() at all.
         if (['yes', 'maybe', 'no'].includes(inv.rsvp_status)) setRsvpStatus(inv.rsvp_status);
         setPlusOnes(inv.plus_ones || 0);
-        if (FOOD_PREF_OPTIONS.some(o => o.value === inv.food_pref)) setFoodPref(inv.food_pref);
+        if (getFoodPrefOptions(ev?.is_veg_only).some(o => o.value === inv.food_pref)) setFoodPref(inv.food_pref);
         setIsOutstation(!!inv.is_outstation);
         setArrivalDate(inv.arrival_date || '');
         setArrivalTime(inv.arrival_time || '');
@@ -369,6 +379,7 @@ export default function RSVPScreen({ route, navigation }) {
   // other call sites (ToranInvites.js, PlanView.js) already use.
   const nonFestive = isNonFestive(event.event_type_slug);
   const rsvpOptions = getRsvpOptions(nonFestive);
+  const foodPrefOptions = getFoodPrefOptions(event.is_veg_only);
 
   return (
     <SafeAreaView style={s.container}>
@@ -440,7 +451,7 @@ export default function RSVPScreen({ route, navigation }) {
 
                 <Text style={s.label}>Food preference</Text>
                 <View style={s.foodPrefRow}>
-                  {FOOD_PREF_OPTIONS.map(opt => (
+                  {foodPrefOptions.map(opt => (
                     <TouchableOpacity
                       key={opt.value}
                       style={[s.foodPrefChip, foodPref === opt.value && s.foodPrefChipActive]}

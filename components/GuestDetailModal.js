@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ScrollView,
 import { X, Star } from 'phosphor-react-native';
 import { getSignedGuestDocumentUrl } from '../helpers';
 
-const FOOD_PREF_OPTIONS = [
+const ALL_FOOD_PREF_OPTIONS = [
   { key: 'any', label: 'Any' },
   { key: 'veg', label: '🥦 Veg' },
   { key: 'nonveg', label: '🍗 Non-veg' },
@@ -49,6 +49,11 @@ export function timeAgo(dateStr) {
 // QR cases — applied instantly, not gated behind the Save button below.
 export default function GuestDetailModal({ visible, guest, event, theme, onClose, onSave, navigation, onShareInvite, onSendPass, onSendThankYou, onMarkArrived, eventFunctions = [], guestFunctionIds = [], onToggleFunction, eventAccommodations = [], accompanying = [] }) {
   const s = styles(theme);
+  // Vegetarian-only (events.is_veg_only, set in PlanView.js's "Any
+  // restrictions?" field) hides "Non-veg" here too — same restriction as
+  // RSVPScreen.js's guest-facing food preference picker, so a host can't
+  // manually set a guest to non-veg for a veg-only event either.
+  const foodPrefOptions = event?.is_veg_only ? ALL_FOOD_PREF_OPTIONS.filter(o => o.key !== 'nonveg') : ALL_FOOD_PREF_OPTIONS;
   const [viewingDocPath, setViewingDocPath] = useState(null);
   const [foodPref, setFoodPref] = useState('any');
   const [allergies, setAllergies] = useState('');
@@ -295,7 +300,7 @@ export default function GuestDetailModal({ visible, guest, event, theme, onClose
 
             <Text style={s.sectionLabel}>Meal preference</Text>
             <View style={s.chipsWrap}>
-              {FOOD_PREF_OPTIONS.map(opt => (
+              {foodPrefOptions.map(opt => (
                 <TouchableOpacity
                   key={opt.key}
                   style={[s.chip, foodPref === opt.key && s.chipActive]}

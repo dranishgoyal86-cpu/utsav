@@ -117,6 +117,11 @@ export default function ToranInvites({ route, navigation }) {
   const [functionCount, setFunctionCount] = useState(0);
   const [hasTravelInfo, setHasTravelInfo] = useState(false);
   const [hasAccommodationInfo, setHasAccommodationInfo] = useState(false);
+  // Piece 4 (Activity Ideas Library invite integration) — item_names the
+  // host starred as "feature on invite", threaded into ProductionInviteCard
+  // below so its kids-birthday "What to expect" line stays real, curated
+  // data rather than every checklist item the host happened to book.
+  const [featuredActivities, setFeaturedActivities] = useState([]);
   const cardRef = useRef(null);
 
   const schema = getInviteSchema(event?.event_type_slug);
@@ -260,6 +265,14 @@ export default function ToranInvites({ route, navigation }) {
       const { count: accommodationCount } = await supabase
         .from('event_accommodations').select('id', { count: 'exact', head: true }).eq('event_id', eventId);
       setHasAccommodationInfo((accommodationCount || 0) > 0);
+
+      // Birthday Event Improvement plan, Piece 4 — only activities the host
+      // explicitly starred as "feature on invite" (ActivityIdeasLibrary.js,
+      // PlanView.js) go here, never every booked/added item — a deliberate
+      // curation step, per Anish's own framing when this was confirmed.
+      const { data: featuredRows } = await supabase
+        .from('event_extra_activities').select('item_name').eq('event_id', eventId).eq('is_featured_on_invite', true);
+      setFeaturedActivities((featuredRows || []).map(r => r.item_name));
     } catch (err) {
       showAlert('Error', err.message);
     } finally {
@@ -421,7 +434,7 @@ export default function ToranInvites({ route, navigation }) {
           designOptions={designOptions} parsedDesign={parsedDesign}
           schema={schema} values={values} onFieldChange={handleFieldChange} onPickPhoto={pickPhoto} photoUploadingKey={uploadingPhotoKey}
           saving={saving} saveContent={saveContent} contentSaved={contentSaved}
-          event={event}
+          event={event} featuredActivities={featuredActivities}
         />
       </DesktopEventShell>
     );
@@ -531,10 +544,10 @@ export default function ToranInvites({ route, navigation }) {
               <View style={s.previewWrap}>
                 {Platform.OS !== 'web' && ViewShot ? (
                   <ViewShot ref={cardRef} options={{ format: 'jpg', quality: 0.92 }}>
-                    <ProductionInviteCard templateId={design} eventTypeSlug={event?.event_type_slug} values={values} event={event} />
+                    <ProductionInviteCard templateId={design} eventTypeSlug={event?.event_type_slug} values={values} event={event} featuredActivities={featuredActivities} />
                   </ViewShot>
                 ) : (
-                  <ProductionInviteCard templateId={design} eventTypeSlug={event?.event_type_slug} values={values} event={event} />
+                  <ProductionInviteCard templateId={design} eventTypeSlug={event?.event_type_slug} values={values} event={event} featuredActivities={featuredActivities} />
                 )}
               </View>
             )}

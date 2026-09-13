@@ -62,7 +62,14 @@ export const VENDOR_TAXONOMY = {
   },
   'Kids Party Services': {
     icon: '🎈',
-    subcategories: ['Bouncy Castles', 'Cartoon Characters', 'Puppet Shows', 'Magicians', 'Face Painting', 'Tattoo Artists', 'Kids Games', 'Clowns', 'Childcare & Creche Services'],
+    // Craft Activity Counters, Play Zone Equipment, Storytellers and
+    // Ventriloquists added for the Birthday Event Improvement plan's
+    // Activity Ideas Library (Piece 3, Sept 2026) — real gaps confirmed
+    // against this list first: everything else in Anish's activity list
+    // already had a matching subcategory somewhere in this taxonomy
+    // (see lib/activityIdeas.js's own comments for the full mapping), only
+    // these four genuinely didn't.
+    subcategories: ['Bouncy Castles', 'Cartoon Characters', 'Puppet Shows', 'Magicians', 'Face Painting', 'Tattoo Artists', 'Kids Games', 'Clowns', 'Childcare & Creche Services', 'Craft Activity Counters', 'Play Zone Equipment', 'Storytellers', 'Ventriloquists'],
   },
   'Event Technology': {
     icon: '📱',
