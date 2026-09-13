@@ -656,6 +656,9 @@ export default function PlanView({ route, navigation }) {
           <TouchableOpacity style={ds.quickBtn} onPress={() => navigation.navigate('MenuPlanner', { event })}>
             <Text style={ds.quickBtnText}>🍽️ Menu</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={ds.quickBtn} onPress={() => navigation.navigate('InviteHub', { event })}>
+            <Text style={ds.quickBtnText}>🎨 Invites</Text>
+          </TouchableOpacity>
           {event.event_date && (
             <TouchableOpacity style={ds.quickBtn} onPress={addToGoogleCalendar}>
               <Text style={ds.quickBtnText}>📅 Add to calendar</Text>
@@ -684,6 +687,9 @@ export default function PlanView({ route, navigation }) {
           </TouchableOpacity>,
           <TouchableOpacity key="menu" onPress={() => navigation.navigate('MenuPlanner', { event })} style={s.calendarBtn}>
             <Text style={s.calendarBtnText}>🍽️</Text>
+          </TouchableOpacity>,
+          <TouchableOpacity key="invites" onPress={() => navigation.navigate('InviteHub', { event })} style={s.calendarBtn}>
+            <Text style={s.calendarBtnText}>🎨</Text>
           </TouchableOpacity>,
           ...(event.event_date ? [
             <TouchableOpacity key="calendar" onPress={addToGoogleCalendar} style={s.calendarBtn}>

@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
     // leaves this function.
     const { data: event, error: eventError } = await supabaseAdmin
       .from("events")
-      .select("id, name, event_date, event_time, venue, event_type_slug, host_id, is_veg_only")
+      .select("id, name, event_date, event_time, event_duration_hours, venue, event_type_slug, host_id, is_veg_only")
       .eq("invite_code", String(invite_code).toUpperCase())
       .maybeSingle();
 
@@ -161,6 +161,7 @@ Deno.serve(async (req) => {
       return json({
         event: {
           id: event.id, name: event.name, event_date: event.event_date, event_time: event.event_time,
+          event_duration_hours: event.event_duration_hours,
           venue: event.venue, event_type_slug: event.event_type_slug, is_veg_only: !!event.is_veg_only,
           defaultPlusOneLimit: plusOneLimit, invitee, accompanying,
         },

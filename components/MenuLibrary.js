@@ -10,13 +10,19 @@ import { FOOD_TYPES, CUISINES, MENU_CATEGORIES, getDishesForCategory, isMenuLibr
 // destination, not another collapsible.
 //
 // Flow, per spec: Select Food Type -> Select Cuisine -> Select Category ->
-// Add Dish -> Add Price/Quantity/Notes. Food Type and Cuisine are filter
-// chips (multi-select, either can be left empty to mean "show everything")
-// rather than a forced single path, since a host planning a mixed event
-// (say Pure Veg + Non-Veg, North Indian + Chinese) shouldn't have to
-// re-run the whole flow per combination. Every category also has a
-// free-text "add your own dish" row, since the catalog can't cover every
-// real menu (explicitly asked for).
+// Add Dish -> Add Price/Quantity/Notes.
+//
+// "menu list is very confusing. host can select only one option in food
+// type and multiple in cuisine types" — Food Type is a SINGLE choice
+// (tapping a different one swaps the selection, it doesn't add to it).
+// Cuisine stays multi-select — a host can pick North Indian + Chinese
+// together — plus a "Multicuisine" chip that means "show every dish in
+// every category regardless of cuisine" (handled as a bypass inside
+// getDishesForCategory). Every category also has a free-text "add your
+// own dish" row, since the catalog can't cover every real menu (explicitly
+// asked for), and every category is guaranteed at least a handful of
+// dishes under any realistic filter combination so the list is never
+// empty.
 //
 // All mutations are presentational callbacks, same split as every other
 // planner section in this app — MenuPlanner.js owns the actual Supabase
@@ -27,7 +33,7 @@ import { FOOD_TYPES, CUISINES, MENU_CATEGORIES, getDishesForCategory, isMenuLibr
 //   onRemoveDish(selectionId)
 //   onUpdateDetails(selectionId, { price, quantity, notes })   (autosave on blur)
 export default function MenuLibrary({ event, selections, providerNote, onSetMenuType, onAddDish, onRemoveDish, onUpdateDetails, onSaveProviderNote, theme }) {
-  const [foodTypeFilters, setFoodTypeFilters] = useState([]);
+  const [foodType, setFoodType] = useState(null);
   const [cuisineFilters, setCuisineFilters] = useState([]);
   const [openCategory, setOpenCategory] = useState(null);
   const [customText, setCustomText] = useState({});
@@ -91,16 +97,16 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
 
       {menuType === 'customized' && (
         <>
-          <Text style={[s.label, { marginTop: 16 }]}>Food type</Text>
+          <Text style={[s.label, { marginTop: 16 }]}>Food type <Text style={s.itemHintInline}>(pick one)</Text></Text>
           <View style={s.chipsWrap}>
             {FOOD_TYPES.map(ft => (
-              <TouchableOpacity key={ft.slug} style={[s.filterChip, foodTypeFilters.includes(ft.slug) && s.filterChipActive]} onPress={() => toggleFilter(foodTypeFilters, setFoodTypeFilters, ft.slug)}>
-                <Text style={[s.filterChipText, foodTypeFilters.includes(ft.slug) && s.filterChipTextActive]}>{ft.label}</Text>
+              <TouchableOpacity key={ft.slug} style={[s.filterChip, foodType === ft.slug && s.filterChipActive]} onPress={() => setFoodType(foodType === ft.slug ? null : ft.slug)}>
+                <Text style={[s.filterChipText, foodType === ft.slug && s.filterChipTextActive]}>{ft.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
-          <Text style={[s.label, { marginTop: 16 }]}>Cuisine</Text>
+          <Text style={[s.label, { marginTop: 16 }]}>Cuisine <Text style={s.itemHintInline}>(pick as many as you like)</Text></Text>
           <View style={s.chipsWrap}>
             {CUISINES.map(c => (
               <TouchableOpacity key={c.slug} style={[s.filterChip, cuisineFilters.includes(c.slug) && s.filterChipActive]} onPress={() => toggleFilter(cuisineFilters, setCuisineFilters, c.slug)}>
@@ -108,10 +114,10 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
               </TouchableOpacity>
             ))}
           </View>
-          <Text style={s.itemHint}>Leave food type or cuisine unselected to browse everything in a category.</Text>
+          <Text style={s.itemHint}>Leave food type unselected, or choose Multicuisine, to browse everything in a category.</Text>
 
           {MENU_CATEGORIES.map(cat => {
-            const dishes = getDishesForCategory(cat.slug, { foodTypes: foodTypeFilters, cuisines: cuisineFilters });
+            const dishes = getDishesForCategory(cat.slug, { foodType, cuisines: cuisineFilters });
             const pickedInCategory = (selections || []).filter(sel => sel.course_category === cat.slug);
             const isOpen = openCategory === cat.slug;
             return (
@@ -139,7 +145,7 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
                             key={dish.name}
                             style={[s.dishChip, already && s.dishChipActive]}
                             disabled={already}
-                            onPress={() => onAddDish({ name: dish.name, category: cat.slug, cuisine: dish.cuisine || '', foodType: foodTypeFilters[0] || dish.foodTypes[0], isCustom: false })}
+                            onPress={() => onAddDish({ name: dish.name, category: cat.slug, cuisine: dish.cuisine || '', foodType: foodType || dish.foodTypes[0], isCustom: false })}
                           >
                             <Text style={[s.dishChipText, already && s.dishChipTextActive]}>{already ? '✓ ' : '+ '}{dish.name}</Text>
                           </TouchableOpacity>
@@ -160,7 +166,7 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
                         onPress={() => {
                           const name = (customText[cat.slug] || '').trim();
                           if (!name) return;
-                          onAddDish({ name, category: cat.slug, cuisine: '', foodType: foodTypeFilters[0] || null, isCustom: true });
+                          onAddDish({ name, category: cat.slug, cuisine: '', foodType: foodType || null, isCustom: true });
                           setCustomText(prev => ({ ...prev, [cat.slug]: '' }));
                         }}
                       >
@@ -237,6 +243,7 @@ function makeStyles(theme) {
     filterChipTextActive: { color: theme.btnPrimaryText },
     input: { backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 13, fontSize: 14, color: theme.text, minHeight: 60, textAlignVertical: 'top' },
     itemHint: { fontSize: 11.5, color: theme.textSecondary, marginTop: 6 },
+    itemHintInline: { fontSize: 11.5, fontWeight: '400', color: theme.textSecondary },
     categoryBlock: { marginTop: 16, borderTopWidth: 0.5, borderTopColor: theme.border, paddingTop: 12 },
     categoryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     categoryTitle: { fontSize: 14.5, fontWeight: '700', color: theme.text },

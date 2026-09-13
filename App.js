@@ -99,6 +99,7 @@ import ItemDetail from './screens/customer/ItemDetail';
 import VenuePicker from './screens/customer/VenuePicker';
 import GuestList from './screens/customer/GuestList';
 import MenuPlanner from './screens/customer/MenuPlanner';
+import InviteHub from './screens/customer/InviteHub';
 import SeatingChart from './screens/customer/SeatingChart';
 import GatePass from './screens/customer/GatePass';
 import PassIssue from './screens/customer/PassIssue';
@@ -564,6 +565,7 @@ function MainApp() {
             <Stack.Screen name="ComparePlans" component={ComparePlans} />
             <Stack.Screen name="GuestList" component={GuestList} />
             <Stack.Screen name="MenuPlanner" component={MenuPlanner} />
+            <Stack.Screen name="InviteHub" component={InviteHub} />
             <Stack.Screen name="SeatingChart" component={SeatingChart} />
             <Stack.Screen name="GatePass" component={GatePass} />
             <Stack.Screen name="PassIssue" component={PassIssue} />

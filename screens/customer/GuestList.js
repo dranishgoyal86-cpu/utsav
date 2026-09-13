@@ -1585,7 +1585,42 @@ export default function GuestList({ route, navigation }) {
       .then(({ count }) => setEventHasInvite((count || 0) > 0));
   }, [event?.id]);
 
+  // Sept 2026 — InviteHub.js (and PlanScreen.js's Invites tile before it)
+  // can now land straight on this modal via route params
+  // (openModal: 'invite') without ever calling openInviteDesigner() below,
+  // which used to be the ONLY place events.invite_code got stamped. Without
+  // this, an event that never had an invite before would open the designer
+  // with a blank invite_code and every RSVP link it builds would be broken.
+  // Same stamp-with-fallback logic as openInviteDesigner(), just triggered
+  // off the modal actually being open instead of one specific button press
+  // — harmless no-op on the button-press path itself, since that path
+  // already stamps synchronously before this effect's guard would fire.
+  useEffect(() => {
+    if (!inviteModal || !event?.id || eventInviteCode) return;
+    let cancelled = false;
+    (async () => {
+      let { data: code, error } = await supabase.rpc('stamp_event_invite_code', { p_event_id: event.id });
+      if (error) {
+        const fallbackCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const { error: updateError } = await supabase.from('events').update({ invite_code: fallbackCode }).eq('id', event.id);
+        if (!updateError) code = fallbackCode;
+      }
+      if (!cancelled && code) setEventInviteCode(code);
+    })();
+    return () => { cancelled = true; };
+  }, [inviteModal, event?.id, eventInviteCode]);
+
   async function openInviteDesigner() {
+    // Sept 2026 — "should give two options: single page invite or Designer
+    // invite suite." First time only (nothing to share yet): route through
+    // InviteHub.js so that choice is real, instead of assuming single-page.
+    // Once an invite already exists, this CTA becomes "Share Invite" and
+    // stays exactly as it was — a returning host who already picked their
+    // path shouldn't have to re-answer the question just to reshare.
+    if (!eventHasInvite) {
+      navigation.navigate('InviteHub', { event });
+      return;
+    }
     if (event && !eventInviteCode) {
       // Goes through stamp_event_invite_code() (SECURITY DEFINER — see
       // supabase/migrations/stamp_event_invite_code.sql), not a direct
@@ -3402,6 +3437,11 @@ export default function GuestList({ route, navigation }) {
                           {item.entry_type !== 'household' && plusOneLimit != null && item.plus_ones > plusOneLimit ? (
                             <View style={[s.guestTagBadge, { backgroundColor: '#FFF3E0' }]}>
                               <Text style={[s.guestTagBadgeText, { color: '#E65100' }]}>⚠ over limit ({plusOneLimit})</Text>
+                            </View>
+                          ) : null}
+                          {item.attendant_count > 0 ? (
+                            <View style={[s.guestTagBadge, { backgroundColor: '#E8F0FE' }]}>
+                              <Text style={[s.guestTagBadgeText, { color: '#1A56DB' }]}>🧑‍🍼 +{item.attendant_count} attendant{item.attendant_count > 1 ? 's' : ''}</Text>
                             </View>
                           ) : null}
                           {item.info_changed_at ? (

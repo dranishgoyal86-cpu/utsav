@@ -68,7 +68,13 @@ const CORE_LOOP_TOUR_STEPS = [
 const TOOLS = [
   { icon: '🤳', label: 'Find photos', sub: 'Face recognition', screen: 'GuestAccess' },
   { icon: '👥', label: 'Guest list', sub: 'Import & invite', screen: 'GuestList' },
-  { icon: '🎨', label: 'Invites', sub: 'Create & share', screen: 'GuestList', params: { openDesigner: true } },
+  // Sept 2026 — used to hardcode straight into GuestList's own single-page
+  // invite modal (openDesigner: true), which meant the richer Designer
+  // Invite Suite (ToranInvites.js) was never reachable from here at all.
+  // Routes through InviteHub.js now, which asks Single Page vs Designer
+  // Suite before landing on either — same change made to GuestList's own
+  // "Create & Share Invite" CTA, so there's one consistent front door.
+  { icon: '🎨', label: 'Invites', sub: 'Create & share', screen: 'InviteHub' },
   { icon: '✅', label: 'Checklist', sub: 'Track & manage', screen: 'EventTodo' },
 ];
 

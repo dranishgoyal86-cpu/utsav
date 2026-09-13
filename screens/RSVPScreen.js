@@ -8,7 +8,7 @@ import { useTheme } from '../ThemeContext';
 import { supabase } from '../supabase';
 import { callEdgeFunction, confirmDestructive, showAlert } from '../helpers';
 import SparkleIcon from '../components/SparkleIcon';
-import { formatTimeLabel } from '../lib/eventContext';
+import { formatTimeLabel, formatTimeRangeLabel } from '../lib/eventContext';
 import { isNonFestive } from '../lib/inviteSchemas';
 import { PUBLIC_WEB_URL } from '../config';
 
@@ -77,6 +77,12 @@ export default function RSVPScreen({ route, navigation }) {
   const [phone, setPhone] = useState('');
   const [rsvpStatus, setRsvpStatus] = useState('yes');
   const [plusOnes, setPlusOnes] = useState(0);
+  // Support staff (nanny, caretaker, driver) — tracked separately from
+  // plusOnes so it never counts against the host's plus-one guideline/cap,
+  // but still reflects real headcount for catering/gate-pass purposes.
+  // "include nanny or any attendant marked as separate in RSVP rather than
+  // a hard cap" — purely informational, no validation against anything.
+  const [attendantCount, setAttendantCount] = useState(0);
   const [foodPref, setFoodPref] = useState('any');
   const [isOutstation, setIsOutstation] = useState(false);
   const [arrivalDate, setArrivalDate] = useState('');
@@ -137,6 +143,7 @@ export default function RSVPScreen({ route, navigation }) {
         // doesn't need getRsvpOptions() at all.
         if (['yes', 'maybe', 'no'].includes(inv.rsvp_status)) setRsvpStatus(inv.rsvp_status);
         setPlusOnes(inv.plus_ones || 0);
+        setAttendantCount(inv.attendant_count || 0);
         if (getFoodPrefOptions(ev?.is_veg_only).some(o => o.value === inv.food_pref)) setFoodPref(inv.food_pref);
         setIsOutstation(!!inv.is_outstation);
         setArrivalDate(inv.arrival_date || '');
@@ -219,6 +226,7 @@ export default function RSVPScreen({ route, navigation }) {
         phone: phone.trim(),
         rsvp_status: rsvpStatus,
         plus_ones: plusOnes,
+        attendant_count: rsvpStatus === 'no' ? 0 : attendantCount,
         food_pref: rsvpStatus === 'no' ? null : foodPref,
         is_outstation: rsvpStatus === 'no' ? false : isOutstation,
         arrival_date: arrivalDate.trim() || null,
@@ -372,7 +380,12 @@ export default function RSVPScreen({ route, navigation }) {
   const eventDate = event.event_date
     ? new Date(event.event_date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     : null;
-  const eventTime = formatTimeLabel(event.event_time);
+  // Sept 2026 UX pass — event_duration_hours (host's optional "how long
+  // does it run" answer on the Plan screen) turns this into a real range
+  // ("6:00 PM – 9:00 PM") for the guest, same shared formatter every other
+  // guest-facing/invite consumer uses. Falls back to the plain start time
+  // when no duration was set, same as before.
+  const eventTime = formatTimeRangeLabel(event.event_time, event.event_duration_hours);
   // Part 1, invite-architecture wave. Computed directly in the render body
   // (not memoized) so it reacts immediately once `event` (and its
   // event_type_slug) finishes loading — same pattern lib/inviteSchemas'
@@ -448,6 +461,19 @@ export default function RSVPScreen({ route, navigation }) {
                     That's more than the host's guideline of {event.defaultPlusOneLimit} — that's okay, we'll let them know.
                   </Text>
                 ) : null}
+
+                <Text style={s.label}>Support staff joining with you</Text>
+                <Text style={s.docSectionHint}>Nanny, caretaker, driver, etc. — this won't count against your guest count.</Text>
+                <View style={s.stepperRow}>
+                  <TouchableOpacity style={s.stepperBtn} onPress={() => setAttendantCount(v => Math.max(0, v - 1))}>
+                    <Text style={s.stepperBtnText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={s.stepperValue}>{attendantCount}</Text>
+                  <TouchableOpacity style={s.stepperBtn} onPress={() => setAttendantCount(v => Math.min(10, v + 1))}>
+                    <Text style={s.stepperBtnText}>+</Text>
+                  </TouchableOpacity>
+                  <Text style={s.stepperHint}>{attendantCount === 0 ? 'None' : `${attendantCount} attendant${attendantCount > 1 ? 's' : ''}`}</Text>
+                </View>
 
                 <Text style={s.label}>Food preference</Text>
                 <View style={s.foodPrefRow}>

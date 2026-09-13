@@ -89,10 +89,20 @@ export function toWhatsappNumber(rawPhone) {
 // Sharma family, approx 4"). Every call site that used to do
 // `1 + (guest.plus_ones || 0)` should go through this instead, so the two
 // entry types stay consistent as more places touch guest counts later.
+//
+// attendant_count (support staff — nanny/caretaker/driver, see
+// supabase/migrations/20260913070000_guest_attendant_count.sql) is added on
+// top of both shapes: it's explicitly NOT an invited guest (never counted
+// against a plus-one cap or shown as part of the "party" a host budgets
+// for), but a real gate pass still needs to let that many extra people
+// through, so it's included here — this is the one place that already
+// feeds gate-pass party_size, so nothing else needs to change for a nanny
+// to walk in with the family she's minding.
 export function resolveGuestPartySize(guest) {
-  return guest.entry_type === 'household'
+  const base = guest.entry_type === 'household'
     ? (guest.household_size || 1)
     : 1 + (guest.plus_ones || 0);
+  return base + (guest.attendant_count || 0);
 }
 
 // Host-owned + accepted-delegate events, merged — the exact same query
