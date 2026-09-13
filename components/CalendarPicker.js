@@ -34,7 +34,7 @@ function formatDate(year, month, day) {
 // component, so AvailabilityScreen.js's provider calendar gets the same
 // visibility and "jump years ahead" benefit, not just the Plan screen.
 export default function CalendarPicker({
-  value, onChange, minDate, blockedDates = [], getDayStatus, legend,
+  value, onChange, minDate, maxDate, blockedDates = [], getDayStatus, legend,
 }) {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
@@ -45,8 +45,30 @@ export default function CalendarPicker({
 
   const floor = minDate ? new Date(minDate) : new Date();
   floor.setHours(0, 0, 0, 0);
+  // maxDate is new — every existing call site (event date, Availability
+  // screen) only ever needed a floor, never a ceiling, so this stays a no-op
+  // unless a caller opts in. Added for BirthdayPersonField's birthdate
+  // picker (SlotField.js), which is the mirror image: no future dates, but
+  // past dates (unlike every other calendar in this app) are exactly the
+  // point, not something to disable.
+  const ceiling = maxDate ? new Date(maxDate) : null;
+  if (ceiling) ceiling.setHours(23, 59, 59, 999);
+
   const thisYear = new Date().getFullYear();
-  const jumpYears = Array.from({ length: YEAR_JUMP_RANGE }, (_, i) => thisYear + i);
+  // A birthdate picker's maxDate is today or earlier — for that case the
+  // year row should offer real past years (most recent first, back to
+  // minDate's year or ~100 years back) instead of the "this year + 5
+  // ahead" range every future-facing calendar here wants.
+  const isPastDatePicker = ceiling && ceiling <= new Date();
+  const jumpYears = isPastDatePicker
+    ? (() => {
+        const endYear = ceiling.getFullYear();
+        const startYear = minDate ? new Date(minDate).getFullYear() : endYear - 99;
+        const years = [];
+        for (let y = endYear; y >= startYear; y--) years.push(y);
+        return years;
+      })()
+    : Array.from({ length: YEAR_JUMP_RANGE }, (_, i) => thisYear + i);
 
   function buildCalendarDays() {
     const year = currentMonth.getFullYear();
@@ -59,7 +81,8 @@ export default function CalendarPicker({
     for (let d = 1; d <= daysInMonth; d++) {
       const date = new Date(year, month, d);
       const dateStr = formatDate(year, month, d);
-      days.push({ day: d, dateStr, isPast: date < floor, dayOfWeek: date.getDay() });
+      const outOfRange = date < floor || (ceiling ? date > ceiling : false);
+      days.push({ day: d, dateStr, isPast: outOfRange, dayOfWeek: date.getDay() });
     }
     return days;
   }

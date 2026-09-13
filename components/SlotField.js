@@ -7,7 +7,7 @@ import { useInputHistory } from '../hooks/useInputHistory';
 import { getSubTypeOptions } from '../lib/eventSubTypes';
 import { getThemeOptions } from '../lib/eventThemes';
 import { CITY_GROUPS } from '../planLogic';
-import { isHomeVenueType, formatTimeLabel, formatTimeRangeLabel } from '../lib/eventContext';
+import { isHomeVenueType, formatTimeLabel, formatTimeRangeLabel, computeAgeOn, eventTypeForAge } from '../lib/eventContext';
 
 // Same convention already used by CalendarPicker.js/GuestList.js/
 // ProviderERP.js for their own desktop-specific sizing — kept identical
@@ -42,6 +42,8 @@ export default function SlotField({ slotKey, event, onSave, navigation }) {
   switch (slotKey) {
     case 'sub_type_slug':
       return <SubTypeField event={event} onSave={onSave} theme={theme} s={s} />;
+    case 'birthday_person':
+      return <BirthdayPersonField event={event} onSave={onSave} theme={theme} s={s} />;
     case 'event_date':
       return <EventDateField event={event} onSave={onSave} theme={theme} s={s} />;
     case 'event_time':
@@ -67,11 +69,18 @@ export default function SlotField({ slotKey, event, onSave, navigation }) {
 
 // Whether this slot has anything to ask for this event type — SlotPrompt.js
 // and PlanView.js both use this instead of hardcoding per-event-type checks.
+const BIRTHDAY_EVENT_TYPES = ['kids-birthday', 'adult-birthday'];
+
 export function slotApplies(slotKey, event) {
   if (!event) return false;
   if (slotKey === 'sub_type_slug') return getSubTypeOptions(event.event_type_slug).length > 0;
   if (slotKey === 'theme') return getThemeOptions(event.event_type_slug).length > 0;
   if (slotKey === 'location') return isHomeVenueType(event.venue_type) || event.venue_type === 'venue';
+  // Sept 2026 — "differentiation between kids birthday and normal birthday
+  // has to be placed in the event plan itself": applies to both birthday
+  // event types (not just kids-birthday) since a wrong initial guess needs
+  // a way back the other direction too, not just kids->adult.
+  if (slotKey === 'birthday_person') return BIRTHDAY_EVENT_TYPES.includes(event.event_type_slug);
   return true;
 }
 
@@ -80,6 +89,7 @@ export function slotApplies(slotKey, event) {
 // mirrors whatever the live editor below it would show as selected/typed.
 export const SLOT_LABELS = {
   sub_type_slug: 'Kind of event',
+  birthday_person: 'Birthday person',
   event_date: 'Date',
   event_time: 'Time',
   city: 'City',
@@ -100,6 +110,12 @@ export function slotDisplayValue(slotKey, event, venue) {
     case 'sub_type_slug': {
       const opt = getSubTypeOptions(event.event_type_slug).find(o => o.slug === event.sub_type_slug);
       return opt?.label || null;
+    }
+    case 'birthday_person': {
+      if (!event.birthday_person_dob) return event.birthday_person_name || null;
+      const age = computeAgeOn(event.birthday_person_dob, event.event_date);
+      const ageText = age != null ? `Turning ${age}` : null;
+      return [event.birthday_person_name, ageText].filter(Boolean).join(' · ') || null;
     }
     case 'event_date':
       return event.event_date
@@ -142,6 +158,7 @@ export function slotFilled(slotKey, event) {
   if (!event) return false;
   switch (slotKey) {
     case 'sub_type_slug': return !!event.sub_type_slug;
+    case 'birthday_person': return !!event.birthday_person_dob;
     case 'event_date': return !!event.event_date;
     case 'event_time': return !!event.event_time;
     case 'city': return !!event.city;
@@ -155,6 +172,66 @@ export function slotFilled(slotKey, event) {
     case 'budget_total': return event.budget_total != null;
     default: return true;
   }
+}
+
+// "differentiation between kids birthday and normal birthday has to be
+// placed in the event plan itself, like whose birthday and birthdate, so
+// we get to know the age... kids theme if below 15" — previously the only
+// signal was matchEventTypeText() guessing from the event's free-text
+// description at creation time, with no way to fix a wrong guess. This
+// field is the fix: a real birthdate, entered here, silently corrects
+// event.event_type_slug between 'kids-birthday' and 'adult-birthday'
+// (lib/eventContext.js's eventTypeForAge — see there for the exact age
+// cutoff), which is what unlocks/hides ThemeField and ActivityIdeasLibrary
+// elsewhere on this screen. Shown for both birthday types (not just
+// kids-birthday) since a wrong guess needs a way back in either direction.
+function BirthdayPersonField({ event, onSave, theme, s }) {
+  const [name, setName] = useState(event.birthday_person_name || '');
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const age = computeAgeOn(event.birthday_person_dob, event.event_date || todayStr);
+  const impliedType = eventTypeForAge(age);
+
+  function saveName() {
+    onSave({ birthday_person_name: name.trim() || null });
+  }
+
+  function saveDob(dateStr) {
+    const patch = { birthday_person_dob: dateStr };
+    const newAge = computeAgeOn(dateStr, event.event_date || todayStr);
+    const newType = eventTypeForAge(newAge);
+    // Only ever touches event_type_slug when the computed type actually
+    // differs — never clobbers it back to itself, and never fires for an
+    // event type this field doesn't apply to in the first place (gated by
+    // slotApplies() before this component even renders).
+    if (newType && newType !== event.event_type_slug) patch.event_type_slug = newType;
+    onSave(patch);
+  }
+
+  return (
+    <View>
+      <Text style={s.label}>Whose birthday is it?</Text>
+      <TextInput
+        style={s.input}
+        placeholder="Name (optional, just for your own reference)"
+        placeholderTextColor={theme.textTertiary}
+        value={name}
+        onChangeText={setName}
+        onBlur={saveName}
+      />
+      <Text style={[s.label, { marginTop: 14, fontSize: 12 }]}>Their birthdate</Text>
+      <Text style={[s.chipText, { color: theme.textSecondary, fontWeight: '500', marginBottom: 10, fontSize: 12.5, lineHeight: 17 }]}>
+        This is what decides whether kids-party themes and activity ideas show up below, instead of guessing from typed text.
+      </Text>
+      <CalendarPicker value={event.birthday_person_dob} minDate="1900-01-01" maxDate={todayStr} onChange={saveDob} />
+      {age != null && (
+        <Text style={[s.chipText, { color: theme.textSecondary, fontWeight: '600', marginTop: 10 }]}>
+          {event.event_date ? `Turning ${age} on the event date` : `${age} years old today`}
+          {' → '}
+          {impliedType === 'kids-birthday' ? "Kids' Birthday mode (themes + activity ideas unlocked)" : 'Birthday mode'}
+        </Text>
+      )}
+    </View>
+  );
 }
 
 function SubTypeField({ event, onSave, theme, s }) {

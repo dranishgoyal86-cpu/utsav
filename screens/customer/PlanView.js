@@ -40,7 +40,11 @@ const PRIORITY_META = {
 // are soft prompts — fillable at the host's own pace, shown inline here
 // rather than a forced full-screen flow (only sub_type_slug/event_date/city
 // block, in SlotPrompt.js).
-const SOFT_SLOTS = ['event_time', 'venue_type', 'location', 'guest_count', 'theme', 'dietary_restrictions', 'budget_total'];
+// birthday_person added Sept 2026 — only actually shows for kids-birthday/
+// adult-birthday events (slotApplies() in SlotField.js), and it's what
+// decides which of those two an event even is, so it's treated as soft
+// (not blocking) but nudged early, same as theme/budget etc.
+const SOFT_SLOTS = ['birthday_person', 'event_time', 'venue_type', 'location', 'guest_count', 'theme', 'dietary_restrictions', 'budget_total'];
 
 // Every field the host can ever set, blocking or soft — used by the "Event
 // details" section below so nothing is edit-once. Unlike SOFT_SLOTS above,
@@ -48,7 +52,7 @@ const SOFT_SLOTS = ['event_time', 'venue_type', 'location', 'guest_count', 'them
 // here, pre-filled, so it can be changed. This is the direct fix for "no
 // option of modifying the details" — every one of these used to disappear
 // from the UI forever the moment it was first set.
-const EDITABLE_SLOTS = ['sub_type_slug', 'event_date', 'event_time', 'city', 'venue_type', 'location', 'guest_count', 'theme', 'dietary_restrictions', 'budget_total'];
+const EDITABLE_SLOTS = ['sub_type_slug', 'birthday_person', 'event_date', 'event_time', 'city', 'venue_type', 'location', 'guest_count', 'theme', 'dietary_restrictions', 'budget_total'];
 
 export default function PlanView({ route, navigation }) {
   const { eventId } = route.params;
