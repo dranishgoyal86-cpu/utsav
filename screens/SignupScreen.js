@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../supabase';
 import { useTheme } from '../ThemeContext';
 import SparkleIcon from '../components/SparkleIcon';
+import { isPasswordStrong, PASSWORD_POLICY_HINT } from '../helpers';
 
 export default function SignupScreen({ navigation }) {
   const { theme } = useTheme();
@@ -22,8 +23,8 @@ export default function SignupScreen({ navigation }) {
       setError('Please fill in all fields');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (!isPasswordStrong(password)) {
+      setError(PASSWORD_POLICY_HINT);
       return;
     }
     try {
@@ -91,7 +92,8 @@ export default function SignupScreen({ navigation }) {
             <Text style={s.label}>Phone number</Text>
             <TextInput style={s.input} placeholder="9999999999" placeholderTextColor={theme.textTertiary} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
             <Text style={s.label}>Password</Text>
-            <TextInput style={s.input} placeholder="At least 6 characters" placeholderTextColor={theme.textTertiary} value={password} onChangeText={setPassword} secureTextEntry />
+            <TextInput style={s.input} placeholder="8+ chars, 1 capital, 1 number, 1 special" placeholderTextColor={theme.textTertiary} value={password} onChangeText={setPassword} secureTextEntry />
+            <Text style={s.passwordHint}>{PASSWORD_POLICY_HINT}</Text>
             {error ? <Text style={s.errorText}>{error}</Text> : null}
             <TouchableOpacity
               style={[s.signupBtn, loading && { opacity: 0.7 }]}
@@ -139,6 +141,7 @@ function makeStyles(theme) {
     formTitle: { fontSize: 19, fontWeight: '700', color: theme.text, marginBottom: 18, letterSpacing: -0.3 },
     label: { fontSize: 13, fontWeight: '700', color: theme.textSecondary, marginBottom: 8, marginTop: 13 },
     input: { backgroundColor: theme.bg, borderRadius: 14, paddingHorizontal: 15, paddingVertical: 13, fontSize: 14, borderWidth: 1, borderColor: theme.border, color: theme.text },
+    passwordHint: { fontSize: 11.5, color: theme.textTertiary, marginTop: 6, lineHeight: 15 },
     errorText: { fontSize: 13, color: theme.statusDeclinedText, marginTop: 11, textAlign: 'center' },
     signupBtn: { backgroundColor: theme.btnPrimary, borderRadius: 16, paddingVertical: 15, alignItems: 'center', marginTop: 22 },
     signupBtnText: { color: theme.btnPrimaryText, fontSize: 15, fontWeight: '700' },

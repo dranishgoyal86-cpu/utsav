@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
 
   try {
     const {
-      action, invite_code, guest_id, name, phone, rsvp_status, plus_ones, food_pref,
+      action, invite_code, guest_id, name, phone, email, rsvp_status, plus_ones, food_pref,
       is_outstation, arrival_date, arrival_time, arrival_details, departure_date, departure_time, pickup_needed,
       file_base64, file_ext, target, accompanying_id, accompanying_name,
     } = await req.json();
@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
       if (guest_id) {
         const { data: invRow } = await supabaseAdmin
           .from("event_invitees")
-          .select("id, name, phone, rsvp_status, plus_ones, food_pref, is_outstation, arrival_date, arrival_time, arrival_details, departure_date, departure_time, pickup_needed")
+          .select("id, name, phone, email, rsvp_status, plus_ones, food_pref, is_outstation, arrival_date, arrival_time, arrival_details, departure_date, departure_time, pickup_needed")
           .eq("event_id", event.id)
           .eq("id", guest_id)
           .is("anonymized_at", null)
@@ -171,6 +171,13 @@ Deno.serve(async (req) => {
     if (action === "submit_rsvp") {
       const cleanName = String(name || "").trim();
       const cleanPhone = String(phone || "").trim();
+      // Optional — never required (see RSVPScreen.js's own comment), just an
+      // extra matching key for linkGuestAccountByPhone() once this guest
+      // has a real Utsav account. event_invitees.email may not exist yet on
+      // this database (printed migration, not applied automatically) — the
+      // same defensive insert/update retry every other new column on this
+      // table already uses below covers that.
+      const cleanEmail = String(email || "").trim().toLowerCase();
       if (!cleanName) return json({ error: "Name is required." }, 400);
       if (cleanPhone.replace(/\D/g, "").length < 10) return json({ error: "A valid 10-digit phone number is required." }, 400);
       if (!RSVP_STATUSES.includes(rsvp_status)) return json({ error: "rsvp_status must be yes, no, or maybe." }, 400);
@@ -239,6 +246,21 @@ Deno.serve(async (req) => {
           .maybeSingle();
         existing = byPhone || null;
       }
+      // Email fallback — catches the case where a host pre-loaded this
+      // guest's row by email (or a prior RSVP recorded one) but the phone
+      // typed just now doesn't match exactly (different formatting, a
+      // shared/changed number). Only tried when an email was actually
+      // provided, and only after the phone match already missed, so this
+      // never overrides a real phone match.
+      if (!existing && cleanEmail) {
+        const { data: byEmail } = await supabaseAdmin
+          .from("event_invitees")
+          .select("id, name, phone, rsvp_status")
+          .eq("event_id", event.id)
+          .ilike("email", cleanEmail)
+          .maybeSingle();
+        existing = byEmail || null;
+      }
 
       // A guest reopening the same RSVP link (forwarded again, tapped twice,
       // page reloaded) and resubmitting the same answer shouldn't page the
@@ -281,7 +303,7 @@ Deno.serve(async (req) => {
         // infoChanged gets detected and notified correctly but the actual
         // new phone number never lands in the database.
         const fullPatch = {
-          name: cleanName, phone: cleanPhone, rsvp_status, plus_ones: accompanying, food_pref: cleanFoodPref,
+          name: cleanName, phone: cleanPhone, email: cleanEmail || null, rsvp_status, plus_ones: accompanying, food_pref: cleanFoodPref,
           rsvp_source: "guest_self", ...travelFields,
           ...(infoChanged ? { info_changed_at: new Date().toISOString() } : {}),
         };
@@ -289,6 +311,14 @@ Deno.serve(async (req) => {
           .from("event_invitees")
           .update(fullPatch)
           .eq("id", existing.id)).error;
+        if (updateError) {
+          // Retry 1: drop the newest/least-certain columns (email may not
+          // exist on this database yet) before falling back further.
+          updateError = (await supabaseAdmin
+            .from("event_invitees")
+            .update({ name: cleanName, phone: cleanPhone, rsvp_status, plus_ones: accompanying, food_pref: cleanFoodPref, rsvp_source: "guest_self", ...travelFields })
+            .eq("id", existing.id)).error;
+        }
         if (updateError) {
           updateError = (await supabaseAdmin
             .from("event_invitees")
@@ -308,9 +338,16 @@ Deno.serve(async (req) => {
         };
         let insertResult = await supabaseAdmin
           .from("event_invitees")
-          .insert({ ...baseInsert, rsvp_source: "guest_self", ...travelFields })
+          .insert({ ...baseInsert, email: cleanEmail || null, rsvp_source: "guest_self", ...travelFields })
           .select("id")
           .single();
+        if (insertResult.error) {
+          insertResult = await supabaseAdmin
+            .from("event_invitees")
+            .insert({ ...baseInsert, rsvp_source: "guest_self", ...travelFields })
+            .select("id")
+            .single();
+        }
         if (insertResult.error) {
           insertResult = await supabaseAdmin.from("event_invitees").insert(baseInsert).select("id").single();
         }

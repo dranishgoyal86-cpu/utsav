@@ -75,6 +75,12 @@ export default function RSVPScreen({ route, navigation }) {
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  // Optional — collected so a guest who later downloads the app can be
+  // matched to this RSVP by email as well as phone (see helpers.js's
+  // linkGuestAccountByPhone and supabase/migrations/
+  // 20260914000000_event_invitee_email_link.sql). Never required: plenty of
+  // real guests RSVP with just a name and phone, and that stays valid.
+  const [email, setEmail] = useState('');
   const [rsvpStatus, setRsvpStatus] = useState('yes');
   const [plusOnes, setPlusOnes] = useState(0);
   // Support staff (nanny, caretaker, driver) — tracked separately from
@@ -136,6 +142,7 @@ export default function RSVPScreen({ route, navigation }) {
         setResolvedGuestId(inv.id);
         setName(inv.name || '');
         setPhone(inv.phone || '');
+        setEmail(inv.email || '');
         setOriginalName(inv.name || '');
         setOriginalPhone(inv.phone || '');
         // Value set (yes/maybe/no) is identical regardless of nonFestive —
@@ -224,6 +231,7 @@ export default function RSVPScreen({ route, navigation }) {
         guest_id: resolvedGuestId || undefined,
         name: name.trim(),
         phone: phone.trim(),
+        email: email.trim(),
         rsvp_status: rsvpStatus,
         plus_ones: plusOnes,
         attendant_count: rsvpStatus === 'no' ? 0 : attendantCount,
@@ -423,6 +431,10 @@ export default function RSVPScreen({ route, navigation }) {
 
             <Text style={s.label}>Phone number</Text>
             <TextInput style={s.input} placeholder="9999999999" placeholderTextColor={theme.textTertiary} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+
+            <Text style={s.label}>Email (optional)</Text>
+            <TextInput style={s.input} placeholder="you@example.com" placeholderTextColor={theme.textTertiary} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+            <Text style={s.docSectionHint}>If you download the Utsav app later, this helps us show you this invite automatically.</Text>
             {(nameChanged || phoneChanged) ? (
               <Text style={s.overCapHint}>
                 This is different from what your host has on file — they'll be notified of the change when you submit.

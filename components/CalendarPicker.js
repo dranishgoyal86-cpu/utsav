@@ -99,6 +99,22 @@ export default function CalendarPicker({
     onChange(item.dateStr);
   }
 
+  // Sept 2026 UX follow-up — a birthdate picker's existing "jump to year"
+  // panel lists every year back to minDate (up to ~126 chips for the
+  // 1900 floor SlotField.js's BirthdayPersonField uses) as a flat wrapped
+  // list, which works but isn't a quick way to just step back one year at
+  // a time. These flank the existing month ‹ › steppers with year ones —
+  // same one-step-at-a-time interaction, just on the year instead of the
+  // month. Bounded by floor/ceiling like every other date constraint here
+  // (disabled, not just clamped, once the current month's year hits either
+  // edge) so this can never land on a year the picker wouldn't otherwise
+  // allow.
+  const atFloorYear = currentMonth.getFullYear() <= floor.getFullYear();
+  const atCeilingYear = ceiling && currentMonth.getFullYear() >= ceiling.getFullYear();
+  function stepYear(delta) {
+    setCurrentMonth(p => new Date(p.getFullYear() + delta, p.getMonth(), 1));
+  }
+
   function jumpToYear(year) {
     setCurrentMonth(p => new Date(year, p.getMonth(), 1));
   }
@@ -113,6 +129,9 @@ export default function CalendarPicker({
   return (
     <View style={s.root}>
       <View style={s.calendarHeader}>
+        <TouchableOpacity style={s.yearBtn} onPress={() => stepYear(-1)} disabled={atFloorYear}>
+          <Text style={[s.yearBtnText, atFloorYear && s.navBtnTextDisabled]}>«</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={s.monthBtn} onPress={() => setCurrentMonth(p => new Date(p.getFullYear(), p.getMonth() - 1, 1))}>
           <Text style={s.monthBtnText}>‹</Text>
         </TouchableOpacity>
@@ -122,6 +141,9 @@ export default function CalendarPicker({
         </TouchableOpacity>
         <TouchableOpacity style={s.monthBtn} onPress={() => setCurrentMonth(p => new Date(p.getFullYear(), p.getMonth() + 1, 1))}>
           <Text style={s.monthBtnText}>›</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.yearBtn} onPress={() => stepYear(1)} disabled={atCeilingYear}>
+          <Text style={[s.yearBtnText, atCeilingYear && s.navBtnTextDisabled]}>»</Text>
         </TouchableOpacity>
       </View>
 
@@ -232,6 +254,12 @@ function makeStyles(theme, isDesktopWeb) {
     calendarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 13 },
     monthBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: theme.border },
     monthBtnText: { fontSize: 20, color: theme.text, lineHeight: 24 },
+    // Slightly narrower than monthBtn so "« ‹ Month Year › »" still fits a
+    // narrow phone width without crowding — same card, 5 header buttons
+    // instead of 3.
+    yearBtn: { width: 32, height: 38, borderRadius: 12, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: theme.border },
+    yearBtnText: { fontSize: 15, fontWeight: '700', color: theme.text, lineHeight: 24 },
+    navBtnTextDisabled: { color: theme.textTertiary },
     monthTitleBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 },
     monthTitle: { fontSize: 16, fontWeight: '700', color: theme.text },
     monthTitleCaret: { fontSize: 9, color: theme.textSecondary },

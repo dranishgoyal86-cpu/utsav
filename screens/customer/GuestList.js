@@ -1702,10 +1702,28 @@ export default function GuestList({ route, navigation }) {
   useEffect(() => {
     if (!event?.id) return;
     const channelName = `checkins-${event.id}`;
-    supabase.channel(channelName).on('postgres_changes', {
+    // Crash fix: supabase.channel(name) returns the SAME cached channel
+    // object for a given topic from the client's internal registry — once
+    // .subscribe() has ever been called on that object, .on() throws
+    // synchronously if called again, even after .unsubscribe() (that only
+    // closes the socket join; it does NOT remove the object from the
+    // registry — only supabase.removeChannel() does). This effect's own
+    // dependency array ([event?.id]) doesn't change across a
+    // GuestList -> InviteHub -> GuestList navigation for the same event, so
+    // React never re-runs this effect's own cleanup/setup in that case —
+    // but if this ever DOES fire again for a channel name already
+    // registered (e.g. GuestList genuinely remounting for the same event,
+    // as happens via InviteHub's "Single Page Invite" -> navigate('GuestList',
+    // {event, openModal:'invite'}) path, confirmed live: this was an
+    // uncaught exception with no error boundary anywhere in the tree,
+    // unmounting the whole app to a blank screen), the stale object must be
+    // dropped first rather than reused.
+    const stale = supabase.getChannels().find((ch) => ch.topic === `realtime:${channelName}`);
+    if (stale) supabase.removeChannel(stale);
+    const channel = supabase.channel(channelName).on('postgres_changes', {
       event: 'UPDATE', schema: 'public', table: 'event_invitees', filter: `event_id=eq.${event.id}`,
     }, ({ new: row }) => setGuests(prev => prev.map(g => g.id === row.id ? row : g))).subscribe();
-    return () => { supabase.channel(channelName).unsubscribe(); };
+    return () => { supabase.removeChannel(channel); };
   }, [event?.id]);
 
   async function fetchMyEvents(uid) {

@@ -5,7 +5,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../supabase';
 import { useTheme } from '../ThemeContext';
-import { showAlert, linkGuestAccountByPhone } from '../helpers';
+import { showAlert, linkGuestAccountByPhone, isPasswordStrong, PASSWORD_POLICY_HINT } from '../helpers';
 import { OTP_ENABLED } from './ClaimVendorFlow';
 import SparkleIcon from '../components/SparkleIcon';
 
@@ -75,8 +75,8 @@ export default function GuestSignup({ navigation }) {
       showAlert('Invalid email', 'Please enter a valid email address.');
       return false;
     }
-    if (password.length < 6) {
-      showAlert('Password too short', 'Password must be at least 6 characters.');
+    if (!isPasswordStrong(password)) {
+      showAlert('Password too weak', PASSWORD_POLICY_HINT);
       return false;
     }
     return true;
@@ -107,7 +107,7 @@ export default function GuestSignup({ navigation }) {
     // Best-effort — App.js's fetchUserRole() also calls this on every
     // SIGNED_IN/session-restore, so this isn't the only place it happens,
     // just the earliest (idempotent either way).
-    await linkGuestAccountByPhone(phone.trim());
+    await linkGuestAccountByPhone(phone.trim(), email.trim());
     // Success — auth state change (this screen is only reachable logged
     // out) takes over navigation from here, same as SignupScreen.js.
   }
@@ -216,7 +216,8 @@ export default function GuestSignup({ navigation }) {
               <Text style={s.label}>Email address</Text>
               <TextInput style={s.input} placeholder="you@example.com" placeholderTextColor={theme.textTertiary} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
               <Text style={s.label}>Password</Text>
-              <TextInput style={s.input} placeholder="At least 6 characters" placeholderTextColor={theme.textTertiary} value={password} onChangeText={setPassword} secureTextEntry />
+              <TextInput style={s.input} placeholder="8+ chars, 1 capital, 1 number, 1 special" placeholderTextColor={theme.textTertiary} value={password} onChangeText={setPassword} secureTextEntry />
+              <Text style={s.fieldHint}>{PASSWORD_POLICY_HINT}</Text>
               <TouchableOpacity style={s.primaryBtn} onPress={continueFromDetails} disabled={submitting}>
                 {submitting ? <ActivityIndicator color={theme.btnPrimaryText} /> : <Text style={s.primaryBtnText}>{OTP_ENABLED ? 'Continue' : 'Create account'}</Text>}
               </TouchableOpacity>
