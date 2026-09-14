@@ -162,12 +162,39 @@ export async function fetchHostAndDelegateEvents(uid) {
 // common shapes; a guest whose invitee row has spaces/dashes typed into it
 // won't match — normalizing at write time (submit-rsvp) would be the real
 // fix for that, out of scope here.
-export async function linkGuestAccountByPhone(rawPhone) {
-  if (!rawPhone) return 0;
-  const { data, error } = await supabase.rpc('link_guest_account_by_phone', { p_phone: rawPhone });
+// rawEmail is optional (older call sites still pass phone only) — added so
+// this can also link a guest whose event_invitees row carries their email
+// but a phone that doesn't match (different formatting, RSVP'd on someone
+// else's behalf, etc.). See supabase/migrations/
+// 20260914000000_event_invitee_email_link.sql — the RPC OR-matches on
+// whichever of phone/email is actually provided; passing only one is fine.
+export async function linkGuestAccountByPhone(rawPhone, rawEmail) {
+  if (!rawPhone && !rawEmail) return 0;
+  const { data, error } = await supabase.rpc('link_guest_account_by_phone', {
+    p_phone: rawPhone || null,
+    p_email: rawEmail || null,
+  });
   if (error) { console.log('linkGuestAccountByPhone error:', error.message); return 0; }
   return data || 0;
 }
+
+// Signup password policy (SignupScreen.js, GuestSignup.js): at least 8
+// characters, one uppercase letter, one digit, one special character.
+// Supabase Auth itself only enforces a minimum length server-side, so this
+// client-side check is the real enforcement point for the rest of the
+// policy — same reasoning as this file's other client-side validation
+// helpers (nothing here is a security boundary, just a UX guard; a weak
+// password sent directly to the API wouldn't be blocked by this alone).
+export function isPasswordStrong(pw) {
+  const value = String(pw || '');
+  if (value.length < 8) return false;
+  if (!/[A-Z]/.test(value)) return false;
+  if (!/[0-9]/.test(value)) return false;
+  if (!/[^A-Za-z0-9]/.test(value)) return false;
+  return true;
+}
+
+export const PASSWORD_POLICY_HINT = 'At least 8 characters, with 1 capital letter, 1 number, and 1 special character.';
 
 // Real market data for a city: active providers (for the "recommended
 // providers" list) plus their priced services (for real budget estimates —

@@ -1,0 +1,132 @@
+import { useState, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+import { supabase } from '../../supabase';
+import { useTheme } from '../../ThemeContext';
+import AppHeader from '../../components/AppHeader';
+
+// The screen that was simply missing before this wave — a guest with a
+// real Utsav account (linked via event_invitees.user_id — see
+// helpers.js's linkGuestAccountByPhone and supabase/migrations/
+// 20260914010000_guest_realtime_link_and_event_status.sql's real-time
+// version) had no in-app place to see what they're invited to at all. Two
+// separate queries combined in JS, this project's established no-joins
+// convention — same shape as RsvpDashboard.js.
+//
+// Tapping a row reuses RSVPScreen.js as-is (inviteCode + guestId) rather
+// than building a second invite-viewing/editing surface — that screen
+// already handles viewing, editing, and resubmitting an RSVP correctly.
+export default function MyInvites({ navigation }) {
+  const { theme } = useTheme();
+  const s = makeStyles(theme);
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+
+  useFocusEffect(useCallback(() => { load(); }, []));
+
+  async function load() {
+    try {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setRows([]); return; }
+
+      const { data: invitees, error: invErr } = await supabase
+        .from('event_invitees')
+        .select('id, event_id, rsvp_status')
+        .eq('user_id', session.user.id)
+        .is('anonymized_at', null);
+      if (invErr) throw invErr;
+      if (!invitees?.length) { setRows([]); return; }
+
+      const eventIds = [...new Set(invitees.map(i => i.event_id))];
+      const { data: events, error: evErr } = await supabase
+        .from('events')
+        .select('id, name, event_date, event_time, venue, invite_code, is_cancelled, cancellation_reason')
+        .in('id', eventIds);
+      if (evErr) throw evErr;
+
+      const eventById = new Map((events || []).map(e => [e.id, e]));
+      const merged = invitees
+        .map(inv => ({ invitee: inv, event: eventById.get(inv.event_id) }))
+        .filter(r => !!r.event)
+        .sort((a, b) => new Date(a.event.event_date || 0) - new Date(b.event.event_date || 0));
+      setRows(merged);
+    } catch (err) {
+      console.log('MyInvites load error:', err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openInvite(row) {
+    navigation.navigate('RSVP', { inviteCode: row.event.invite_code, guestId: row.invitee.id });
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+
+  const RSVP_LABELS = { yes: "You're going", no: "You declined", maybe: 'Maybe going', pending: 'Awaiting your RSVP' };
+
+  return (
+    <SafeAreaView style={s.container}>
+      <AppHeader title="My invites" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
+      {loading ? (
+        <View style={s.centerBox}><ActivityIndicator color={theme.accent} /></View>
+      ) : rows.length === 0 ? (
+        <View style={s.centerBox}>
+          <Text style={s.emptyIcon}>💌</Text>
+          <Text style={s.emptyTitle}>No invites yet</Text>
+          <Text style={s.emptySub}>Events you're invited to will show up here once your account is linked to them.</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={rows}
+          keyExtractor={r => r.invitee.id}
+          contentContainerStyle={{ padding: 16 }}
+          renderItem={({ item }) => (
+            <TouchableOpacity style={s.card} onPress={() => openInvite(item)}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.eventName}>{item.event.name}</Text>
+                <Text style={s.eventMeta}>
+                  {[formatDate(item.event.event_date), item.event.venue].filter(Boolean).join(' · ') || 'Details coming soon'}
+                </Text>
+                {item.event.is_cancelled ? (
+                  <Text style={s.cancelledBadge}>
+                    Cancelled{item.event.cancellation_reason ? ` — ${item.event.cancellation_reason}` : ''}
+                  </Text>
+                ) : (
+                  <Text style={s.statusText}>{RSVP_LABELS[item.invitee.rsvp_status] || RSVP_LABELS.pending}</Text>
+                )}
+              </View>
+              <Text style={s.arrow}>›</Text>
+            </TouchableOpacity>
+          )}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+function makeStyles(theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg },
+    centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+    emptyIcon: { fontSize: 44, marginBottom: 14, opacity: 0.6 },
+    emptyTitle: { fontSize: 16, fontWeight: '700', color: theme.text, marginBottom: 6 },
+    emptySub: { fontSize: 13, color: theme.textSecondary, textAlign: 'center', lineHeight: 20 },
+    card: {
+      flexDirection: 'row', alignItems: 'center', backgroundColor: theme.cardBg, borderRadius: 18,
+      borderWidth: 0.5, borderColor: theme.border, padding: 16, marginBottom: 10,
+    },
+    eventName: { fontSize: 15, fontWeight: '700', color: theme.text, marginBottom: 4 },
+    eventMeta: { fontSize: 12.5, color: theme.textSecondary, marginBottom: 6 },
+    statusText: { fontSize: 12, fontWeight: '600', color: theme.accent },
+    cancelledBadge: { fontSize: 12, fontWeight: '700', color: theme.statusDeclinedText },
+    arrow: { fontSize: 18, color: theme.textTertiary },
+  });
+}

@@ -24,6 +24,8 @@ import VerifyEmailToken from './screens/VerifyEmailToken';
 import GuestPassScreen from './screens/GuestPassScreen';
 import GuestSignup from './screens/GuestSignup';
 import DelegateRedeem from './screens/DelegateRedeem';
+import MyInvites from './screens/customer/MyInvites';
+import CelebratoryInviteModal from './components/CelebratoryInviteModal';
 import { linkGuestAccountByPhone } from './helpers';
 
 // Crash/error + basic performance reporting. Reads the DSN from app.json's
@@ -310,6 +312,7 @@ function MainApp() {
   const [userRole, setUserRole] = useState(null);
   const [checking, setChecking] = useState(true);
   const [suspendedInfo, setSuspendedInfo] = useState(null);
+  const [celebratoryInvite, setCelebratoryInvite] = useState(null);
 
   useEffect(() => {
   supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -391,7 +394,7 @@ function MainApp() {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('role, is_admin, is_suspended, suspended_reason, deletion_requested_at, phone')
+        .select('role, is_admin, is_suspended, suspended_reason, deletion_requested_at, phone, email')
         .eq('id', user.id)
         .single();
 
@@ -440,11 +443,87 @@ function MainApp() {
       // already exists, so this has to stay current, not just run once at
       // signup. Idempotent (only fills still-null user_id rows), so calling
       // it this often is harmless, not wasteful in any way that matters.
-      if (data?.phone) linkGuestAccountByPhone(data.phone);
+      if (data?.phone || data?.email) linkGuestAccountByPhone(data.phone, data.email);
       resumePendingDelegateInvite();
+      checkCelebratoryInvite(user.id);
     } catch (err) {
       console.log('fetchUserRole exception:', err.message);
       setUserRole('customer');
+    }
+  }
+
+  // One-time, full-screen "you're invited!" moment — separate from the
+  // persistent Notifications-tab entry (notifications.js's
+  // notifyGuestInvited / link_and_notify_invitee's own insert already cover
+  // that). This only surfaces notifications of type 'guest_invited' that
+  // haven't been shown yet (celebrated_at is null — see migration
+  // 20260914010000), and marks them shown the moment the guest dismisses or
+  // taps through, so it never repeats on a later app open. Runs on every
+  // fetchUserRole() call (login, signup, session restore) same as
+  // linkGuestAccountByPhone above — cheap, and it's the only way to catch
+  // an invite that arrived while the guest already had the app installed.
+  async function checkCelebratoryInvite(userId) {
+    try {
+      const { data: notifs, error } = await supabase
+        .from('notifications')
+        .select('id, data, created_at')
+        .eq('user_id', userId)
+        .is('celebrated_at', null)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error || !notifs?.length) return;
+
+      const pending = notifs.filter(n => n?.data?.type === 'guest_invited');
+      if (!pending.length) return;
+
+      const latest = pending[0];
+      const eventId = latest.data?.event_id;
+      const inviteeId = latest.data?.invitee_id;
+      const inviteCode = latest.data?.invite_code;
+      if (!eventId) return;
+
+      const { data: eventRow } = await supabase
+        .from('events')
+        .select('name, host_id')
+        .eq('id', eventId)
+        .single();
+
+      let hostName = null;
+      if (eventRow?.host_id) {
+        const { data: hostRow } = await supabase
+          .from('users')
+          .select('full_name')
+          .eq('id', eventRow.host_id)
+          .single();
+        hostName = hostRow?.full_name || null;
+      }
+
+      setCelebratoryInvite({
+        pendingIds: pending.map(n => n.id),
+        eventName: eventRow?.name || 'an event',
+        hostName,
+        inviteCode,
+        inviteeId,
+      });
+    } catch (err) {
+      console.log('checkCelebratoryInvite error:', err.message);
+    }
+  }
+
+  async function dismissCelebratoryInvite(andView) {
+    const invite = celebratoryInvite;
+    setCelebratoryInvite(null);
+    if (!invite) return;
+    try {
+      await supabase
+        .from('notifications')
+        .update({ celebrated_at: new Date().toISOString() })
+        .in('id', invite.pendingIds);
+    } catch (err) {
+      console.log('dismissCelebratoryInvite update error:', err.message);
+    }
+    if (andView && navigationRef.isReady()) {
+      navigationRef.navigate('RSVP', { inviteCode: invite.inviteCode, guestId: invite.inviteeId });
     }
   }
 
@@ -477,6 +556,7 @@ function MainApp() {
   }
 
   return (
+    <>
     <NavigationContainer ref={navigationRef} linking={linking}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
 
@@ -588,6 +668,7 @@ function MainApp() {
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="MyBookings" component={ComingSoon} />
             <Stack.Screen name="CategoryList" component={CategoryList} />
+            <Stack.Screen name="MyInvites" component={MyInvites} />
             <Stack.Screen name="SavedProviders" component={SavedProviders} />
             <Stack.Screen name="BlockedProviders" component={BlockedProviders} />
             <Stack.Screen name="Search" component={SearchScreen} />
@@ -603,6 +684,14 @@ function MainApp() {
 
       </Stack.Navigator>
     </NavigationContainer>
+    <CelebratoryInviteModal
+      visible={!!celebratoryInvite}
+      eventName={celebratoryInvite?.eventName}
+      hostName={celebratoryInvite?.hostName}
+      onView={() => dismissCelebratoryInvite(true)}
+      onDismiss={() => dismissCelebratoryInvite(false)}
+    />
+    </>
   );
 }
 

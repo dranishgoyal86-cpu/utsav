@@ -16,6 +16,8 @@ import ActivityIdeasLibrary from '../../components/ActivityIdeasLibrary';
 import { resolveInviteDesignColors } from './GuestList';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import { CARD, LINE, TEXT } from '../../lib/desktopTheme';
+import TextPromptModal from '../../components/TextPromptModal';
+import { detectGuestFacingChange, notifyGuestsOfEventChange, cancelEventAndNotifyGuests } from '../../lib/eventGuestNotifications';
 
 const DESKTOP_BREAKPOINT = 768;
 
@@ -207,6 +209,11 @@ export default function PlanView({ route, navigation }) {
   }, [progress.p1Handled, progress.p1Total]);
 
   async function saveField(patch) {
+    // Captured BEFORE the optimistic overlay/write below — the real
+    // "what did this used to be" for the guest-facing-change check after a
+    // successful save (event/rawEvent both move the instant pendingPatch
+    // does, so this has to be grabbed first).
+    const oldEvent = event;
     // Optimistic UI first (see pendingPatch comment above) — every
     // SlotField reading `event` sees the new value immediately, before the
     // network round trip even starts.
@@ -228,6 +235,16 @@ export default function PlanView({ route, navigation }) {
       }
 
       await refresh();
+
+      // Guest-visibility wave — only worth asking about once invites have
+      // actually gone out (invites_sent_at, stamped by GuestList.js's
+      // markInvitesSent — the same signal rsvp-reminders already relies
+      // on). Editing the date while still planning, before anyone's been
+      // told anything, isn't a "change" from a guest's point of view.
+      if (oldEvent?.invites_sent_at) {
+        const changedSummary = detectGuestFacingChange(oldEvent, patch);
+        if (changedSummary) setGuestNotifyPrompt({ changedSummary });
+      }
     } catch (err) {
       showAlert('Error', err.message);
     } finally {
@@ -237,6 +254,53 @@ export default function PlanView({ route, navigation }) {
       // stale (e.g. a failed save silently continuing to show the tapped
       // value as if it had saved).
       setPendingPatch({});
+    }
+  }
+
+  // Host-confirmed guest notification for a date/time/venue change — never
+  // fires silently (plan decision #2). unreachable guests (phone-only, no
+  // account, no email) are surfaced back to the host rather than the app
+  // quietly doing nothing for them.
+  const [guestNotifyPrompt, setGuestNotifyPrompt] = useState(null); // { changedSummary } | null
+  const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+
+  async function confirmNotifyGuests(message) {
+    const summary = guestNotifyPrompt?.changedSummary;
+    setGuestNotifyPrompt(null);
+    try {
+      const result = await notifyGuestsOfEventChange(event, message || summary);
+      const parts = [];
+      if (result.notifiedCount) parts.push(`${result.notifiedCount} notified in-app`);
+      if (result.emailedCount) parts.push(`${result.emailedCount} emailed`);
+      let msg = parts.length ? parts.join(', ') + '.' : 'No guests to notify yet.';
+      if (result.unreachable.length) {
+        msg += `\n\n${result.unreachable.length} guest${result.unreachable.length === 1 ? '' : 's'} can't be auto-notified (no account or email on file) — message them yourself: ${result.unreachable.map(g => g.name).join(', ')}.`;
+      }
+      showAlert('Guests notified', msg);
+    } catch (err) {
+      showAlert('Error', err.message);
+    }
+  }
+
+  async function confirmCancelEvent(reason) {
+    setCancelModalVisible(false);
+    setCancelling(true);
+    try {
+      const result = await cancelEventAndNotifyGuests(event, reason);
+      await refresh();
+      const parts = [];
+      if (result.notifiedCount) parts.push(`${result.notifiedCount} notified in-app`);
+      if (result.emailedCount) parts.push(`${result.emailedCount} emailed`);
+      let msg = parts.length ? parts.join(', ') + '.' : 'No guests to notify.';
+      if (result.unreachable.length) {
+        msg += `\n\n${result.unreachable.length} guest${result.unreachable.length === 1 ? '' : 's'} can't be auto-notified — message them yourself: ${result.unreachable.map(g => g.name).join(', ')}.`;
+      }
+      showAlert('Event cancelled', msg);
+    } catch (err) {
+      showAlert('Error', err.message);
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -437,6 +501,25 @@ export default function PlanView({ route, navigation }) {
               <Text style={s.linkCardSub}>Issue and scan gate passes for this event</Text>
             </View>
             <Text style={s.linkCardArrow}>›</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* ── Cancellation — banner if already cancelled, otherwise the
+             action itself. Guest fan-out + gate-pass revocation both happen
+             inside cancelEventAndNotifyGuests() (lib/eventGuestNotifications.js);
+             this is purely the confirm + trigger. ── */}
+        {event.is_cancelled ? (
+          <View style={s.cancelledBanner}>
+            <Text style={s.cancelledBannerTitle}>This event is cancelled</Text>
+            {event.cancellation_reason ? <Text style={s.cancelledBannerSub}>{event.cancellation_reason}</Text> : null}
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={s.cancelEventLink}
+            onPress={() => setCancelModalVisible(true)}
+            disabled={cancelling}
+          >
+            {cancelling ? <ActivityIndicator color={theme.statusDeclinedText} /> : <Text style={s.cancelEventLinkText}>Cancel this event</Text>}
           </TouchableOpacity>
         )}
 
@@ -641,6 +724,38 @@ export default function PlanView({ route, navigation }) {
     </Modal>
   );
 
+  // Two small TextPromptModal instances — "notify guests of this change?"
+  // (optional message, skippable) and "cancel this event" (reason
+  // required). Kept as one JSX value referenced from both the mobile and
+  // desktop return branches, same pattern as renameModalEl above.
+  const guestChangeAndCancelModals = (
+    <>
+      <TextPromptModal
+        visible={!!guestNotifyPrompt}
+        title="Notify guests about this?"
+        message={guestNotifyPrompt ? `You changed ${guestNotifyPrompt.changedSummary}. Guests already invited to this event can be told.` : ''}
+        placeholder="Optional note to include, e.g. why it moved"
+        defaultValue=""
+        required={false}
+        confirmLabel="Notify guests"
+        cancelLabel="Skip"
+        onConfirm={confirmNotifyGuests}
+        onCancel={() => setGuestNotifyPrompt(null)}
+      />
+      <TextPromptModal
+        visible={cancelModalVisible}
+        title="Cancel this event?"
+        message="Every guest already invited will be told, along with your reason. Any issued gate passes/QR codes are revoked immediately. This can't be undone."
+        placeholder="Reason for cancelling (shown to guests)"
+        required
+        confirmLabel="Cancel event"
+        cancelLabel="Never mind"
+        onConfirm={confirmCancelEvent}
+        onCancel={() => setCancelModalVisible(false)}
+      />
+    </>
+  );
+
   if (isDesktopWeb) {
     return (
       <DesktopEventShell
@@ -668,6 +783,7 @@ export default function PlanView({ route, navigation }) {
         </View>
         <View style={ds.body}>{body}</View>
         {renameModalEl}
+        {guestChangeAndCancelModals}
       </DesktopEventShell>
     );
   }
@@ -703,6 +819,7 @@ export default function PlanView({ route, navigation }) {
         {body}
       </ScrollView>
       {renameModalEl}
+      {guestChangeAndCancelModals}
     </SafeAreaView>
   );
 }
@@ -820,6 +937,15 @@ function makeStyles(theme) {
     linkCardTitle: { fontSize: 14, fontWeight: '700', color: theme.text },
     linkCardSub: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
     linkCardArrow: { fontSize: 18, color: theme.textTertiary },
+
+    cancelledBanner: {
+      backgroundColor: theme.statusDeclinedText + '14', borderRadius: 16, borderWidth: 1, borderColor: theme.statusDeclinedText + '40',
+      padding: 16, marginBottom: 20,
+    },
+    cancelledBannerTitle: { fontSize: 14, fontWeight: '800', color: theme.statusDeclinedText, marginBottom: 4 },
+    cancelledBannerSub: { fontSize: 13, color: theme.textSecondary, lineHeight: 18 },
+    cancelEventLink: { alignItems: 'center', paddingVertical: 12, marginBottom: 20 },
+    cancelEventLinkText: { fontSize: 13, fontWeight: '600', color: theme.statusDeclinedText, textDecorationLine: 'underline' },
 
     progressCard: { marginBottom: 20 },
     progressLabel: { fontSize: 13, fontWeight: '600', color: theme.text, marginBottom: 8 },

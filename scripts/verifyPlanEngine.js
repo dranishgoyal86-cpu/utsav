@@ -55,7 +55,11 @@ function req(overrides) {
 // live data still in the old format.
 const REQUIREMENTS = [
   // hindu-wedding, event level
-  req({ event_type_slug: 'hindu-wedding', item_name: 'Venue', category_slug: 'Venues', priority: 'P1', sort_order: 0 }),
+  // condition_flag added alongside the home-venue-suppression fix
+  // (supabase/migrations/20260914000000_venue_essential_home_suppression.sql
+  // sets this on the real seed rows too) — matches the live data this
+  // fixture is meant to transcribe, per this file's own convention.
+  req({ event_type_slug: 'hindu-wedding', item_name: 'Venue', category_slug: 'Venues', priority: 'P1', condition_flag: 'not_home_venue', sort_order: 0 }),
   req({ event_type_slug: 'hindu-wedding', item_name: 'Caterer', category_slug: 'Food & Beverages > Caterers', legacy_category_slug: 'catering', priority: 'P1', sort_order: 1 }),
   req({ event_type_slug: 'hindu-wedding', item_name: 'Decorator', category_slug: 'Decoration & Styling > Event Decorators', priority: 'P1', sort_order: 2 }),
   req({ event_type_slug: 'hindu-wedding', item_name: 'Priest', category_slug: 'Religious & Cultural Services > Priests', priority: 'P1', sort_order: 3 }),
@@ -285,6 +289,31 @@ console.log('\n=== 14. Season — is_monsoon / is_summer, sourced from checklist
   const summerNames = Object.values(summerResolved).flat().map(r => r.item_name);
   assert('Extra cooling resolves in summer season', summerNames.includes('Extra cooling'));
   assert('Rain cover / weather tent stays suppressed in summer season', !summerNames.includes('Rain cover / weather tent'));
+}
+
+console.log('\n=== 15. Home-venue suppression — reported bug: "Venue" essential still showed for a host who picked At home ===');
+{
+  // venue_type 'home' (and every other isHomeVenueType() value — society_flat,
+  // independent_house — see lib/eventContext.js) via the real
+  // buildChecklistContext(), the exact same path hooks/useEventPlan.js uses.
+  const homeEvent = { event_type_slug: 'hindu-wedding', venue_type: 'home' };
+  const homeCtx = buildChecklistContext(homeEvent, null, [], null);
+  assert('buildChecklistContext resolves venue_type "home" to isHomeVenue: true', homeCtx.isHomeVenue === true);
+  const homeResolved = resolveRequirements(REQUIREMENTS, { ...homeCtx }, null);
+  const homeNames = Object.values(homeResolved).flat().map(r => r.item_name);
+  assert('Venue essential is suppressed once the host picked At home', !homeNames.includes('Venue'));
+  assert('every other P1 essential is untouched for a home event', ['Caterer', 'Decorator', 'Priest', 'Photographer'].every(n => homeNames.includes(n)));
+
+  const bookedEvent = { event_type_slug: 'hindu-wedding', venue_type: 'venue' };
+  const bookedCtx = buildChecklistContext(bookedEvent, null, [], null);
+  assert('buildChecklistContext resolves venue_type "venue" to isHomeVenue: false', bookedCtx.isHomeVenue === false);
+  const bookedResolved = resolveRequirements(REQUIREMENTS, { ...bookedCtx }, null);
+  const bookedNames = Object.values(bookedResolved).flat().map(r => r.item_name);
+  assert('Venue essential still shows for a real (non-home) venue', bookedNames.includes('Venue'));
+
+  const unsetResolved = resolveRequirements(REQUIREMENTS, { eventTypeSlug: 'hindu-wedding' }, null);
+  const unsetNames = Object.values(unsetResolved).flat().map(r => r.item_name);
+  assert('Venue essential still shows when location is not yet chosen at all (defaults to not-home, never crashes)', unsetNames.includes('Venue'));
 }
 
 console.log('\n=== 15. hasOutstationGuests — real event_invitees.is_outstation data, not the stale checkbox ===');

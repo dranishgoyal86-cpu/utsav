@@ -28,6 +28,9 @@ const NOTIFICATION_ICONS = {
   invoice_generated: '🧾',
   todo_reminder: '⏰',
   birthday_wish: '🎂',
+  guest_invited: '🎉',
+  event_changed: '🔔',
+  event_cancelled: '🚫',
 };
 
 export default function NotificationsScreen({ navigation }) {
@@ -86,6 +89,26 @@ export default function NotificationsScreen({ navigation }) {
         } else {
           navigation.navigate('GuestList', { event });
         }
+        return;
+      }
+
+      // Guest-side — deep-links straight into the existing RSVPScreen
+      // (already handles both viewing and editing an RSVP) using the
+      // invite_code/invitee_id stamped into `data` at creation time
+      // (notifications.js's notifyGuestInvited/notifyEventChanged) — no
+      // extra round-trip needed to resolve them. event_cancelled carries no
+      // invite_code (nothing left to RSVP to), so it goes to My Invites
+      // instead, where the cancelled state is shown on the card.
+      if (type === 'guest_invited' || type === 'event_changed') {
+        if (data.invite_code) {
+          navigation.navigate('RSVP', { inviteCode: data.invite_code, guestId: data.invitee_id });
+        } else {
+          navigation.navigate('MyInvites');
+        }
+        return;
+      }
+      if (type === 'event_cancelled') {
+        navigation.navigate('MyInvites');
         return;
       }
 

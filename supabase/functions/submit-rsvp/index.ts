@@ -222,12 +222,12 @@ Deno.serve(async (req) => {
       // rsvp_prefill_and_guest_documents.sql). Falls back to today's
       // phone-only match, unchanged, for old-style broadcast links or a
       // guest_id that didn't resolve (wrong event, anonymized, bogus).
-      let existing: { id: string; name: string; phone: string; rsvp_status: string } | null = null;
+      let existing: { id: string; name: string; phone: string; rsvp_status: string; user_id?: string | null } | null = null;
       let matchedByGuestId = false;
       if (guest_id) {
         const { data: byId } = await supabaseAdmin
           .from("event_invitees")
-          .select("id, name, phone, rsvp_status")
+          .select("id, name, phone, rsvp_status, user_id")
           .eq("event_id", event.id)
           .eq("id", guest_id)
           .is("anonymized_at", null)
@@ -240,7 +240,7 @@ Deno.serve(async (req) => {
       if (!existing) {
         const { data: byPhone } = await supabaseAdmin
           .from("event_invitees")
-          .select("id, name, phone, rsvp_status")
+          .select("id, name, phone, rsvp_status, user_id")
           .eq("event_id", event.id)
           .eq("phone", cleanPhone)
           .maybeSingle();
@@ -255,7 +255,7 @@ Deno.serve(async (req) => {
       if (!existing && cleanEmail) {
         const { data: byEmail } = await supabaseAdmin
           .from("event_invitees")
-          .select("id, name, phone, rsvp_status")
+          .select("id, name, phone, rsvp_status, user_id")
           .eq("event_id", event.id)
           .ilike("email", cleanEmail)
           .maybeSingle();
@@ -409,6 +409,21 @@ Deno.serve(async (req) => {
             }),
           });
         }
+      }
+
+      // Real-time linking — was this guest already unlinked (new row, or an
+      // existing one whose account didn't exist yet when they last RSVP'd)?
+      // If a matching Utsav account exists by phone or email, link it and
+      // notify RIGHT NOW rather than waiting for that account's next login
+      // (link_guest_account_by_phone's own catch-up). Service-role client
+      // here has no auth.uid(), which link_and_notify_invitee() already
+      // treats as a trusted server-side caller, same as every other admin
+      // write in this function. Best-effort — a guest's RSVP has already
+      // succeeded above regardless of whether this finds a match.
+      if (!existing?.user_id && inviteeId) {
+        const { data: matchedUserId, error: linkErr } = await supabaseAdmin.rpc("link_and_notify_invitee", { p_invitee_id: inviteeId });
+        if (linkErr) console.log("link_and_notify_invitee error:", linkErr.message);
+        else if (matchedUserId) console.log("Real-time linked invitee to user:", matchedUserId);
       }
 
       return json({ ok: true, event_name: event.name, invitee_id: inviteeId });

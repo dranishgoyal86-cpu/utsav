@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
+import { callEdgeFunction } from './helpers';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -435,6 +436,81 @@ export async function notifyImportCategoryMismatch(userId, excludedCount, catego
   await saveNotificationToDb(userId, title, body, { type: 'import_category_mismatch' });
   if (user?.push_token) {
     await sendPushNotification(user.push_token, title, body);
+  }
+}
+
+// ── Guest invite visibility + event change/cancellation notifications ──
+// (Sept 2026 wave) — the real "in-app moment" a guest who already has the
+// Utsav app gets once they're linked to an invite (see supabase/migrations/
+// 20260914010000_guest_realtime_link_and_event_status.sql's
+// link_and_notify_invitee(), and submit-rsvp/index.ts's own real-time
+// check). inviteCode/inviteeId are stamped straight into `data` at creation
+// time so NotificationsScreen.js can deep-link into RSVPScreen without a
+// second round-trip to resolve them.
+export async function notifyGuestInvited(userId, eventName, eventId, inviteeId, inviteCode) {
+  const { data: user } = await supabase.from('users').select('push_token').eq('id', userId).maybeSingle();
+
+  const title = "You're invited! 🎉";
+  const body = `You've been invited to "${eventName || 'an event'}".`;
+  const data = { type: 'guest_invited', event_id: eventId, invitee_id: inviteeId, invite_code: inviteCode };
+
+  await saveNotificationToDb(userId, title, body, data);
+  if (user?.push_token) await sendPushNotification(user.push_token, title, body, data);
+}
+
+export async function notifyEventChanged(userId, eventName, eventId, inviteeId, inviteCode, changeSummary) {
+  const { data: user } = await supabase.from('users').select('push_token').eq('id', userId).maybeSingle();
+
+  const title = 'Event update 🔔';
+  const body = changeSummary
+    ? `"${eventName || 'An event'}" you're invited to has changed: ${changeSummary}`
+    : `"${eventName || 'An event'}" you're invited to has some updates. Check the invite for details.`;
+  const data = { type: 'event_changed', event_id: eventId, invitee_id: inviteeId, invite_code: inviteCode };
+
+  await saveNotificationToDb(userId, title, body, data);
+  if (user?.push_token) await sendPushNotification(user.push_token, title, body, data);
+}
+
+export async function notifyEventCancelled(userId, eventName, eventId, inviteeId, reason) {
+  const { data: user } = await supabase.from('users').select('push_token').eq('id', userId).maybeSingle();
+
+  const title = 'Event cancelled';
+  const body = reason
+    ? `"${eventName || 'An event'}" has been cancelled: ${reason}`
+    : `"${eventName || 'An event'}" has been cancelled.`;
+  const data = { type: 'event_cancelled', event_id: eventId, invitee_id: inviteeId };
+
+  await saveNotificationToDb(userId, title, body, data);
+  if (user?.push_token) await sendPushNotification(user.push_token, title, body, data);
+}
+
+// Email fallback for a guest who gave an email but has no Utsav account (so
+// none of the in-app/push path above can reach them) — via send-email's
+// real, already-proven AWS SES sender. Best-effort: a failed send here
+// never blocks the rest of the notify fan-out in
+// lib/eventGuestNotifications.js, same as every other notify*() in this
+// file swallowing its own errors rather than throwing.
+export async function emailGuestOfEventChange(toEmail, eventName, changeSummary) {
+  try {
+    await callEdgeFunction('send-email', {
+      to: toEmail,
+      subject: `Update on "${eventName || 'your invite'}"`,
+      html: `<p>Hi,</p><p>There's an update to <strong>${eventName || 'an event'}</strong> you're invited to${changeSummary ? `: ${changeSummary}` : '.'}</p><p>— Utsav</p>`,
+    });
+  } catch (err) {
+    console.log('emailGuestOfEventChange error:', err.message);
+  }
+}
+
+export async function emailGuestOfEventCancellation(toEmail, eventName, reason) {
+  try {
+    await callEdgeFunction('send-email', {
+      to: toEmail,
+      subject: `"${eventName || 'Your invite'}" has been cancelled`,
+      html: `<p>Hi,</p><p><strong>${eventName || 'An event'}</strong> you were invited to has been cancelled${reason ? `: ${reason}` : '.'}</p><p>— Utsav</p>`,
+    });
+  } catch (err) {
+    console.log('emailGuestOfEventCancellation error:', err.message);
   }
 }
 

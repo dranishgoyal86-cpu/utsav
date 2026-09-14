@@ -58,6 +58,7 @@ export default function ProfileScreen({ navigation }) {
   const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const [user, setUser] = useState(null);
   const [hostEvents, setHostEvents] = useState([]);
+  const [myInvitesCount, setMyInvitesCount] = useState(0);
   const { rules: capabilityRules } = useCapabilityRules();
   const showGiftLedger = hostEvents.some(ev => isEnabled(
     resolveCapabilities(capabilityRules, {
@@ -85,7 +86,25 @@ export default function ProfileScreen({ navigation }) {
   const [tutorialsExpanded, setTutorialsExpanded] = useState(false);
   const s = makeStyles(theme);
 
-  useEffect(() => { fetchUser(); fetchHostEvents(); }, []);
+  useEffect(() => { fetchUser(); fetchHostEvents(); fetchMyInvitesCount(); }, []);
+
+  // Guest-visibility wave — just the count for the settings-row badge; the
+  // actual list lives in MyInvites.js (opened by tapping the row below).
+  async function fetchMyInvitesCount() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { count, error } = await supabase
+        .from('event_invitees')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', session.user.id)
+        .is('anonymized_at', null);
+      if (error) throw error;
+      setMyInvitesCount(count || 0);
+    } catch (err) {
+      console.log('fetchMyInvitesCount error:', err.message);
+    }
+  }
 
   async function fetchUser() {
     const { data: { session } } = await supabase.auth.getSession();
@@ -446,6 +465,16 @@ export default function ProfileScreen({ navigation }) {
                 <Text style={s.settingIcon}>🎀</Text>
                 <Text style={s.settingLabel}>Gift ledger</Text>
                 <Text style={s.settingValue}>›</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          {myInvitesCount > 0 && (
+            <>
+              <View style={s.divider} />
+              <TouchableOpacity style={s.settingRow} onPress={() => navigation.navigate('MyInvites')}>
+                <Text style={s.settingIcon}>💌</Text>
+                <Text style={s.settingLabel}>My invites</Text>
+                <Text style={s.settingValue}>{myInvitesCount} ›</Text>
               </TouchableOpacity>
             </>
           )}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Platform, Modal, TextInput, Linking, KeyboardAvoidingView
 } from 'react-native';
@@ -49,7 +49,20 @@ const DAYS_AHEAD = Array.from({ length: 365 }, (_, i) => {
 
 export default function EventPlanner({ navigation, route }) {
   const { theme } = useTheme();
-  const s = makeStyles(theme);
+  // Reported bug: tapping a chip (e.g. "Dry event") visually un-selects
+  // itself, taking a beat to catch up and show selected again. Root cause —
+  // SelectChip/SectionTitle/ToggleRow below were plain nested function
+  // declarations, so every one of them was a BRAND NEW component type on
+  // every re-render (each one is `formData.eventType === type.id` etc.).
+  // React treats a changed component type at the same JSX position as
+  // "unmount the old instance, mount a new one" — not just a prop update —
+  // which tears down and rebuilds every chip's underlying TouchableOpacity/
+  // native touch responder on every tap across this whole (very chip-heavy)
+  // screen. Memoizing `s` (was recreated fresh every render too) and
+  // wrapping these three in useMemo keyed on it keeps their identity stable
+  // across ordinary re-renders, so a tap updates props in place instead of
+  // remounting the tree.
+  const s = useMemo(() => makeStyles(theme), [theme]);
   const incomingType = route?.params?.eventType || '';
   const savedPlan = route?.params?.savedPlan || null;
   const prefilledFormData = route?.params?.prefilledFormData || null;
@@ -490,24 +503,24 @@ export default function EventPlanner({ navigation, route }) {
     }
   }
 
-  function SelectChip({ label, selected, onPress }) {
+  const SelectChip = useMemo(() => function SelectChip({ label, selected, onPress }) {
     return (
       <TouchableOpacity style={[s.chip, selected && s.chipActive]} onPress={onPress}>
         <Text style={[s.chipText, selected && s.chipTextActive]}>{label}</Text>
       </TouchableOpacity>
     );
-  }
+  }, [s]);
 
-  function SectionTitle({ title, subtitle }) {
+  const SectionTitle = useMemo(() => function SectionTitle({ title, subtitle }) {
     return (
       <View style={s.sectionTitle}>
         <Text style={s.sectionTitleText}>{title}</Text>
         {subtitle && <Text style={s.sectionSubText}>{subtitle}</Text>}
       </View>
     );
-  }
+  }, [s]);
 
-  function ToggleRow({ label, value, onToggle }) {
+  const ToggleRow = useMemo(() => function ToggleRow({ label, value, onToggle }) {
     return (
       <TouchableOpacity style={s.toggleRow} onPress={onToggle}>
         <Text style={s.toggleLabel}>{label}</Text>
@@ -516,7 +529,7 @@ export default function EventPlanner({ navigation, route }) {
         </View>
       </TouchableOpacity>
     );
-  }
+  }, [s]);
 
   if (step === 'plan' && plan) {
     return (
