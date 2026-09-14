@@ -45,6 +45,16 @@ const linking = {
       // a plain-text fallback in the email itself for a recipient who
       // isn't logged in yet.
       BulkImportServices: 'import-services',
+      // Found via a real visual QA pass: unlike every screen above, this
+      // one was reachable only by tapping through the app (Plan -> event
+      // -> PlanView -> Designer Invite Suite) even though React
+      // Navigation's web layer happily displays a URL for it while
+      // navigating in-app (auto-derived from the screen name — that part
+      // needs no config). A hard reload or a shared link pointed straight
+      // at that URL silently bounced to the app's default route instead,
+      // because incoming URL -> screen matching (unlike outgoing) only
+      // resolves screens explicitly listed here.
+      ToranInvites: 'invite-designer/:eventId',
       GuestAccess: 'event/:inviteCode',
       // guestId is optional — old-style broadcast links (posted to a
       // family WhatsApp group, no third segment) still match exactly as

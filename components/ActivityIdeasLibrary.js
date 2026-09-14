@@ -19,12 +19,23 @@ import { getActivityCategories, getSuggestedActivities, GAME_ACTIVITY_TIPS } fro
 // ToranInvites.js reads to build the invite's "What to expect" line — so
 // this really is the deliberate curation step Anish asked for, not
 // "everything the host added."
-export default function ActivityIdeasLibrary({ event, added, onAdd, onRemove, onToggleFeature, theme, s: parentS }) {
+export default function ActivityIdeasLibrary({ event, added, onAdd, onRemove, onToggleFeature, theme, s: parentS, allocation }) {
   const [open, setOpen] = useState(false);
   const [openCategory, setOpenCategory] = useState(null);
   const s = makeStyles(theme);
   const categories = getActivityCategories(event.event_type_slug);
   if (categories.length === 0) return null;
+
+  // "whatever money is left will be used for other activities" — this
+  // deliberately does NOT price individual activity ideas (pot painting,
+  // ball pits, caricature artists, etc.) with invented numbers. Utsav has
+  // no real sourced pricing for most of these ~50 catalog items, and
+  // guessing plausible-looking figures for each would be the same mistake
+  // flagged earlier for dish-level pricing. What IS honest: showing the
+  // real, already-trusted remaining-budget figure from allocateBudget()
+  // (same number PlanView.js's own budget card shows) as guidance for
+  // deciding how many extras to add — real math, no per-item guesswork.
+  const showRemaining = allocation && allocation.allocated > 0;
 
   const addedSlugs = new Set((added || []).map(a => a.activity_slug));
   const suggested = getSuggestedActivities(event.event_type_slug, event.theme_slug);
@@ -67,6 +78,11 @@ export default function ActivityIdeasLibrary({ event, added, onAdd, onRemove, on
         <Text style={s.header}>Activity ideas</Text>
         <Text style={s.collapseText}>Hide ‹</Text>
       </TouchableOpacity>
+      {showRemaining && (
+        <Text style={[s.itemHint, { marginBottom: 10 }]}>
+          Roughly ₹{allocation.remaining.toLocaleString('en-IN')} left in your overall budget after your other planned items — a rough guide for how much room you have for extras like these.
+        </Text>
+      )}
       {addedSlugs.size > 0 && (
         <Text style={[s.itemHint, { marginBottom: 10 }]}>Tap ☆ next to something you've added to feature it on your invite, so guests know what to expect.</Text>
       )}

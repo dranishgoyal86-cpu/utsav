@@ -82,6 +82,7 @@ export default function ProfileScreen({ navigation }) {
   const [editForm, setEditForm] = useState({ name: '', phone: '', address: '', gender: '', dobDay: null, dobMonth: null, dobYear: null });
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [tutorialsExpanded, setTutorialsExpanded] = useState(false);
   const s = makeStyles(theme);
 
   useEffect(() => { fetchUser(); fetchHostEvents(); }, []);
@@ -143,6 +144,21 @@ export default function ProfileScreen({ navigation }) {
         return;
       }
       navigation.navigate('GatePass', { eventId: mostRecentEventId, forceTour: 'gatepass_intro' });
+    } else if (tourKey === 'invites_intro') {
+      // No eventId param needed even without a most-recent event — InviteHub
+      // has its own standalone event picker for exactly this case (same as
+      // GuestList/EventTodo's own fallbacks).
+      navigation.navigate('InviteHub', { forceTour: 'invites_intro' });
+    } else if (tourKey === 'menuplanner_intro') {
+      // Unlike the other replays, this one genuinely needs a real event
+      // AND that event to already have menu_type: 'customized' (see
+      // MenuPlanner.js's gating comment) — no standalone picker exists here
+      // since MenuPlanner always expects an event handed to it.
+      if (!mostRecentEventId) {
+        showAlert('No events yet', 'Create an event plan first, then open Menu from its Plan screen to replay this tour.');
+        return;
+      }
+      navigation.navigate('MenuPlanner', { event: { id: mostRecentEventId }, forceTour: 'menuplanner_intro' });
     }
   }
 
@@ -440,11 +456,6 @@ export default function ProfileScreen({ navigation }) {
             <Text style={s.settingValue}>›</Text>
           </TouchableOpacity>
           <View style={s.divider} />
-          <TouchableOpacity style={s.settingRow} onPress={handleLogout}>
-            <Text style={s.settingIcon}>↩</Text>
-            <Text style={[s.settingLabel, { color: '#E85D04' }]}>Log out</Text>
-          </TouchableOpacity>
-          <View style={s.divider} />
           <TouchableOpacity
             style={s.settingRow}
             onPress={() => navigation.navigate('SavedProviders')}
@@ -486,20 +497,37 @@ export default function ProfileScreen({ navigation }) {
             <Text style={[s.settingLabel, { color: '#E03B3B' }]}>Delete my account</Text>
             <Text style={s.settingValue}>›</Text>
           </TouchableOpacity>
+          {/* Log out deliberately last — "keep log out in the last in the
+              list as it's easy to find after delete my account." */}
+          <View style={s.divider} />
+          <TouchableOpacity style={s.settingRow} onPress={handleLogout}>
+            <Text style={s.settingIcon}>↩</Text>
+            <Text style={[s.settingLabel, { color: '#E85D04' }]}>Log out</Text>
+          </TouchableOpacity>
         </View>
-        <Text style={s.sectionLabel}>TUTORIALS</Text>
-        <View style={s.settingsCard}>
-          {TOUR_DEFINITIONS.map((tourDef, i) => (
-            <View key={tourDef.key}>
-              {i > 0 && <View style={s.divider} />}
-              <TouchableOpacity style={s.settingRow} onPress={() => replayTour(tourDef.key)}>
-                <Text style={s.settingIcon}>🔁</Text>
-                <Text style={s.settingLabel}>{tourDef.label}</Text>
-                <Text style={s.settingValue}>Replay ›</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
+
+        {/* Tutorials — collapsed by default now that the list has grown
+            (Invites and Menu Planner added alongside the original 4), so
+            the Profile screen doesn't get longer just because more tours
+            exist. */}
+        <TouchableOpacity style={s.sectionLabelRow} onPress={() => setTutorialsExpanded(v => !v)} activeOpacity={0.7}>
+          <Text style={s.sectionLabel}>TUTORIALS</Text>
+          <Text style={s.sectionLabelCaret}>{tutorialsExpanded ? '▾' : '▸'}</Text>
+        </TouchableOpacity>
+        {tutorialsExpanded && (
+          <View style={s.settingsCard}>
+            {TOUR_DEFINITIONS.map((tourDef, i) => (
+              <View key={tourDef.key}>
+                {i > 0 && <View style={s.divider} />}
+                <TouchableOpacity style={s.settingRow} onPress={() => replayTour(tourDef.key)}>
+                  <Text style={s.settingIcon}>🔁</Text>
+                  <Text style={s.settingLabel}>{tourDef.label}</Text>
+                  <Text style={s.settingValue}>Replay ›</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
 
         <Text style={[s.version, { color: theme.textTertiary }]}>Utsav v1.0.0</Text>
         <View style={{ height: 140 }} />
@@ -762,6 +790,8 @@ function makeStyles(theme) {
     profileMeta: { fontSize: 12, color: theme.textSecondary, marginTop: 1 },
 
     sectionLabel: { fontSize: 11, fontWeight: '700', color: theme.textTertiary, paddingHorizontal: 20, marginBottom: 10, letterSpacing: 0.6 },
+    sectionLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 20 },
+    sectionLabelCaret: { fontSize: 11, color: theme.textTertiary, marginBottom: 10 },
     settingsCard: {
       marginHorizontal: 20, marginBottom: 24,
       backgroundColor: theme.cardBg, borderRadius: 20,

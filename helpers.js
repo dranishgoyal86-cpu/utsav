@@ -255,6 +255,22 @@ export async function uploadToCloudinary(imageUri, resourceType = 'image') {
   try {
     const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/${resourceType}/upload`;
 
+    // expo-file-system's uploadAsync (the native path below) has no web
+    // implementation — imageUri here is a blob:/data: URI from
+    // expo-image-picker's web picker, not a filesystem path, so this goes
+    // straight through fetch + FormData instead (both real browser APIs).
+    if (Platform.OS === 'web') {
+      const blob = await (await fetch(imageUri)).blob();
+      const formData = new FormData();
+      formData.append('file', blob);
+      formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
+      formData.append('cloud_name', CLOUDINARY_CONFIG.cloudName);
+      const response = await fetch(url, { method: 'POST', body: formData });
+      const data = await response.json();
+      if (!data.secure_url) throw new Error(data.error?.message || 'Upload failed');
+      return { url: data.secure_url, publicId: data.public_id };
+    }
+
     const result = await FileSystem.uploadAsync(url, imageUri, {
       httpMethod: 'POST',
       uploadType: FileSystem.FileSystemUploadType.MULTIPART,

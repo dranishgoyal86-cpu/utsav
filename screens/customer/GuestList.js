@@ -3263,24 +3263,25 @@ export default function GuestList({ route, navigation }) {
             <Text style={s.inviteCtaText}>{eventHasInvite ? 'Share Invite' : 'Create & Share Invite'}</Text>
           </TouchableOpacity>
 
-          {/* Cross-cutting tools added for meal/gift/seating/check-in tracking */}
+          {/* Cross-cutting tools added for meal/gift/seating/check-in tracking.
+              Ordered by priority (Anish's request — "the other tabs should
+              be placed on based of priority"): setup tasks a host does once
+              early (Functions, +1 limit), then active RSVP tracking
+              (RSVP dashboard, Remind pending), then planning/logistics
+              (Meal counts, Travel, Gifts, Seating), then day-of check-in
+              tools last (Gate passes, Send all passes, Gate list) since
+              those matter closest to the event itself. "Create invite" was
+              removed here entirely — InviteHub.js (via the CTA above) is
+              now the one front door for both invite systems, so this
+              second, separate shortcut straight into the Designer Suite
+              was redundant. */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.utilityRowScroll} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-            {showMealPreferences && (
-              <TouchableOpacity style={s.utilityChip} onPress={() => setMealCountsModal(true)}>
-                <ForkKnife size={14} color={theme.text} />
-                <Text style={s.utilityChipText}>Meal counts</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity style={s.utilityChip} onPress={() => setGiftsModal(true)}>
-              <Gift size={14} color={theme.text} />
-              <Text style={s.utilityChipText}>Gifts</Text>
+            <TouchableOpacity ref={functionsChipRef} style={s.utilityChip} onPress={() => setFunctionsModal(true)}>
+              <Text style={{ fontSize: 14 }}>🎊</Text>
+              <Text style={s.utilityChipText}>
+                {eventFunctions.length > 0 ? `Functions (${eventFunctions.length})` : '+ Functions'}
+              </Text>
             </TouchableOpacity>
-            {counts.pending > 0 && (
-              <TouchableOpacity style={s.utilityChip} onPress={() => setReminderQueueModal(true)}>
-                <PaperPlaneTilt size={14} color={theme.text} />
-                <Text style={s.utilityChipText}>Remind pending ({counts.pending})</Text>
-              </TouchableOpacity>
-            )}
             {!isDelegateView && (
               <TouchableOpacity style={s.utilityChip} onPress={openPlusOneLimitModal}>
                 <Text style={{ fontSize: 14 }}>👥</Text>
@@ -3289,34 +3290,38 @@ export default function GuestList({ route, navigation }) {
                 </Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity ref={functionsChipRef} style={s.utilityChip} onPress={() => setFunctionsModal(true)}>
-              <Text style={{ fontSize: 14 }}>🎊</Text>
-              <Text style={s.utilityChipText}>
-                {eventFunctions.length > 0 ? `Functions (${eventFunctions.length})` : '+ Functions'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.utilityChip} onPress={() => { setTravelTab('accommodations'); setTravelModal(true); }}>
-              <Text style={{ fontSize: 14 }}>🧳</Text>
-              <Text style={s.utilityChipText}>
-                {pickupList.length > 0 ? `Travel (${pickupList.length} pickup)` : 'Travel'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.utilityChip} onPress={() => navigation.navigate('SeatingChart', { eventId: event.id })}>
-              <Table size={14} color={theme.text} />
-              <Text style={s.utilityChipText}>Seating</Text>
-            </TouchableOpacity>
-            {!isDelegateView && (
-              <TouchableOpacity style={s.utilityChip} onPress={() => navigation.navigate('ToranInvites', { eventId: event.id })}>
-                <PaperPlaneTilt size={14} color={theme.text} />
-                <Text style={s.utilityChipText}>Create invite</Text>
-              </TouchableOpacity>
-            )}
             {showRsvpTracking && !isDelegateView && (
               <TouchableOpacity style={s.utilityChip} onPress={() => navigation.navigate('RsvpDashboard', { eventId: event.id })}>
                 <ChartBar size={14} color={theme.text} />
                 <Text style={s.utilityChipText}>RSVP dashboard</Text>
               </TouchableOpacity>
             )}
+            {counts.pending > 0 && (
+              <TouchableOpacity style={s.utilityChip} onPress={() => setReminderQueueModal(true)}>
+                <PaperPlaneTilt size={14} color={theme.text} />
+                <Text style={s.utilityChipText}>Remind pending ({counts.pending})</Text>
+              </TouchableOpacity>
+            )}
+            {showMealPreferences && (
+              <TouchableOpacity style={s.utilityChip} onPress={() => setMealCountsModal(true)}>
+                <ForkKnife size={14} color={theme.text} />
+                <Text style={s.utilityChipText}>Meal counts</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={s.utilityChip} onPress={() => { setTravelTab('accommodations'); setTravelModal(true); }}>
+              <Text style={{ fontSize: 14 }}>🧳</Text>
+              <Text style={s.utilityChipText}>
+                {pickupList.length > 0 ? `Travel (${pickupList.length} pickup)` : 'Travel'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.utilityChip} onPress={() => setGiftsModal(true)}>
+              <Gift size={14} color={theme.text} />
+              <Text style={s.utilityChipText}>Gifts</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.utilityChip} onPress={() => navigation.navigate('SeatingChart', { eventId: event.id })}>
+              <Table size={14} color={theme.text} />
+              <Text style={s.utilityChipText}>Seating</Text>
+            </TouchableOpacity>
             {showGatePass && !isDelegateView && (
               <TouchableOpacity ref={gatePassChipRef} style={s.utilityChip} onPress={() => navigation.navigate('GatePass', { eventId: event.id })}>
                 <QrCode size={14} color={theme.text} />

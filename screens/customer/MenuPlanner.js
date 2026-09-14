@@ -1,11 +1,35 @@
-import { useState, useEffect } from 'react';
-import { View, ScrollView, StyleSheet } from 'react-native';
+import { useState, useEffect, useMemo } from 'react';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import AppHeader from '../../components/AppHeader';
 import MenuLibrary from '../../components/MenuLibrary';
 import { showAlert } from '../../helpers';
+import { useTour } from '../../hooks/useTour';
+import CoachMarkTour from '../../components/CoachMarkTour';
+import { useEventPlan } from '../../hooks/useEventPlan';
+import { estimateMenuSpread } from '../../lib/priceEngine';
+
+// "add more tutorials in the profile for invites and other planning
+// options" — targets registered from inside MenuLibrary.js itself (see
+// that file), since it's this screen's whole body; this is just the
+// tour-state owner, same split EventTodo.js/GuestList.js already use for
+// their own tours.
+const MENUPLANNER_TOUR_STEPS = [
+  {
+    key: 'foodtype',
+    target: 'menuplanner-foodtype',
+    title: 'Start with food type',
+    description: 'Pick exactly one — Pure Veg, Non-Veg, Jain, and so on. This filters every category below.',
+  },
+  {
+    key: 'cuisine',
+    target: 'menuplanner-cuisine',
+    title: 'Mix in cuisines',
+    description: 'Pick as many cuisines as you like, or choose Multicuisine to see every dish in every category, regardless of cuisine.',
+  },
+];
 
 // Birthday Event Improvement plan — menu planner rebuild.
 // Was an inline collapsible section on PlanView.js (Piece 5, course-size
@@ -20,12 +44,56 @@ import { showAlert } from '../../helpers';
 export default function MenuPlanner({ route, navigation }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
-  const { event: routeEvent } = route.params || {};
+  const { event: routeEvent, forceTour } = route.params || {};
   const eventId = routeEvent?.id;
 
   const [event, setEvent] = useState(routeEvent || null);
   const [selections, setSelections] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // The tour's targets (food type/cuisine rows) only exist once
+  // event.menu_type === 'customized' — before that, MenuLibrary.js shows
+  // the "who's building the menu" choice instead. Gating on that here
+  // (rather than firing on mount like most other tours) avoids the tour
+  // silently marking itself "seen" via CoachMarkTour's unmeasurable-target
+  // skip, before the host ever actually saw it.
+  const menuTour = useTour('menuplanner_intro');
+  useEffect(() => {
+    if (event?.menu_type !== 'customized') return;
+    if (forceTour === 'menuplanner_intro') {
+      menuTour.forceRestart();
+    } else if (menuTour.checked) {
+      menuTour.startTour();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuTour.checked, forceTour, event?.menu_type]);
+
+  // "the event planner should modify its content... as per the budget of
+  // the host" — reuses useEventPlan's own allocation math (same source
+  // PlanView.js's budget card already trusts) rather than recomputing
+  // budget logic here a second time. This is a second, independent fetch
+  // pipeline alongside this screen's own loadEvent/loadSelections below —
+  // an accepted overhead for now, since MenuPlanner was deliberately built
+  // self-contained and duplicating just the read-only allocation call is
+  // simpler than threading it through from PlanView.js's navigation.
+  const { allocation, loading: allocationLoading } = useEventPlan(eventId);
+  // .allocated (not .cost) — the amount the budget waterfall actually set
+  // aside for catering after higher-priority items, which is what "your
+  // budget suggests for food" means; .cost is catering's raw estimated
+  // price regardless of budget, a different (and less relevant) number.
+  const cateringAllocated = (allocation?.lines || [])
+    .filter(l => l.category_slug === 'catering')
+    .reduce((sum, l) => sum + l.allocated, 0);
+
+  const menuEstimate = useMemo(() => {
+    const dishCount = selections.length;
+    const liveCounterCount = selections.filter(s => s.course_category === 'live-counters').length;
+    const cuisines = [...new Set(selections.map(s => s.cuisine_slug).filter(Boolean))];
+    return estimateMenuSpread({
+      dishCount, liveCounterCount, cuisines,
+      guestCount: event?.guest_count, isVegOnly: !!event?.is_veg_only,
+    });
+  }, [selections, event?.guest_count, event?.is_veg_only]);
 
   async function loadEvent() {
     if (!eventId) return;
@@ -93,6 +161,24 @@ export default function MenuPlanner({ route, navigation }) {
     <SafeAreaView style={s.container}>
       <AppHeader theme={theme} navigation={navigation} onBack={() => navigation.goBack()} title="Menu" eventId={event.id} />
       <ScrollView style={s.scroll} contentContainerStyle={{ padding: 20 }}>
+        {menuEstimate.available && (
+          <View style={s.estimateCard}>
+            <Text style={s.estimateTitle}>
+              Estimated catering: ₹{menuEstimate.perPlateLow.toLocaleString('en-IN')}–₹{menuEstimate.perPlateHigh.toLocaleString('en-IN')}/plate
+            </Text>
+            <Text style={s.estimateTotal}>
+              ≈ ₹{menuEstimate.totalLow.toLocaleString('en-IN')}–₹{menuEstimate.totalHigh.toLocaleString('en-IN')} total for {event.guest_count} guests
+            </Text>
+            {!allocationLoading && cateringAllocated > 0 && (
+              <Text style={menuEstimate.totalLow > cateringAllocated ? s.estimateOverBudget : s.estimateWithinBudget}>
+                {menuEstimate.totalLow > cateringAllocated
+                  ? `Your budget suggests about ₹${cateringAllocated.toLocaleString('en-IN')} for food — this spread is tracking higher.`
+                  : `Your budget suggests about ₹${cateringAllocated.toLocaleString('en-IN')} for food — this spread fits comfortably.`}
+              </Text>
+            )}
+            <Text style={s.estimateBasis}>{menuEstimate.basis}</Text>
+          </View>
+        )}
         <MenuLibrary
           event={event}
           selections={selections}
@@ -105,6 +191,13 @@ export default function MenuPlanner({ route, navigation }) {
           theme={theme}
         />
       </ScrollView>
+
+      <CoachMarkTour
+        visible={menuTour.isTourActive}
+        steps={MENUPLANNER_TOUR_STEPS}
+        onComplete={menuTour.markComplete}
+        onSkip={menuTour.markComplete}
+      />
     </SafeAreaView>
   );
 }
@@ -113,5 +206,14 @@ function makeStyles(theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.bg },
     scroll: { flex: 1 },
+    estimateCard: {
+      backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 0.5, borderColor: theme.border,
+      padding: 16, marginBottom: 18,
+    },
+    estimateTitle: { fontSize: 14.5, fontWeight: '700', color: theme.text },
+    estimateTotal: { fontSize: 13, color: theme.textSecondary, marginTop: 4 },
+    estimateOverBudget: { fontSize: 12.5, fontWeight: '600', color: '#E65100', marginTop: 8 },
+    estimateWithinBudget: { fontSize: 12.5, fontWeight: '600', color: '#2E7D32', marginTop: 8 },
+    estimateBasis: { fontSize: 11, color: theme.textTertiary, marginTop: 8, lineHeight: 15 },
   });
 }

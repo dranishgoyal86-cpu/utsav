@@ -609,6 +609,7 @@ export default function PlanView({ route, navigation }) {
           onRemove={handleRemoveActivity}
           onToggleFeature={handleToggleFeatureActivity}
           theme={theme}
+          allocation={allocation}
         />
 
         <View style={{ height: 60 }} />

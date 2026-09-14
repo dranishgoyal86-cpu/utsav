@@ -7,6 +7,7 @@ import { buildPresentationContent } from '../../lib/invitePresentationModel';
 import { buildStaticLayoutModel } from '../../lib/staticInviteLayout';
 import { getVariant } from '../../lib/inviteDesignArchetypes';
 import { isNonFestive } from '../../lib/inviteSchemas';
+import { getKidsBirthdayInviteOptions } from '../../lib/kidsBirthdayThemes';
 
 // Production Integration Wave — the ONE real rendering bridge between a
 // host's saved template_id (see lib/inviteProductionDesign.js's storage
@@ -58,12 +59,60 @@ export default function ProductionInviteCard({ templateId, eventTypeSlug, values
     const presentation = buildPresentationContent({ eventTypeSlug, values, event, functions, featuredActivities });
     const effectiveValues = { ...values, invocationText: presentation.invocationText };
     const effectiveEvent = { ...event, venue: presentation.primaryVenue };
+    // Kids Birthday Theme-Aware Invite Designer — resolved once, up front,
+    // so both the accent-colour override (tokens, below) and the
+    // decoration icon badge (layoutModel, below) come from exactly the
+    // same theme resolution — never two independent lookups that could
+    // disagree with each other on reload.
+    const kbOptions = (eventTypeSlug === 'kids-birthday' && event?.theme_slug)
+      ? getKidsBirthdayInviteOptions(event.theme_slug, event.theme_palette)
+      : null;
+
     const layoutModel = buildStaticLayoutModel({
       archetypeId: parsed.archetypeId, variantId: parsed.variantId,
       event: effectiveEvent, values: effectiveValues, eventTypeSlug,
       isNonFestive: false, qrTargetUrl: null, photoUrl: presentation.heroPhotoUrl,
+      // A single representative icon (the theme's own icon set, position
+      // 0) rendered via StaticInviteCard's existing icon-badge slot — see
+      // that component's own comment for why this alone (combined with
+      // the accent colour below) is enough for two themes sharing an
+      // archetype/variant to read as visually distinct designs, without
+      // forking the renderer or building a bespoke component per theme.
+      decorationIcon: kbOptions?.icons?.[0] || null,
     });
-    return <StaticInviteCard layoutModel={layoutModel} tokens={variant.tokens} />;
+
+    // A real per-theme accent colour layered on top of the chosen
+    // archetype/variant's own frozen tokens, never replacing them
+    // wholesale (see lib/kidsBirthdayThemes.js's header for why this
+    // doesn't fork the renderer). Reads event.theme_slug/theme_palette —
+    // the same real, already-persisted Plan-screen fields
+    // (supabase/migrations/20260913010000_event_theme_palette.sql) — there
+    // is no separate, invite-side theme store to keep in sync.
+    //
+    // Also overrides `line` (StaticInviteCard.js's Motif/HairRule color),
+    // not just `accent` — found via visual QA that `accent` alone is
+    // invisible on a kids-birthday card: it's only ever applied to the
+    // symbol/kicker/connector text slots, none of which kids-birthday
+    // content populates. `line` drives the big decorative motif art and
+    // the hairline rule, which DO always render, so this is what actually
+    // makes the per-theme colour visible. `bg`/`ink`/`dim`/`dateColor`
+    // stay untouched — those are tuned for text contrast against the
+    // variant's own fixed background and overriding them risks an
+    // unreadable card, which a decorative line/motif color never does.
+    let tokens = variant.tokens;
+    if (kbOptions?.accentOverride) {
+      const accent = kbOptions.accentOverride;
+      tokens = {
+        ...variant.tokens,
+        colors: { ...variant.tokens.colors, accent, line: accent },
+        semantic: {
+          ...variant.tokens.semantic,
+          accent, accentSoft: `${accent}33`,
+          divider: accent, utilityBorder: accent, decorativeStroke: accent,
+        },
+      };
+    }
+    return <StaticInviteCard layoutModel={layoutModel} tokens={tokens} />;
   }
 
   return null;

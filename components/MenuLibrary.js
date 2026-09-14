@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, StyleSheet } from 'react-native';
 import { FOOD_TYPES, CUISINES, MENU_CATEGORIES, getDishesForCategory, isMenuLibraryApplicable } from '../lib/menuLibrary';
+import { registerTourTarget } from '../lib/tourTargets';
 
 // Birthday Event Improvement plan — menu planner rebuild.
 // This used to be a collapsed-by-default section inline on PlanView.js
@@ -39,6 +40,16 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
   const [customText, setCustomText] = useState({});
   const [noteText, setNoteText] = useState(providerNote || '');
   const s = makeStyles(theme);
+
+  // Menu Planner tour targets (MenuPlanner.js owns the actual tour
+  // state/CoachMarkTour render, since that's the screen with route params
+  // and navigation — this just registers the two rows it points at).
+  const foodTypeRowRef = useRef(null);
+  const cuisineRowRef = useRef(null);
+  useEffect(() => {
+    registerTourTarget('menuplanner-foodtype', foodTypeRowRef);
+    registerTourTarget('menuplanner-cuisine', cuisineRowRef);
+  }, []);
 
   if (!isMenuLibraryApplicable(event.event_type_slug)) return null;
 
@@ -98,7 +109,7 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
       {menuType === 'customized' && (
         <>
           <Text style={[s.label, { marginTop: 16 }]}>Food type <Text style={s.itemHintInline}>(pick one)</Text></Text>
-          <View style={s.chipsWrap}>
+          <View ref={foodTypeRowRef} style={s.chipsWrap}>
             {FOOD_TYPES.map(ft => (
               <TouchableOpacity key={ft.slug} style={[s.filterChip, foodType === ft.slug && s.filterChipActive]} onPress={() => setFoodType(foodType === ft.slug ? null : ft.slug)}>
                 <Text style={[s.filterChipText, foodType === ft.slug && s.filterChipTextActive]}>{ft.label}</Text>
@@ -107,7 +118,7 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
           </View>
 
           <Text style={[s.label, { marginTop: 16 }]}>Cuisine <Text style={s.itemHintInline}>(pick as many as you like)</Text></Text>
-          <View style={s.chipsWrap}>
+          <View ref={cuisineRowRef} style={s.chipsWrap}>
             {CUISINES.map(c => (
               <TouchableOpacity key={c.slug} style={[s.filterChip, cuisineFilters.includes(c.slug) && s.filterChipActive]} onPress={() => toggleFilter(cuisineFilters, setCuisineFilters, c.slug)}>
                 <Text style={[s.filterChipText, cuisineFilters.includes(c.slug) && s.filterChipTextActive]}>{c.label}</Text>

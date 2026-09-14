@@ -301,8 +301,18 @@ export default function StaticInviteCard({ layoutModel, tokens }) {
 
 const s = StyleSheet.create({
   card: { width: 324, aspectRatio: 4 / 5, alignItems: 'center', paddingTop: 18, paddingHorizontal: 18, borderRadius: 6, overflow: 'hidden', position: 'relative' },
-  iconBadge: { position: 'absolute', top: 14, right: 14, width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' },
-  iconBadgeText: { fontSize: 14 },
+  // Visual QA fix: 18%-opacity white on a saturated variant background
+  // (e.g. comic-burst's blue) nearly disappeared. A near-solid circle
+  // reads clearly against any bg color, light or dark, without needing
+  // per-archetype conditional styling; the hairline border keeps the
+  // circle itself visible even on a near-white bg like storybook-party's.
+  iconBadge: {
+    position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(0,0,0,0.06)',
+    shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+  },
+  iconBadgeText: { fontSize: 16 },
   photoWrap: { alignItems: 'center' },
   // Sized to leave clear, guaranteed room for names/date/venue/footer on
   // the fixed 324x405 card — the original sizes here (found via this

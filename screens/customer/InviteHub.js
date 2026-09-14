@@ -1,10 +1,32 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import AppHeader from '../../components/AppHeader';
 import { eventTypeName } from '../../lib/eventTypeNames';
+import { registerTourTarget } from '../../lib/tourTargets';
+import { useTour } from '../../hooks/useTour';
+import CoachMarkTour from '../../components/CoachMarkTour';
+
+// "add more tutorials in the profile for invites and other planning
+// options" — same spotlight-tour engine every other screen already uses
+// (see EventTodo.js/GuestList.js), added here since InviteHub is now the
+// one front door for both invite systems.
+const INVITES_TOUR_STEPS = [
+  {
+    key: 'single-page',
+    target: 'invites-single-page',
+    title: 'Quick and simple',
+    description: 'One shareable card — pick a template, fill in your event details, and share it in minutes. Good for most events.',
+  },
+  {
+    key: 'designer-suite',
+    target: 'invites-designer-suite',
+    title: 'The full design system',
+    description: 'For multi-function events — Haldi, Sangeet, Reception, etc. — the Designer Suite gives each function its own design, and is where every newer invite feature lands first.',
+  },
+];
 
 // "The invite designer in the guest list should be moved to the invites
 // tab itself on the main screen. So when clicked invites on the main
@@ -35,11 +57,27 @@ import { eventTypeName } from '../../lib/eventTypeNames';
 export default function InviteHub({ route, navigation }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
-  const { event: routeEvent } = route.params || {};
+  const { event: routeEvent, forceTour } = route.params || {};
 
   const [loading, setLoading] = useState(!routeEvent);
   const [myEvents, setMyEvents] = useState([]);
   const [pickedEvent, setPickedEvent] = useState(routeEvent || null);
+
+  const invitesTour = useTour('invites_intro');
+  useEffect(() => {
+    if (forceTour === 'invites_intro') {
+      invitesTour.forceRestart();
+    } else if (invitesTour.checked) {
+      invitesTour.startTour();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invitesTour.checked, forceTour]);
+  const singlePageRef = useRef(null);
+  const designerSuiteRef = useRef(null);
+  useEffect(() => {
+    registerTourTarget('invites-single-page', singlePageRef);
+    registerTourTarget('invites-designer-suite', designerSuiteRef);
+  }, []);
 
   useEffect(() => {
     if (routeEvent) return;
@@ -102,18 +140,25 @@ export default function InviteHub({ route, navigation }) {
       <View style={{ padding: 20 }}>
         <Text style={s.sectionLabel}>{pickedEvent.working_title || eventTypeName(pickedEvent.event_type_slug)}</Text>
 
-        <TouchableOpacity style={s.optionCard} onPress={() => openSinglePage(pickedEvent)}>
+        <TouchableOpacity ref={singlePageRef} style={s.optionCard} onPress={() => openSinglePage(pickedEvent)}>
           <Text style={s.optionEmoji}>📄</Text>
           <Text style={s.optionTitle}>Single Page Invite</Text>
           <Text style={s.optionSub}>One shareable card — pick a template, add your event details, and share it in minutes.</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={s.optionCard} onPress={() => openDesignerSuite(pickedEvent)}>
+        <TouchableOpacity ref={designerSuiteRef} style={s.optionCard} onPress={() => openDesignerSuite(pickedEvent)}>
           <Text style={s.optionEmoji}>🎨</Text>
           <Text style={s.optionTitle}>Designer Invite Suite</Text>
           <Text style={s.optionSub}>The full design system for this event — per-function designs (Haldi, Sangeet, Reception, etc.), multiple archetypes, and every later invite feature lives here.</Text>
         </TouchableOpacity>
       </View>
+
+      <CoachMarkTour
+        visible={invitesTour.isTourActive}
+        steps={INVITES_TOUR_STEPS}
+        onComplete={invitesTour.markComplete}
+        onSkip={invitesTour.markComplete}
+      />
     </SafeAreaView>
   );
 }

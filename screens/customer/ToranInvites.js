@@ -22,6 +22,8 @@ import {
 } from '../../lib/inviteProductionDesign';
 import { getArchetype, getVariant } from '../../lib/inviteDesignArchetypes';
 import { getCatalogueEntry } from '../../lib/inviteDesignArchetypes/catalogue';
+import { getKidsBirthdayInviteOptions } from '../../lib/kidsBirthdayThemes';
+import { withKidsBirthdayPlannerDefaults } from '../../lib/kidsBirthdayInviteDefaults';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import InviteDesignerDesktop from '../../components/desktop/InviteDesignerDesktop';
 
@@ -145,10 +147,21 @@ export default function ToranInvites({ route, navigation }) {
   // contentRow does, since `event` comes from a separate hook/query — this
   // effect, not load() itself, is what keeps the two in sync regardless of
   // which resolves first).
+  // Kids Birthday Theme-Aware Invite Designer — for a kids-birthday event
+  // only, layers real Plan-screen data (child name/age, theme, starred
+  // activities) UNDER whatever normalizeInviteContent() already resolved
+  // from saved content/schema defaults. withKidsBirthdayPlannerDefaults()
+  // never overwrites a key that's already set, so a host's own edited
+  // wording always survives a reopen — see that function's own header for
+  // the full precedence chain. featuredActivities is in this effect's own
+  // deps because it loads asynchronously after contentRow (see load()).
   useEffect(() => {
-    setValues(normalizeInviteContent(schema, contentRow));
+    let next = normalizeInviteContent(schema, contentRow);
+    next = withKidsBirthdayPlannerDefaults(next, event, { featuredActivities });
+    setValues(next);
     setSavedSchemaContent((contentRow && contentRow.schema_content) || {});
-  }, [schema, contentRow]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema, contentRow, event?.event_type_slug, event?.theme_slug, event?.theme_palette, event?.birthday_person_name, event?.birthday_person_dob, event?.event_date, featuredActivities]);
 
   // Wave 6 (Stillness) — Task 1's gating decision (Option A, restricted):
   // an event already marked non-celebratory only ever gets Stillness
@@ -203,9 +216,19 @@ export default function ToranInvites({ route, navigation }) {
   useEffect(() => {
     if (!event || design || contentSaved) return;
     if (allowedDesigns.length === 1) { setDesign(allowedDesigns[0]); return; }
+    // Kids Birthday Theme-Aware Invite Designer — a theme already chosen
+    // on the Plan screen (events.theme_slug) is a real suggestion input
+    // here, same "suggestion, not a default" rule as DESIGN_SUGGESTIONS
+    // below: only fires for a brand-new invite with nothing chosen or
+    // saved yet, never overrides an explicit or saved design.
+    if (event.event_type_slug === 'kids-birthday' && event.theme_slug) {
+      const kbOptions = getKidsBirthdayInviteOptions(event.theme_slug, event.theme_palette);
+      setDesign(buildArchetypeTemplateId(kbOptions.archetypeId, kbOptions.variantId));
+      return;
+    }
     const suggested = DESIGN_SUGGESTIONS[event.event_type_slug];
     if (suggested && allowedDesigns.includes(suggested)) setDesign(suggested);
-  }, [event?.event_type_slug, design, contentSaved, allowedDesigns.length]);
+  }, [event?.event_type_slug, event?.theme_slug, event?.theme_palette, design, contentSaved, allowedDesigns.length]);
 
   useEffect(() => { load(); }, [eventId]);
 
@@ -318,11 +341,17 @@ export default function ToranInvites({ route, navigation }) {
     setValues((prev) => ({ ...prev, [fieldKey]: value }));
   }
 
+  // Update/replace the invite card's photo, from this single invite page —
+  // works on both mobile and desktop web now: expo-image-picker's web
+  // implementation opens a real browser file picker (allowsEditing/aspect
+  // are simply ignored there, native-only, so this still returns the
+  // picker's own uncropped image on web rather than failing), and
+  // uploadToCloudinary() (helpers.js) now has a real fetch+FormData path
+  // for web instead of only expo-file-system's native-only uploadAsync —
+  // see that function's own comment. Previously this hard-blocked with a
+  // "use the mobile app" alert, so a saved invite's photo could never be
+  // changed from the web app at all.
   async function pickPhoto(fieldKey) {
-    if (Platform.OS === 'web') {
-      showAlert('Use the mobile app', 'Uploading a photo works in the Utsav mobile app.');
-      return;
-    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
