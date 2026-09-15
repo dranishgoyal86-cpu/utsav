@@ -48,10 +48,20 @@ export default function SlotPrompt({ route, navigation }) {
   const currentSlot = event ? BLOCKING_SLOTS.find(slot => slotApplies(slot, event) && !slotFilled(slot, event)) : null;
 
   // Both blocking slots filled (or not applicable to this event type) —
-  // move on to the live plan. Navigating from an effect, not during render.
+  // move on. Navigating from an effect, not during render.
+  // planning_stage (see supabase/migrations/20260916000000_planning_
+  // execution_split.sql) decides where: a brand-new event defaults to
+  // 'planning' and lands on EventScope.js first (decide what's included,
+  // no prices/vendors yet); an event that predates that column, or one
+  // that's already moved past planning, goes straight to PlanView.js same
+  // as always.
   useEffect(() => {
     if (!loading && event && !currentSlot) {
-      navigation.replace('PlanView', { eventId });
+      if (event.planning_stage === 'planning') {
+        navigation.replace('EventScope', { eventId });
+      } else {
+        navigation.replace('PlanView', { eventId });
+      }
     }
   }, [loading, event, currentSlot, eventId]);
 

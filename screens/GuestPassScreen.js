@@ -175,7 +175,9 @@ export default function GuestPassScreen({ route }) {
           </View>
           {alreadyCheckedIn ? (
             <Text style={s.checkedInBadge}>✓ Checked in{pass.arrivedCount > 1 ? ` · ${pass.arrivedCount} arrived` : ''}</Text>
-          ) : null}
+          ) : (
+            <Text style={s.howToUse}>Show this QR code to be scanned at the gate — or, if you're near the venue, look below for a "check in now" button you can tap yourself.</Text>
+          )}
         </View>
 
         {dataDeleted ? (
@@ -235,6 +237,7 @@ function makeStyles(theme) {
     code: { fontSize: 22, fontWeight: '800', letterSpacing: 4, color: theme.text, marginTop: 16, fontFamily: 'Courier' },
     qrBox: { marginTop: 18, backgroundColor: '#fff', padding: 10, borderRadius: 12 },
     checkedInBadge: { fontSize: 13, fontWeight: '700', color: '#4CAF50', marginTop: 16 },
+    howToUse: { fontSize: 12, color: theme.textSecondary, textAlign: 'center', lineHeight: 17, marginTop: 16, maxWidth: 260 },
 
     proximityBtn: {
       marginTop: 18, backgroundColor: '#2E7D32', borderRadius: 16, paddingVertical: 16,

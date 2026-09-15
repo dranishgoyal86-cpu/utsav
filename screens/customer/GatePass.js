@@ -128,12 +128,32 @@ export default function GatePass({ route, navigation }) {
         return [g.name, g.phone, p.pass_code, p.party_size, p.status, p.checked_in_at, p.arrived_count].map(csvEscape).join(',');
       });
       const csv = [header.map(csvEscape).join(','), ...rows].join('\n');
-      const fileUri = FileSystem.documentDirectory + `visitor-register-${eventId}.csv`;
-      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Visitor register export', UTI: 'public.comma-separated-values-text' });
+      const filename = `visitor-register-${eventId}.csv`;
+
+      // FileSystem.documentDirectory is null on web (no such concept in a
+      // browser) — writeAsStringAsync against a null path was the actual
+      // bug, silent-ish (caught below, but the feature just never worked on
+      // web). Browser download instead: a Blob + a throwaway <a download>
+      // link, same trigger-a-download idea GuestList.js's downloadDataUrl
+      // already uses for invite images on web.
+      if (Platform.OS === 'web') {
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
       } else {
-        showAlert('Saved', 'CSV file created.');
+        const fileUri = FileSystem.documentDirectory + filename;
+        await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Visitor register export', UTI: 'public.comma-separated-values-text' });
+        } else {
+          showAlert('Saved', 'CSV file created.');
+        }
       }
     } catch (err) {
       showAlert('Error', err.message || 'Could not export CSV.');

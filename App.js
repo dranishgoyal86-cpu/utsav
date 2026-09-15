@@ -98,6 +98,7 @@ import FaceScan from './screens/customer/FaceScan';
 import EventPlanner from './screens/customer/EventPlanner';
 import SlotPrompt from './screens/customer/SlotPrompt';
 import PlanView from './screens/customer/PlanView';
+import EventScope from './screens/customer/EventScope';
 import ItemDetail from './screens/customer/ItemDetail';
 import VenuePicker from './screens/customer/VenuePicker';
 import GuestList from './screens/customer/GuestList';
@@ -641,6 +642,7 @@ function MainApp() {
             <Stack.Screen name="EventPlanner" component={EventPlanner} />
             <Stack.Screen name="SlotPrompt" component={SlotPrompt} />
             <Stack.Screen name="PlanView" component={PlanView} />
+            <Stack.Screen name="EventScope" component={EventScope} />
             <Stack.Screen name="ItemDetail" component={ItemDetail} />
             <Stack.Screen name="VenuePicker" component={VenuePicker} />
             <Stack.Screen name="ComparePlans" component={ComparePlans} />

@@ -177,6 +177,14 @@ export default function PlanView({ route, navigation }) {
   // included, not just the two gated blocks below).
   const accentColor = isCelebratoryEvent ? (paletteAccent || theme.accent) : theme.textSecondary;
 
+  // Planning vs. Execution split — items the host explicitly skipped on
+  // EventScope.js (the new Planning stage) stay out of this list entirely;
+  // see supabase/migrations/20260916000000_planning_execution_split.sql.
+  // Display-layer filter only — resolved/estimates/progress/allocation
+  // themselves are untouched, so nothing else that reads useEventPlan's
+  // output (ItemDetail.js, etc.) needs to know this concept exists.
+  const excludedItemNames = new Set(event?.excluded_items || []);
+
   const [openSections, setOpenSections] = useState({ P1: true, P2: false, P3: false, P4: false, P5: false });
   // Keyed by event_functions.id — collapsed by default, same "closed until
   // opened" default as P2-P5 above (P1 is the only section that starts open).
@@ -301,6 +309,19 @@ export default function PlanView({ route, navigation }) {
       showAlert('Error', err.message);
     } finally {
       setCancelling(false);
+    }
+  }
+
+  const [goingBackToPlanning, setGoingBackToPlanning] = useState(false);
+  async function backToPlanning() {
+    setGoingBackToPlanning(true);
+    try {
+      const { error: err } = await supabase.from('events').update({ planning_stage: 'planning' }).eq('id', eventId);
+      if (err) throw err;
+      navigation.replace('EventScope', { eventId });
+    } catch (err) {
+      showAlert('Error', err.message);
+      setGoingBackToPlanning(false);
     }
   }
 
@@ -439,6 +460,17 @@ export default function PlanView({ route, navigation }) {
           {(event.venue || venue?.name) ? <Text style={s.metaLine}>{venue?.name || event.venue}</Text> : null}
         </View>
 
+        {/* ── Back to planning — Planning vs. Execution split. Freely
+             revisitable both ways per Anish's call: this never locks
+             anything, just flips planning_stage back and hands off to
+             EventScope.js; nothing booked here is touched or lost, and
+             anything re-included there shows back up here again on return. ── */}
+        <TouchableOpacity style={s.backToPlanningLink} onPress={backToPlanning} disabled={goingBackToPlanning}>
+          {goingBackToPlanning ? <ActivityIndicator color={theme.textSecondary} size="small" /> : (
+            <Text style={s.backToPlanningLinkText}>← Back to planning</Text>
+          )}
+        </TouchableOpacity>
+
         {/* ── Event details — every field the host can set, always here, not
              just while empty. This is the direct fix for "no option of
              modifying the details". Opens automatically when something's
@@ -544,7 +576,7 @@ export default function PlanView({ route, navigation }) {
 
         {/* ── P1-P4 sections ── */}
         {['P1', 'P2', 'P3', 'P4'].map(priority => {
-          const items = resolved[priority] || [];
+          const items = (resolved[priority] || []).filter(item => !excludedItemNames.has(item.item_name));
           if (items.length === 0) return null;
           const meta = PRIORITY_META[priority];
           const isOpen = openSections[priority];
@@ -582,10 +614,12 @@ export default function PlanView({ route, navigation }) {
             actually set a budget for that specific function — most
             functions on most events won't have one, and that's expected,
             not an empty/error state. ── */}
-        {resolvedByFunction.map(fn => (
+        {resolvedByFunction.map(fn => {
+          const fnItems = fn.items.filter(item => !excludedItemNames.has(item.item_name));
+          return (
           <View key={fn.functionId} style={s.section}>
             <TouchableOpacity style={s.sectionHeader} onPress={() => toggleFunctionSection(fn.functionId)}>
-              <Text style={s.sectionTitle}>For {fn.functionName} ({fn.items.length})</Text>
+              <Text style={s.sectionTitle}>For {fn.functionName} ({fnItems.length})</Text>
               <Text style={s.sectionCaret}>{openFunctionSections[fn.functionId] ? '▾' : '▸'}</Text>
             </TouchableOpacity>
             {openFunctionSections[fn.functionId] && (
@@ -623,7 +657,7 @@ export default function PlanView({ route, navigation }) {
                   </View>
                 )}
 
-                {fn.items.map(item => (
+                {fnItems.map(item => (
                   <ItemRow
                     key={item.item_name}
                     item={item}
@@ -637,7 +671,8 @@ export default function PlanView({ route, navigation }) {
               </>
             )}
           </View>
-        ))}
+          );
+        })}
 
         {/* ── Budget summary ── */}
         {event.budget_total != null && (
@@ -665,13 +700,13 @@ export default function PlanView({ route, navigation }) {
         )}
 
         {/* ── P5 — off-ladder, visually distinct ── */}
-        {(resolved.P5 || []).length > 0 && (
+        {(() => { const p5Items = (resolved.P5 || []).filter(item => !excludedItemNames.has(item.item_name)); return p5Items.length > 0 && (
           <View style={[s.section, s.p5Section]}>
             <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('P5')}>
-              <Text style={s.p5Title}>You may also love... ({resolved.P5.length})</Text>
+              <Text style={s.p5Title}>You may also love... ({p5Items.length})</Text>
               <Text style={s.sectionCaret}>{openSections.P5 ? '▾' : '▸'}</Text>
             </TouchableOpacity>
-            {openSections.P5 && resolved.P5.map(item => (
+            {openSections.P5 && p5Items.map(item => (
               <ItemRow
                 key={item.item_name}
                 item={item}
@@ -683,7 +718,7 @@ export default function PlanView({ route, navigation }) {
               />
             ))}
           </View>
-        )}
+        ); })()}
 
         <ActivityIdeasLibrary
           event={event}
@@ -946,6 +981,8 @@ function makeStyles(theme) {
     cancelledBannerSub: { fontSize: 13, color: theme.textSecondary, lineHeight: 18 },
     cancelEventLink: { alignItems: 'center', paddingVertical: 12, marginBottom: 20 },
     cancelEventLinkText: { fontSize: 13, fontWeight: '600', color: theme.statusDeclinedText, textDecorationLine: 'underline' },
+    backToPlanningLink: { alignSelf: 'flex-start', paddingVertical: 8, marginBottom: 8 },
+    backToPlanningLinkText: { fontSize: 13, fontWeight: '600', color: theme.textSecondary },
 
     progressCard: { marginBottom: 20 },
     progressLabel: { fontSize: 13, fontWeight: '600', color: theme.text, marginBottom: 8 },

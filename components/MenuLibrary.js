@@ -1,7 +1,26 @@
 import { useState, useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, StyleSheet } from 'react-native';
-import { FOOD_TYPES, CUISINES, MENU_CATEGORIES, getDishesForCategory, isMenuLibraryApplicable } from '../lib/menuLibrary';
+import { FOOD_TYPES, CUISINES, MENU_CATEGORIES, getDishesForCategory, isMenuLibraryApplicable, dishVegStatus, dishVegStatusFromSelection } from '../lib/menuLibrary';
 import { registerTourTarget } from '../lib/tourTargets';
+
+// Standard Indian veg (green square, green dot) / egg (brown square, brown
+// dot) / non-veg (red-brown square, red-brown dot) marker — the same
+// symbol used on Indian food packaging, drawn with plain Views so it needs
+// no image asset and no icon-font import. See
+// claude/menu-planning-vs-execution-split.md.
+const VEG_DOT_COLORS = {
+  veg: '#2E7D32',
+  egg: '#8D6E38',
+  'non-veg': '#A0311E',
+};
+function VegDot({ status }) {
+  const color = VEG_DOT_COLORS[status] || VEG_DOT_COLORS.veg;
+  return (
+    <View style={{ width: 11, height: 11, borderWidth: 1, borderColor: color, alignItems: 'center', justifyContent: 'center', marginRight: 6 }}>
+      <View style={{ width: 5, height: 5, borderRadius: status === 'non-veg' ? 0 : 2.5, backgroundColor: color }} />
+    </View>
+  );
+}
 
 // Birthday Event Improvement plan — menu planner rebuild.
 // This used to be a collapsed-by-default section inline on PlanView.js
@@ -33,7 +52,7 @@ import { registerTourTarget } from '../lib/tourTargets';
 //   onAddDish({ name, category, cuisine, foodType, isCustom })
 //   onRemoveDish(selectionId)
 //   onUpdateDetails(selectionId, { price, quantity, notes })   (autosave on blur)
-export default function MenuLibrary({ event, selections, providerNote, onSetMenuType, onAddDish, onRemoveDish, onUpdateDetails, onSaveProviderNote, theme }) {
+export default function MenuLibrary({ event, selections, providerNote, menuStage, onSetMenuType, onSetMenuStage, onAddDish, onRemoveDish, onUpdateDetails, onSaveProviderNote, theme }) {
   const [foodType, setFoodType] = useState(null);
   const [cuisineFilters, setCuisineFilters] = useState([]);
   const [openCategory, setOpenCategory] = useState(null);
@@ -127,6 +146,17 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
           </View>
           <Text style={s.itemHint}>Leave food type unselected, or choose Multicuisine, to browse everything in a category.</Text>
 
+          {menuStage === 'selecting' && selections.length > 0 && (
+            <TouchableOpacity style={s.stageCta} onPress={onSetMenuStage ? () => onSetMenuStage('pricing') : undefined}>
+              <Text style={s.stageCtaText}>Done selecting — add pricing & quantity →</Text>
+            </TouchableOpacity>
+          )}
+          {menuStage !== 'selecting' && (
+            <TouchableOpacity style={s.backLink} onPress={onSetMenuStage ? () => onSetMenuStage('selecting') : undefined}>
+              <Text style={s.backLinkText}>← Back to selecting (just the list, no prices)</Text>
+            </TouchableOpacity>
+          )}
+
           {MENU_CATEGORIES.map(cat => {
             const dishes = getDishesForCategory(cat.slug, { foodType, cuisines: cuisineFilters });
             const pickedInCategory = (selections || []).filter(sel => sel.course_category === cat.slug);
@@ -134,7 +164,7 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
             return (
               <View key={cat.slug} style={s.categoryBlock}>
                 <TouchableOpacity onPress={() => setOpenCategory(isOpen ? null : cat.slug)} style={s.categoryHeaderRow}>
-                  <Text style={s.categoryTitle}>{cat.label}{pickedInCategory.length > 0 ? ` (${pickedInCategory.length})` : ''}</Text>
+                  <Text style={s.categoryTitle}>{cat.icon} {cat.label}{pickedInCategory.length > 0 ? ` (${pickedInCategory.length})` : ''}</Text>
                   <Text style={s.collapseText}>{isOpen ? '−' : '+'}</Text>
                 </TouchableOpacity>
 
@@ -143,7 +173,15 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
                     {pickedInCategory.length > 0 && (
                       <View style={{ marginTop: 10 }}>
                         {pickedInCategory.map(sel => (
-                          <PickedDishRow key={sel.id} sel={sel} theme={theme} s={s} onRemove={() => onRemoveDish(sel.id)} onUpdate={patch => onUpdateDetails(sel.id, patch)} />
+                          <PickedDishRow
+                            key={sel.id}
+                            sel={sel}
+                            theme={theme}
+                            s={s}
+                            pricingMode={menuStage !== 'selecting'}
+                            onRemove={() => onRemoveDish(sel.id)}
+                            onUpdate={patch => onUpdateDetails(sel.id, patch)}
+                          />
                         ))}
                       </View>
                     )}
@@ -158,7 +196,10 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
                             disabled={already}
                             onPress={() => onAddDish({ name: dish.name, category: cat.slug, cuisine: dish.cuisine || '', foodType: foodType || dish.foodTypes[0], isCustom: false })}
                           >
-                            <Text style={[s.dishChipText, already && s.dishChipTextActive]}>{already ? '✓ ' : '+ '}{dish.name}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              {!already && <VegDot status={dishVegStatus(dish.foodTypes)} />}
+                              <Text style={[s.dishChipText, already && s.dishChipTextActive]}>{already ? '✓ ' : ''}{dish.name}</Text>
+                            </View>
                           </TouchableOpacity>
                         );
                       })}
@@ -195,15 +236,36 @@ export default function MenuLibrary({ event, selections, providerNote, onSetMenu
   );
 }
 
-function PickedDishRow({ sel, theme, s, onRemove, onUpdate }) {
+function PickedDishRow({ sel, theme, s, pricingMode, onRemove, onUpdate }) {
   const [price, setPrice] = useState(sel.price != null ? String(sel.price) : '');
   const [quantity, setQuantity] = useState(sel.quantity || '');
   const [notes, setNotes] = useState(sel.notes || '');
 
+  // Selecting mode — a plain list entry, no price/quantity/notes fields at
+  // all (that's the whole point of the split: pick first, price later).
+  if (!pricingMode) {
+    return (
+      <View style={s.pickedRow}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
+            <VegDot status={dishVegStatusFromSelection(sel)} />
+            <Text style={s.pickedName}>{sel.is_custom ? '✎ ' : ''}{sel.dish_name}</Text>
+          </View>
+          <TouchableOpacity onPress={onRemove}>
+            <Text style={s.removeText}>Remove</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={s.pickedRow}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={s.pickedName}>{sel.is_custom ? '✎ ' : ''}{sel.dish_name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
+          <VegDot status={dishVegStatusFromSelection(sel)} />
+          <Text style={s.pickedName}>{sel.is_custom ? '✎ ' : ''}{sel.dish_name}</Text>
+        </View>
         <TouchableOpacity onPress={onRemove}>
           <Text style={s.removeText}>Remove</Text>
         </TouchableOpacity>
@@ -273,5 +335,9 @@ function makeStyles(theme) {
     pickedFieldsRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
     pickedInput: { backgroundColor: theme.bg, borderRadius: 10, borderWidth: 0.5, borderColor: theme.border, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12.5, color: theme.text },
     pickedNotesInput: { backgroundColor: theme.bg, borderRadius: 10, borderWidth: 0.5, borderColor: theme.border, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12.5, color: theme.text, marginTop: 8 },
+    stageCta: { backgroundColor: theme.btnPrimary, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 16 },
+    stageCtaText: { fontSize: 13.5, fontWeight: '700', color: theme.btnPrimaryText },
+    backLink: { marginTop: 16, alignSelf: 'flex-start' },
+    backLinkText: { fontSize: 12.5, fontWeight: '600', color: theme.accent || theme.text },
   });
 }

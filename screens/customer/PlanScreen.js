@@ -214,7 +214,7 @@ export default function PlanScreen({ navigation, route }) {
       if (eventIds.length > 0) {
         const { data: events, error: eventsError } = await supabase
           .from('events')
-          .select('id, venue_type, is_dry_event, is_veg_only, event_type_slug, guest_count, child_age, budget_total')
+          .select('id, venue_type, is_dry_event, is_veg_only, event_type_slug, guest_count, child_age, budget_total, planning_stage')
           .in('id', eventIds);
         if (eventsError) throw eventsError;
         const map = {};
@@ -285,7 +285,16 @@ export default function PlanScreen({ navigation, route }) {
     // the moment they're created — those open straight into the live plan
     // document. Older plans without one still fall back to EventPlanner.js.
     if (savedPlan.event_id) {
-      navigation.navigate('PlanView', { eventId: savedPlan.event_id });
+      // planning_stage (see supabase/migrations/20260916000000_planning_
+      // execution_split.sql) — a brand-new event that hasn't moved past
+      // Planning yet re-opens on EventScope.js; every other event opens
+      // straight into PlanView.js exactly as before this feature existed.
+      const ev = eventsById[savedPlan.event_id];
+      if (ev?.planning_stage === 'planning') {
+        navigation.navigate('EventScope', { eventId: savedPlan.event_id });
+      } else {
+        navigation.navigate('PlanView', { eventId: savedPlan.event_id });
+      }
     } else {
       navigation.navigate('EventPlanner', { savedPlan });
     }

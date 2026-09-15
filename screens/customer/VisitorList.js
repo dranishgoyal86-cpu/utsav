@@ -200,11 +200,30 @@ export default function VisitorList({ route, navigation }) {
         hostName: host?.name || '',
         hostPhone: host?.phone || '',
       });
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Visitor list', UTI: 'com.adobe.pdf' });
+      // expo-print's printToFileAsync isn't supported on web (there's no
+      // native PDF renderer in a browser) — it was throwing there, so the
+      // download button just never worked on web. Web equivalent: open the
+      // same HTML in a new tab and trigger the browser's own print dialog,
+      // which every browser can "Save as PDF" from — no new package needed.
+      if (Platform.OS === 'web') {
+        const w = window.open('', '_blank');
+        if (!w) {
+          showAlert('Pop-up blocked', 'Please allow pop-ups for this site, then try again.');
+          return;
+        }
+        w.document.write(html);
+        w.document.close();
+        w.focus();
+        // Small delay so the new tab finishes laying out the content
+        // before the print dialog steals focus.
+        setTimeout(() => { try { w.print(); } catch (e) { /* user already closed the tab */ } }, 400);
       } else {
-        showAlert('Saved', 'Visitor list PDF created.');
+        const { uri } = await Print.printToFileAsync({ html, base64: false });
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Visitor list', UTI: 'com.adobe.pdf' });
+        } else {
+          showAlert('Saved', 'Visitor list PDF created.');
+        }
       }
     } catch (err) {
       console.log('handleDownloadPdf error:', err.message);

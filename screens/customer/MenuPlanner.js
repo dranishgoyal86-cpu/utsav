@@ -119,6 +119,15 @@ export default function MenuPlanner({ route, navigation }) {
     loadEvent();
   }
 
+  // menu_stage — menu-only Selecting/Pricing split (see
+  // claude/menu-planning-vs-execution-split.md), independent of the
+  // whole-event planning_stage. Freely revisitable, same as that one.
+  async function handleSetMenuStage(stage) {
+    const { error: err } = await supabase.from('events').update({ menu_stage: stage }).eq('id', eventId);
+    if (err) { showAlert('Could not update that', err.message); return; }
+    loadEvent();
+  }
+
   async function handleSaveProviderNote(note) {
     const { error: err } = await supabase.from('events').update({ menu_provider_note: note.trim() || null }).eq('id', eventId);
     if (err) { showAlert('Could not save that', err.message); return; }
@@ -183,7 +192,9 @@ export default function MenuPlanner({ route, navigation }) {
           event={event}
           selections={selections}
           providerNote={event.menu_provider_note}
+          menuStage={event.menu_stage || 'pricing'}
           onSetMenuType={handleSetMenuType}
+          onSetMenuStage={handleSetMenuStage}
           onAddDish={handleAddDish}
           onRemoveDish={handleRemoveDish}
           onUpdateDetails={handleUpdateDetails}
