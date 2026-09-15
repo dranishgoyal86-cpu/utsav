@@ -1207,6 +1207,16 @@ export default function GuestList({ route, navigation }) {
   const [mealCountsModal, setMealCountsModal] = useState(false);
   const [giftsModal, setGiftsModal] = useState(false);
   const cardRef = useRef(null);
+  // "add code in the shareable invite message... lets also show the invite
+  // image [to guests who come back later]" — event_invite_designs is only
+  // ever written when a host explicitly taps Save today; a host who sends
+  // straight from the editor without saving leaves nothing behind for
+  // InviteDetails.js (the guest's own "view my invite" screen) to read
+  // later. Tracks the last (pages, template, variant) signature this
+  // session has already persisted, so ensureDesignPersisted() below can
+  // skip the network call on every repeat send instead of writing once per
+  // guest tapped in the WhatsApp queue.
+  const lastPersistedDesignSigRef = useRef(null);
   const activeTemplate = resolveTemplateColors(template, inviteVariant);
   const activePageData = pages[activePage];
   const nameFields = NAME_FIELDS[inviteEventType] || [];
@@ -2570,7 +2580,44 @@ export default function GuestList({ route, navigation }) {
   // (NativeShare.open with no whatsAppNumber) — the trade is the host picks
   // WhatsApp then the guest's chat themselves (one extra tap) instead of it
   // opening pre-selected, which is the honest cost of an actual attachment.
+  // Silent counterpart to saveInviteDesign() (the explicit "My Invites"
+  // save, with its own alerts) — fires on every actual send instead of
+  // only when a host remembers to tap Save, so event_invite_designs always
+  // has a row matching what guests were actually sent for
+  // InviteDetails.js to read back later. Guarded by a signature so tapping
+  // "send" for many guests in a row (the WhatsApp queue modal) writes once,
+  // not once per guest. Silently does nothing if there's no linked event
+  // (nothing for a guest to look up later) or no signed-in host.
+  async function ensureDesignPersisted() {
+    if (!userId || !event?.id) return;
+    const signature = JSON.stringify({ pages, templateId: template.id, variant: inviteVariant });
+    if (lastPersistedDesignSigRef.current === signature) return;
+    try {
+      const payload = {
+        event_id: event.id,
+        host_id: userId,
+        label: (displayName || event.name || 'Invite').trim(),
+        event_type: inviteEventType,
+        variant: inviteVariant,
+        template_id: template.id,
+        pages,
+      };
+      if (editingDesignId) {
+        const { error } = await supabase.from('event_invite_designs').update(payload).eq('id', editingDesignId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from('event_invite_designs').insert(payload).select('id').single();
+        if (error) throw error;
+        setEditingDesignId(data.id);
+      }
+      lastPersistedDesignSigRef.current = signature;
+    } catch (err) {
+      console.log('ensureDesignPersisted error:', err.message);
+    }
+  }
+
   async function sendWhatsappTo(guest) {
+    ensureDesignPersisted();
     const number = toWhatsappNumber(guest.phone);
     if (!number) {
       showAlert('No phone number', `${guest.name} doesn't have a valid phone number saved.`);
@@ -2749,6 +2796,7 @@ export default function GuestList({ route, navigation }) {
   // pages/activePageData (a saved design might not exist at all) — built
   // straight from the event's own already-resolved data instead.
   function shareInviteToGuest(guest) {
+    ensureDesignPersisted();
     const rsvpLink = eventInviteCode
       ? `${PUBLIC_WEB_URL}/rsvp/${eventInviteCode}/${guest.id}`
       : (event?.id ? `${PUBLIC_WEB_URL}/event/${event.id}` : PUBLIC_WEB_URL);

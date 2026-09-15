@@ -25,6 +25,7 @@ import GuestPassScreen from './screens/GuestPassScreen';
 import GuestSignup from './screens/GuestSignup';
 import DelegateRedeem from './screens/DelegateRedeem';
 import MyInvites from './screens/customer/MyInvites';
+import InviteDetails from './screens/customer/InviteDetails';
 import CelebratoryInviteModal from './components/CelebratoryInviteModal';
 import { linkGuestAccountByPhone } from './helpers';
 
@@ -669,6 +670,7 @@ function MainApp() {
             <Stack.Screen name="MyBookings" component={ComingSoon} />
             <Stack.Screen name="CategoryList" component={CategoryList} />
             <Stack.Screen name="MyInvites" component={MyInvites} />
+            <Stack.Screen name="InviteDetails" component={InviteDetails} />
             <Stack.Screen name="SavedProviders" component={SavedProviders} />
             <Stack.Screen name="BlockedProviders" component={BlockedProviders} />
             <Stack.Screen name="Search" component={SearchScreen} />

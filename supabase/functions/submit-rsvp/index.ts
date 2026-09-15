@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
     // leaves this function.
     const { data: event, error: eventError } = await supabaseAdmin
       .from("events")
-      .select("id, name, event_date, event_time, event_duration_hours, venue, event_type_slug, host_id, is_veg_only")
+      .select("id, name, event_date, event_time, event_duration_hours, venue, event_type_slug, host_id, is_veg_only, is_cancelled, cancellation_reason")
       .eq("invite_code", String(invite_code).toUpperCase())
       .maybeSingle();
 
@@ -176,12 +176,38 @@ Deno.serve(async (req) => {
         }
       }
 
+      // "when clicking on the invite... it should show the invite image[...]"
+      // — the guest's own InviteDetails.js screen. Read here (service role)
+      // rather than adding a new guest-facing RLS policy on
+      // event_invite_designs — this function is already the guest's trusted
+      // read path for everything else on this screen, so reusing it is one
+      // less RLS surface to get wrong. GuestList.js's ensureDesignPersisted()
+      // is what keeps a row here in sync with whatever was actually sent;
+      // most-recently-created wins if a host sent more than one design for
+      // this event. Defensive select — event_invite_designs may not exist
+      // yet on an older database — falls back to null rather than 500ing
+      // the whole invite lookup over it.
+      let inviteDesign: Record<string, unknown> | null = null;
+      try {
+        const { data: designRow, error: designError } = await supabaseAdmin
+          .from("event_invite_designs")
+          .select("pages, template_id, variant")
+          .eq("event_id", event.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!designError && designRow) inviteDesign = designRow;
+      } catch (_err) {
+        inviteDesign = null;
+      }
+
       return json({
         event: {
           id: event.id, name: event.name, event_date: event.event_date, event_time: event.event_time,
           event_duration_hours: event.event_duration_hours,
           venue: event.venue, event_type_slug: event.event_type_slug, is_veg_only: !!event.is_veg_only,
-          defaultPlusOneLimit: plusOneLimit, invitee, accompanying,
+          is_cancelled: !!event.is_cancelled, cancellation_reason: event.cancellation_reason || null,
+          defaultPlusOneLimit: plusOneLimit, invitee, accompanying, inviteDesign,
         },
       });
     }

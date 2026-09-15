@@ -96,8 +96,12 @@ export default function MyInvites({ navigation }) {
     }
   }
 
+  // "it should show the invite image and the invitation details... rather
+  // than just showing the RSVP screen again" — InviteDetails.js is the new
+  // "view my invite" screen (image, date/time/venue, RSVP status, check-in);
+  // its own "Edit RSVP" button is what hands off to RSVPScreen.js now.
   function openInvite(row) {
-    navigation.navigate('RSVP', { inviteCode: row.event.invite_code, guestId: row.invitee.id });
+    navigation.navigate('InviteDetails', { inviteCode: row.event.invite_code, guestId: row.invitee.id });
   }
 
   function formatDate(dateStr) {
