@@ -23,7 +23,7 @@ param(
 # -DevOnly if you deliberately want to skip production for a given push
 # (e.g. testing something risky before it goes live).
 Write-Host "== 1/4: Pushing app update via EAS (development) ==" -ForegroundColor Cyan
-eas update --branch development --message $Message
+eas update --branch development --message $Message --environment development
 if ($LASTEXITCODE -ne 0) {
     Write-Host "EAS update (development) failed — check you're logged in as the right account (eas whoami)." -ForegroundColor Red
     exit 1
@@ -31,7 +31,7 @@ if ($LASTEXITCODE -ne 0) {
 
 if (-not $DevOnly) {
     Write-Host "== 2/4: Pushing app update via EAS (production — Play Store app) ==" -ForegroundColor Cyan
-    eas update --branch production --message $Message
+    eas update --branch production --message $Message --environment production
     if ($LASTEXITCODE -ne 0) {
         Write-Host "EAS update (production) failed — check you're logged in as the right account (eas whoami)." -ForegroundColor Red
         exit 1
