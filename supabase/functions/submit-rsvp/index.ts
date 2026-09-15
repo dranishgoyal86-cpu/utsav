@@ -141,13 +141,31 @@ Deno.serve(async (req) => {
       let invitee: Record<string, unknown> | null = null;
       let accompanying: Record<string, unknown>[] = [];
       if (guest_id) {
-        const { data: invRow } = await supabaseAdmin
+        // guest_code (supabase/migrations/20260915000000_guest_invite_code.sql)
+        // may not exist yet on this database — same defensive
+        // retry-without-the-newest-column pattern as plusOneLimit above,
+        // rather than 500ing the whole RSVP lookup over a column that's
+        // still pending a manual migration run.
+        let invRow: Record<string, unknown> | null = null;
+        const withCode = await supabaseAdmin
           .from("event_invitees")
-          .select("id, name, phone, email, rsvp_status, plus_ones, food_pref, is_outstation, arrival_date, arrival_time, arrival_details, departure_date, departure_time, pickup_needed")
+          .select("id, name, phone, email, rsvp_status, plus_ones, food_pref, is_outstation, arrival_date, arrival_time, arrival_details, departure_date, departure_time, pickup_needed, guest_code")
           .eq("event_id", event.id)
           .eq("id", guest_id)
           .is("anonymized_at", null)
           .maybeSingle();
+        if (!withCode.error) {
+          invRow = withCode.data;
+        } else {
+          const withoutCode = await supabaseAdmin
+            .from("event_invitees")
+            .select("id, name, phone, email, rsvp_status, plus_ones, food_pref, is_outstation, arrival_date, arrival_time, arrival_details, departure_date, departure_time, pickup_needed")
+            .eq("event_id", event.id)
+            .eq("id", guest_id)
+            .is("anonymized_at", null)
+            .maybeSingle();
+          invRow = withoutCode.data;
+        }
         if (invRow) {
           invitee = invRow;
           const { data: accRows } = await supabaseAdmin

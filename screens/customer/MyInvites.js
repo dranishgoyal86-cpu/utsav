@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../supabase';
 import { useTheme } from '../../ThemeContext';
+import { showAlert } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
 
 // The screen that was simply missing before this wave — a guest with a
@@ -22,6 +23,8 @@ export default function MyInvites({ navigation }) {
   const s = makeStyles(theme);
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
+  const [codeInput, setCodeInput] = useState('');
+  const [claiming, setClaiming] = useState(false);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -59,6 +62,40 @@ export default function MyInvites({ navigation }) {
     }
   }
 
+  // "so if some user who downloaded the app can track his own invitations
+  // by putting that code inside my invitation. it will be easier than
+  // matching phone no. and email id." — a manual fallback for when the
+  // automatic phone/email matching (helpers.js's linkGuestAccountByPhone,
+  // or the real-time link_and_notify_invitee on RSVP/signup) misses —
+  // wrong number on file, RSVP submitted by a relative, a typo, etc. The
+  // code itself (event code + this guest's own 4-char suffix) is shown to
+  // every guest on their RSVP confirmation screen — see RSVPScreen.js.
+  async function claimByCode() {
+    const code = codeInput.trim();
+    if (!code) return;
+    try {
+      setClaiming(true);
+      const { data, error } = await supabase.rpc('claim_invite_by_code', { p_code: code });
+      if (error) throw error;
+      if (!data?.ok) {
+        const message = data?.error === 'already_claimed'
+          ? "This invite is already linked to a different account. If that's a mistake, ask your host to check the guest list."
+          : data?.error === 'invalid_format'
+          ? 'That code looks incomplete — check the code on your invite and try again (it looks like ABC123-D4E5).'
+          : 'We couldn\'t find an invite with that code. Double-check it and try again.';
+        showAlert('Invalid code', message);
+        return;
+      }
+      setCodeInput('');
+      showAlert('You\'re invited! 🎉', `You've been added as a guest on "${data.event_name}".`);
+      load();
+    } catch (err) {
+      showAlert('Something went wrong', err.message || 'Could not check that code. Please try again.');
+    } finally {
+      setClaiming(false);
+    }
+  }
+
   function openInvite(row) {
     navigation.navigate('RSVP', { inviteCode: row.event.invite_code, guestId: row.invitee.id });
   }
@@ -72,6 +109,27 @@ export default function MyInvites({ navigation }) {
 
   const RSVP_LABELS = { yes: "You're going", no: "You declined", maybe: 'Maybe going', pending: 'Awaiting your RSVP' };
 
+  const codeEntryCard = (
+    <View style={s.codeCard}>
+      <Text style={s.codeCardTitle}>Have an invite code?</Text>
+      <Text style={s.codeCardSub}>Enter the code from your invite (e.g. ABC123-D4E5) to add it here.</Text>
+      <View style={s.codeRow}>
+        <TextInput
+          style={s.codeInput}
+          value={codeInput}
+          onChangeText={setCodeInput}
+          placeholder="ABC123-D4E5"
+          placeholderTextColor={theme.textTertiary}
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+        <TouchableOpacity style={s.codeBtn} onPress={claimByCode} disabled={claiming || !codeInput.trim()}>
+          {claiming ? <ActivityIndicator size="small" color={theme.btnPrimaryText} /> : <Text style={s.codeBtnText}>Add</Text>}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return (
     <SafeAreaView style={s.container}>
       <AppHeader title="My invites" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
@@ -82,12 +140,14 @@ export default function MyInvites({ navigation }) {
           <Text style={s.emptyIcon}>💌</Text>
           <Text style={s.emptyTitle}>No invites yet</Text>
           <Text style={s.emptySub}>Events you're invited to will show up here once your account is linked to them.</Text>
+          {codeEntryCard}
         </View>
       ) : (
         <FlatList
           data={rows}
           keyExtractor={r => r.invitee.id}
           contentContainerStyle={{ padding: 16 }}
+          ListHeaderComponent={codeEntryCard}
           renderItem={({ item }) => (
             <TouchableOpacity style={s.card} onPress={() => openInvite(item)}>
               <View style={{ flex: 1 }}>
@@ -128,5 +188,21 @@ function makeStyles(theme) {
     statusText: { fontSize: 12, fontWeight: '600', color: theme.accent },
     cancelledBadge: { fontSize: 12, fontWeight: '700', color: theme.statusDeclinedText },
     arrow: { fontSize: 18, color: theme.textTertiary },
+    codeCard: {
+      backgroundColor: theme.cardBg, borderRadius: 18, borderWidth: 0.5, borderColor: theme.border,
+      padding: 16, marginBottom: 16, width: '100%',
+    },
+    codeCardTitle: { fontSize: 14.5, fontWeight: '700', color: theme.text, marginBottom: 4 },
+    codeCardSub: { fontSize: 12, color: theme.textSecondary, marginBottom: 12, lineHeight: 17 },
+    codeRow: { flexDirection: 'row', gap: 10 },
+    codeInput: {
+      flex: 1, backgroundColor: theme.bg, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
+      paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: theme.text, letterSpacing: 1,
+    },
+    codeBtn: {
+      backgroundColor: theme.btnPrimary, borderRadius: 12, paddingHorizontal: 20,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    codeBtnText: { color: theme.btnPrimaryText, fontSize: 14, fontWeight: '700' },
   });
 }

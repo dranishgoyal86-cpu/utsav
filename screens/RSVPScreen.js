@@ -370,6 +370,16 @@ export default function RSVPScreen({ route, navigation }) {
           </TouchableOpacity>
         )}
 
+        {event?.invitee?.guest_code ? (
+          <View style={s.inviteCodeBox}>
+            <Text style={s.inviteCodeLabel}>Your personal invite code</Text>
+            <Text style={s.inviteCodeValue}>{inviteCode.toUpperCase()}-{event.invitee.guest_code}</Text>
+            <Text style={s.inviteCodeHint}>
+              Already have the Utsav app, or downloading it later? Open "My Invitations" under Invites and enter this code to see this invite there any time.
+            </Text>
+          </View>
+        ) : null}
+
         <View style={s.appFooter}>
           <View style={s.appFooterDivider} />
           <View style={s.appFooterBrand}>
@@ -685,6 +695,14 @@ function makeStyles(theme) {
     deleteDataLink: { marginTop: 22, paddingVertical: 8 },
     deleteDataLinkText: { fontSize: 12.5, color: theme.textTertiary, textAlign: 'center', textDecorationLine: 'underline' },
     dataDeletedText: { fontSize: 12.5, color: theme.textSecondary, textAlign: 'center', marginTop: 22, lineHeight: 18 },
+
+    inviteCodeBox: {
+      marginTop: 26, width: '100%', backgroundColor: theme.cardBg, borderRadius: 16,
+      borderWidth: 1, borderColor: theme.border, padding: 16, alignItems: 'center',
+    },
+    inviteCodeLabel: { fontSize: 11.5, fontWeight: '700', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
+    inviteCodeValue: { fontSize: 20, fontWeight: '800', color: theme.accent, letterSpacing: 2, marginTop: 6, marginBottom: 8 },
+    inviteCodeHint: { fontSize: 12, color: theme.textSecondary, textAlign: 'center', lineHeight: 17 },
 
     appFooter: { alignItems: 'center', marginTop: 36, width: '100%' },
     appFooterDivider: { width: 48, height: 1, backgroundColor: theme.border, marginBottom: 24 },

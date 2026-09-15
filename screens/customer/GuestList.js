@@ -1198,29 +1198,6 @@ export default function GuestList({ route, navigation }) {
   // reopens the queue once the new guest is saved (or the add is cancelled).
   const [reopenWaQueueAfterAddGuest, setReopenWaQueueAfterAddGuest] = useState(false);
   const [reminderQueueModal, setReminderQueueModal] = useState(false);
-  // Reported bug fix: "Single Page Invite" -> "Send to guest list" opened
-  // waQueueModal without ever closing inviteModal underneath it — two
-  // native <Modal>s stacked. On web (confirmed live via a hit-test: taps
-  // meant for the guest-add form landed on the still-visible invite
-  // editor's own fields instead), the older modal's content physically
-  // intercepts every tap meant for the one on top, silently swallowing
-  // input — "opens, but nothing is clickable," exactly as reported. Rather
-  // than threading a reopen flag through every individual close handler in
-  // the waQueueModal -> guestModal -> contactsModal chain, this single
-  // effect keeps inviteModal closed for as long as ANY of them is open (the
-  // OR stays true through every hop in that chain, so it never flickers
-  // back open mid-flow) and restores it only once the whole chain is
-  // actually done.
-  const [reopenInviteModalAfterQueue, setReopenInviteModalAfterQueue] = useState(false);
-  useEffect(() => {
-    if (waQueueModal || guestModal || contactsModal) {
-      if (inviteModal) { setInviteModal(false); setReopenInviteModalAfterQueue(true); }
-    } else if (reopenInviteModalAfterQueue) {
-      setReopenInviteModalAfterQueue(false);
-      setInviteModal(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waQueueModal, guestModal, contactsModal]);
 
   // Per-guest detail sheet (meal/allergies/VIP/gift/status) + the two
   // cross-cutting summary modals — all additive to the existing name/phone/
