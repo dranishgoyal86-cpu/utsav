@@ -2530,11 +2530,24 @@ export default function GuestList({ route, navigation }) {
   // tied to one specific person; passed only by sendWhatsappTo(guest),
   // which genuinely knows who it's sending to. See linking.js's optional
   // :guestId? segment and submit-rsvp/index.ts's guest-id-anchored match.
-  function buildInviteCaption(guestId = null) {
+  // guestCode (event_invitees.guest_code — supabase/migrations/
+  // 20260915000000_guest_invite_code.sql) is this ONE guest's personal
+  // code, always shown as the event code + this suffix together — so a
+  // guest can type it into "My Invitations" in the app and find this exact
+  // invite even if the automatic phone/email match ever misses. Only ever
+  // passed alongside a guestId (a broadcast send has no single guest to
+  // generate a code for), and only rendered when the migration has
+  // actually run (guest.guest_code is null until then, same defensive
+  // "may not exist yet" posture as everywhere else this project touches a
+  // recently-added column).
+  function buildInviteCaption(guestId = null, guestCode = null) {
     const mapsLink = activePageData.venue ? googleMapsUrl(activePageData.venue) : null;
     const rsvpLink = eventInviteCode
       ? `${PUBLIC_WEB_URL}/rsvp/${eventInviteCode}${guestId ? `/${guestId}` : ''}`
       : (event?.id ? `${PUBLIC_WEB_URL}/event/${event.id}` : PUBLIC_WEB_URL);
+    const codeLine = (guestId && guestCode && eventInviteCode)
+      ? `🔑 Your invite code: ${eventInviteCode}-${guestCode} (already have the Utsav app? Open Invites → My Invitations and enter this code)`
+      : null;
 
     return [
       activePageData.title,
@@ -2542,6 +2555,7 @@ export default function GuestList({ route, navigation }) {
       [activePageData.date, activePageData.time].filter(Boolean).join(' · ') || null,
       mapsLink ? `📍 Venue: ${mapsLink}` : null,
       `✅ RSVP: ${rsvpLink}`,
+      codeLine,
     ].filter(Boolean).join('\n\n');
   }
 
@@ -2562,7 +2576,7 @@ export default function GuestList({ route, navigation }) {
       showAlert('No phone number', `${guest.name} doesn't have a valid phone number saved.`);
       return;
     }
-    const personalized = `Dear ${guest.name} Ji,\n\n${buildInviteCaption(guest.id)}`;
+    const personalized = `Dear ${guest.name} Ji,\n\n${buildInviteCaption(guest.id, guest.guest_code)}`;
 
     if (Platform.OS !== 'web' && NativeShare && cardRef.current) {
       try {
@@ -2738,12 +2752,16 @@ export default function GuestList({ route, navigation }) {
     const rsvpLink = eventInviteCode
       ? `${PUBLIC_WEB_URL}/rsvp/${eventInviteCode}/${guest.id}`
       : (event?.id ? `${PUBLIC_WEB_URL}/event/${event.id}` : PUBLIC_WEB_URL);
+    const codeLine = (guest.guest_code && eventInviteCode)
+      ? `🔑 Your invite code: ${eventInviteCode}-${guest.guest_code} (already have the Utsav app? Open Invites → My Invitations and enter this code)`
+      : null;
     const text = [
       `Dear ${guest.name} Ji,`,
       `You're invited to ${displayName || event?.name || 'our event'}!`,
       resolvedPlanContext?.dateLabel || null,
       resolvedPlanContext?.venue?.label ? `📍 ${resolvedPlanContext.venue.label}` : null,
       `✅ RSVP: ${rsvpLink}`,
+      codeLine,
     ].filter(Boolean).join('\n\n');
     Share.share({ message: text }).catch(err => console.log('shareInviteToGuest error:', err.message));
   }

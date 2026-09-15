@@ -468,16 +468,18 @@ export default function ProfileScreen({ navigation }) {
               </TouchableOpacity>
             </>
           )}
-          {myInvitesCount > 0 && (
-            <>
-              <View style={s.divider} />
-              <TouchableOpacity style={s.settingRow} onPress={() => navigation.navigate('MyInvites')}>
-                <Text style={s.settingIcon}>💌</Text>
-                <Text style={s.settingLabel}>My invites</Text>
-                <Text style={s.settingValue}>{myInvitesCount} ›</Text>
-              </TouchableOpacity>
-            </>
-          )}
+          {/* Always shown, not just once linked invites exist — "My
+              invites" is also the entry point to typing in an invite code
+              by hand (MyInvites.js's "Have an invite code?" box), which a
+              brand-new guest who hasn't been auto-linked yet needs to be
+              able to reach at all. Per Anish: "it should be visible in
+              everyone's app." */}
+          <View style={s.divider} />
+          <TouchableOpacity style={s.settingRow} onPress={() => navigation.navigate('MyInvites')}>
+            <Text style={s.settingIcon}>💌</Text>
+            <Text style={s.settingLabel}>My invites</Text>
+            <Text style={s.settingValue}>{myInvitesCount > 0 ? `${myInvitesCount} ›` : '›'}</Text>
+          </TouchableOpacity>
           <View style={s.divider} />
           <TouchableOpacity style={s.settingRow}>
             <Text style={s.settingIcon}>🔒</Text>

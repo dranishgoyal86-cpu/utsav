@@ -433,6 +433,20 @@ export default function RSVPScreen({ route, navigation }) {
             </TouchableOpacity>
           ) : null}
 
+          {/* Shown immediately on open, not just after RSVP submission —
+              "the invite code should be sent... not only after rsvp is
+              submitted." Same box as the post-submit one below, just
+              reachable before the guest has done anything yet. */}
+          {event?.invitee?.guest_code ? (
+            <View style={s.inviteCodeBox}>
+              <Text style={s.inviteCodeLabel}>Your personal invite code</Text>
+              <Text style={s.inviteCodeValue}>{inviteCode.toUpperCase()}-{event.invitee.guest_code}</Text>
+              <Text style={s.inviteCodeHint}>
+                Already have the Utsav app, or downloading it later? Open "My Invitations" under Invites and enter this code to see this invite there any time.
+              </Text>
+            </View>
+          ) : null}
+
           <View style={s.form}>
             <Text style={s.formTitle}>RSVP</Text>
 

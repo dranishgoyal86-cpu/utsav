@@ -62,6 +62,7 @@ export default function InviteHub({ route, navigation }) {
   const [loading, setLoading] = useState(!routeEvent);
   const [myEvents, setMyEvents] = useState([]);
   const [pickedEvent, setPickedEvent] = useState(routeEvent || null);
+  const [myInvitesCount, setMyInvitesCount] = useState(0);
 
   const invitesTour = useTour('invites_intro');
   useEffect(() => {
@@ -94,11 +95,58 @@ export default function InviteHub({ route, navigation }) {
     return () => { cancelled = true; };
   }, [routeEvent]);
 
+  // Runs unconditionally, regardless of whether the user has an event of
+  // their own or one was passed in via route params — "My Invitations"
+  // (events THIS person is a guest at, via event_invitees.user_id — see
+  // MyInvites.js) needs to be visible here for every logged-in user, not
+  // just hosts who've already picked an event. This is also the entry
+  // point to typing in an invite code by hand, which someone with ZERO
+  // linked invites still needs to reach — per Anish: "it should be visible
+  // in everyone's app," the card itself always renders below (count===0
+  // just changes its wording), it isn't hidden the way it was before.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { count } = await supabase
+        .from('event_invitees')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', session.user.id)
+        .is('anonymized_at', null);
+      if (!cancelled) setMyInvitesCount(count || 0);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   function openSinglePage(ev) {
     navigation.navigate('GuestList', { event: ev, openModal: 'invite' });
   }
   function openDesignerSuite(ev) {
     navigation.navigate('ToranInvites', { eventId: ev.id });
+  }
+
+  // Always renders — not gated on myInvitesCount > 0 — since it's also
+  // how someone with zero linked invites reaches MyInvites.js's manual
+  // "Have an invite code?" box. Wording just adapts to whether there's
+  // anything linked yet.
+  function renderMyInvitationsCard() {
+    return (
+      <TouchableOpacity style={s.myInvitesCard} onPress={() => navigation.navigate('MyInvites')}>
+        <Text style={s.myInvitesEmoji}>🎉</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={s.myInvitesTitle}>My Invitations</Text>
+          <Text style={s.myInvitesSub}>
+            {myInvitesCount === 0
+              ? "See events you're invited to, or add one with an invite code"
+              : myInvitesCount === 1
+              ? "You're invited to 1 event"
+              : `You're invited to ${myInvitesCount} events`}
+          </Text>
+        </View>
+        <Text style={s.myInvitesCaret}>›</Text>
+      </TouchableOpacity>
+    );
   }
 
   if (loading) {
@@ -114,6 +162,7 @@ export default function InviteHub({ route, navigation }) {
     return (
       <SafeAreaView style={s.container}>
         <AppHeader theme={theme} navigation={navigation} onBack={() => navigation.goBack()} title="Invites" />
+        <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>{renderMyInvitationsCard()}</View>
         <Text style={s.sectionLabel}>Which event is this invite for?</Text>
         <FlatList
           data={myEvents}
@@ -138,6 +187,7 @@ export default function InviteHub({ route, navigation }) {
     <SafeAreaView style={s.container}>
       <AppHeader theme={theme} navigation={navigation} onBack={() => navigation.goBack()} title="Invites" />
       <View style={{ padding: 20 }}>
+        {renderMyInvitationsCard()}
         <Text style={s.sectionLabel}>{pickedEvent.working_title || eventTypeName(pickedEvent.event_type_slug)}</Text>
 
         <TouchableOpacity ref={singlePageRef} style={s.optionCard} onPress={() => openSinglePage(pickedEvent)}>
@@ -183,5 +233,14 @@ function makeStyles(theme) {
     optionEmoji: { fontSize: 26, marginBottom: 8 },
     optionTitle: { fontSize: 16, fontWeight: '700', color: theme.text, marginBottom: 6 },
     optionSub: { fontSize: 13, color: theme.textSecondary, lineHeight: 18 },
+    myInvitesCard: {
+      flexDirection: 'row', alignItems: 'center', backgroundColor: theme.cardBg,
+      borderRadius: 18, borderWidth: 1.5, borderColor: theme.accent,
+      padding: 16, marginBottom: 18,
+    },
+    myInvitesEmoji: { fontSize: 26, marginRight: 12 },
+    myInvitesTitle: { fontSize: 15, fontWeight: '700', color: theme.accent, marginBottom: 3 },
+    myInvitesSub: { fontSize: 12.5, color: theme.textSecondary },
+    myInvitesCaret: { fontSize: 18, color: theme.accent, marginLeft: 8 },
   });
 }
