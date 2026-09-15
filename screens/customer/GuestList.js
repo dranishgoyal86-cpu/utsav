@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, Modal, ActivityIndicator, ScrollView, Share, Platform, Image, ImageBackground, Linking, KeyboardAvoidingView, useWindowDimensions
+  View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, Modal, ActivityIndicator, ScrollView, Share, Platform, Image, ImageBackground, Linking, KeyboardAvoidingView, useWindowDimensions, Switch
 } from 'react-native';
+import { SvgXml } from 'react-native-svg';
+import QRCode from 'qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
@@ -56,7 +58,7 @@ import AppHeader from '../../components/AppHeader';
 import { resolveVenue, resolveDietary, formatTimeLabel, formatTimeRangeLabel } from '../../lib/eventContext';
 import { PUBLIC_WEB_URL } from '../../config';
 import { useCapabilities } from '../../hooks/useCapabilities';
-import { isEnabled } from '../../lib/capabilities';
+import { isEnabled, insertGuestPassesWithRetry } from '../../lib/capabilities';
 import { buildPassCardHtml } from '../../gatePassTemplate';
 import { registerTourTarget } from '../../lib/tourTargets';
 import { useTour } from '../../hooks/useTour';
@@ -108,7 +110,21 @@ import {
 // App.js at startup, so an unconditional top-level import here would try to
 // load these native modules as soon as the app launches, not just when this
 // screen opens.
-let Sharing, Contacts, ImagePicker, Print, ClipboardAPI, ViewShot, MediaLibrary, NativeShare, FileSystem;
+let Sharing, Contacts, ImagePicker, Print, ClipboardAPI, ViewShot, MediaLibrary, NativeShare, FileSystem, Html2Canvas;
+if (Platform.OS === 'web') {
+  // The web equivalent of react-native-view-shot — takes a real snapshot
+  // of the on-screen preview card's DOM node so "Share as image" can
+  // actually attach the invite picture in a browser, same as the native
+  // app does. Guarded the same way expo-clipboard is above: if the bundle
+  // somehow doesn't have it, we fall back to text-only sharing rather than
+  // crashing the whole screen on load.
+  try {
+    const mod = require('html2canvas');
+    Html2Canvas = mod.default || mod;
+  } catch (err) {
+    console.log('html2canvas unavailable:', err.message);
+  }
+}
 if (Platform.OS !== 'web') {
   Sharing = require('expo-sharing');
   Contacts = require('expo-contacts/legacy');
@@ -428,6 +444,14 @@ export function resolveInviteDesignColors(templateId, variant) {
 
 function googleMapsUrl(address) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+}
+
+// Same qrSvgFor shape as PassCard.js/GuestAccess.js's own — the QR just
+// needs to resolve to the pass at PUBLIC_WEB_URL/p/:passCode, same guest-
+// pass system those screens already use, not a separate code space.
+function qrSvgFor(passCode) {
+  const raw = new QRCode({ content: `${PUBLIC_WEB_URL}/p/${passCode}`, width: 110, height: 110, padding: 4, color: '#000000', background: '#ffffff', ecl: 'M' }).svg();
+  return raw.replace(/^<\?xml[^>]*\?>\s*/, '');
 }
 
 // A design's own "date" field only ever gets set from the linked event's
@@ -1158,6 +1182,14 @@ export default function GuestList({ route, navigation }) {
     imagePlacement: 'top',
     dietary: '',
     rsvpBy: '',
+    // "gate pass or qrcode should be essential in built in invite itself...
+    // in case of gated society address or where security check gate
+    // passes" — host-facing toggle, off by default (most events don't need
+    // it). When on, each guest's own pass QR is drawn directly onto their
+    // invite picture at send time (see the Preview card's QR block and
+    // sendWhatsappTo's ensureGuestPass()), not just handed out separately
+    // via the existing Gate Pass tool.
+    includeGatePass: false,
     fieldMeta: freshFieldMeta(),
   }]);
   const [activePage, setActivePage] = useState(0);
@@ -1217,6 +1249,12 @@ export default function GuestList({ route, navigation }) {
   // skip the network call on every repeat send instead of writing once per
   // guest tapped in the WhatsApp queue.
   const lastPersistedDesignSigRef = useRef(null);
+  // Set just before capturing a specific guest's image (see sendWhatsappTo)
+  // so their real gate-pass QR is what actually gets baked into the picture
+  // that guest receives — null the rest of the time, when the Preview card
+  // shows a generic placeholder QR instead (there's no single guest in
+  // context while the host is still editing).
+  const [previewPassCodeForGuest, setPreviewPassCodeForGuest] = useState(null);
   const activeTemplate = resolveTemplateColors(template, inviteVariant);
   const activePageData = pages[activePage];
   const nameFields = NAME_FIELDS[inviteEventType] || [];
@@ -1481,6 +1519,7 @@ export default function GuestList({ route, navigation }) {
       imagePlacement: p.imagePlacement || invitePrefs.imagePlacement || 'top',
       dietary: p.dietary || '',
       rsvpBy: p.rsvpBy || '',
+      includeGatePass: p.includeGatePass || false,
       // Older saved designs predate fieldMeta entirely. Treat their
       // existing date/venue as host-set and frozen (autoFilled: false) —
       // never silently overwrite content from a design saved before this
@@ -2073,26 +2112,30 @@ export default function GuestList({ route, navigation }) {
     setGuestModal(true);
   }
 
+  // Same one-tick defer as addGuestFromWaQueue's own fix, and for the same
+  // reason — this is the reverse direction of that exact swap (guestModal
+  // closing, waQueueModal reopening), so it's just as exposed to the same
+  // web Modal-portal-teardown race.
   function closeGuestModal() {
     setGuestModal(false);
     setGuestForm({ name: '', phone: '', tag: '', functionIds: [], entryType: 'individual', householdSize: '' });
     setEditingGuestId(null);
     if (reopenWaQueueAfterAddGuest) {
       setReopenWaQueueAfterAddGuest(false);
-      setWaQueueModal(true);
+      setTimeout(() => setWaQueueModal(true), 0);
     }
   }
 
-  // Mirrors closeGuestModal()'s reopen-WA-queue behavior, for the same
-  // reason: if the contacts picker was reached via "Send to guest list" ->
-  // "Add new guest" -> "Import from Contacts", finishing (or cancelling)
-  // the import should land back on the WA queue the host actually came
-  // from, not the plain guest list.
+  // Mirrors closeGuestModal()'s reopen-WA-queue behavior (including the
+  // same one-tick defer), for the same reason: if the contacts picker was
+  // reached via "Send to guest list" -> "Add new guest" -> "Import from
+  // Contacts", finishing (or cancelling) the import should land back on
+  // the WA queue the host actually came from, not the plain guest list.
   function closeContactsModal() {
     setContactsModal(false);
     if (reopenWaQueueAfterAddGuest) {
       setReopenWaQueueAfterAddGuest(false);
-      setWaQueueModal(true);
+      setTimeout(() => setWaQueueModal(true), 0);
     }
   }
 
@@ -2100,10 +2143,26 @@ export default function GuestList({ route, navigation }) {
   // modal — a host scanning that list for a missing guest shouldn't have to
   // back out to the main guest list first. Swaps modals rather than
   // stacking two <Modal>s at once (no precedent for that in this file).
+  //
+  // "add new guest to guest list tab in send to guest list option not
+  // working when clicked, when the guest list is empty" — reported from
+  // the website in a phone browser. Root cause: closing waQueueModal and
+  // opening guestModal in the same tick means React batches both into one
+  // commit — on web, Modal's portal for the OLD one can still be mid-
+  // teardown (react-native-web mounts/unmounts each Modal into its own
+  // document.body portal via an effect) when the NEW one's portal mounts,
+  // leaving the new modal visually present but not actually receiving
+  // taps. Only surfaces on web, and only reliably when there's nothing
+  // else on screen to mask the timing (an empty guest list, hence "not
+  // working when clicked, when the guest list is empty") — native Modal
+  // has no such portal to race. Deferring the open by one tick lets the
+  // old portal finish unmounting first, same fix this exact "modal swap"
+  // pattern already needed once before in this file (see
+  // closeContactsModal's own history, a few lines below).
   function addGuestFromWaQueue() {
     setWaQueueModal(false);
     setReopenWaQueueAfterAddGuest(true);
-    setGuestModal(true);
+    setTimeout(() => setGuestModal(true), 0);
   }
 
   function toggleGuestFormFunction(functionId) {
@@ -2478,6 +2537,7 @@ export default function GuestList({ route, navigation }) {
       title: '', hostName: '', message: '', date: '', time: '', venue: '', imageUri: null,
       subjectName: '', partner1Name: '', partner2Name: '',
       dietary: '', rsvpBy: '',
+      includeGatePass: false,
       fieldMeta: freshFieldMeta(),
     }]);
     setActivePage(pages.length);
@@ -2616,6 +2676,33 @@ export default function GuestList({ route, navigation }) {
     }
   }
 
+  // Auto-issues this ONE guest's gate pass if they don't already have one —
+  // reuses PassIssue.js's own insertGuestPassesWithRetry (same collision-
+  // safe code generation, same guest_passes table), just scoped to a
+  // single guest at send time instead of the host's separate bulk "Issue
+  // passes" action. A guest who already has a pass (issued in bulk earlier,
+  // or sent to twice) just gets that same code back — never a second row.
+  async function ensureGuestPass(guest) {
+    try {
+      const { data: existing, error: selErr } = await supabase
+        .from('guest_passes').select('pass_code').eq('event_id', event.id).eq('guest_id', guest.id).maybeSingle();
+      if (selErr) throw selErr;
+      if (existing?.pass_code) return existing.pass_code;
+
+      const { data: codeRows } = await supabase.from('guest_passes').select('pass_code').eq('event_id', event.id);
+      const { rows, error } = await insertGuestPassesWithRetry(
+        supabase,
+        [{ event_id: event.id, guest_id: guest.id, party_size: resolveGuestPartySize(guest) }],
+        (codeRows || []).map(r => r.pass_code)
+      );
+      if (error) throw error;
+      return rows?.[0]?.pass_code || null;
+    } catch (err) {
+      console.log('ensureGuestPass error:', err.message);
+      return null;
+    }
+  }
+
   async function sendWhatsappTo(guest) {
     ensureDesignPersisted();
     const number = toWhatsappNumber(guest.phone);
@@ -2625,6 +2712,20 @@ export default function GuestList({ route, navigation }) {
     }
     const personalized = `Dear ${guest.name} Ji,\n\n${buildInviteCaption(guest.id, guest.guest_code)}`;
 
+    // "gate pass or qrcode should be essential in built in invite itself" —
+    // when the host has this on, swap the Preview card's placeholder QR for
+    // THIS guest's real, working code and give React a moment to actually
+    // re-render it before the image gets captured below, so what's baked
+    // into the picture is a real pass, not a sample.
+    let issuedPassCode = null;
+    if (activePageData.includeGatePass && event?.id) {
+      issuedPassCode = await ensureGuestPass(guest);
+      if (issuedPassCode) {
+        setPreviewPassCodeForGuest(issuedPassCode);
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+    }
+
     if (Platform.OS !== 'web' && NativeShare && cardRef.current) {
       try {
         const uri = await cardRef.current.capture();
@@ -2632,16 +2733,21 @@ export default function GuestList({ route, navigation }) {
       } catch (err) {
         console.log('Invite image share failed:', err.message);
         showAlert('Could not share', 'Make sure WhatsApp is installed, or use "Share as image" instead.');
+        if (issuedPassCode) setPreviewPassCodeForGuest(null);
         return;
       }
     } else {
       // Web has no NativeShare module at all (guarded at import time) —
-      // wa.me stays the only option there, text-only, same as before.
-      const url = `https://wa.me/${number}?text=${encodeURIComponent(personalized)}`;
+      // wa.me stays the only option there, text-only, so the gate pass code
+      // (if any) goes into the text below instead of the picture.
+      const gateLine = issuedPassCode ? `\n\n🔒 Gate pass code: ${issuedPassCode}` : '';
+      const url = `https://wa.me/${number}?text=${encodeURIComponent(personalized + gateLine)}`;
       Linking.openURL(url).catch(() => {
         showAlert('Could not open WhatsApp', 'Make sure WhatsApp is installed, or use "Share as image" instead.');
       });
     }
+
+    if (issuedPassCode) setPreviewPassCodeForGuest(null);
 
     // Persisted per-guest send tracking — replaces the old session-only
     // waSentIds Set, which reset every time this modal reopened.
@@ -2795,7 +2901,7 @@ export default function GuestList({ route, navigation }) {
   // designer was used. Deliberately independent of the designer's own
   // pages/activePageData (a saved design might not exist at all) — built
   // straight from the event's own already-resolved data instead.
-  function shareInviteToGuest(guest) {
+  async function shareInviteToGuest(guest) {
     ensureDesignPersisted();
     const rsvpLink = eventInviteCode
       ? `${PUBLIC_WEB_URL}/rsvp/${eventInviteCode}/${guest.id}`
@@ -2803,6 +2909,15 @@ export default function GuestList({ route, navigation }) {
     const codeLine = (guest.guest_code && eventInviteCode)
       ? `🔑 Your invite code: ${eventInviteCode}-${guest.guest_code} (already have the Utsav app? Open Invites → My Invitations and enter this code)`
       : null;
+    // Text-only share sheet has no image to draw a QR onto — the gate pass
+    // code still goes out as a plain line, same idea as sendWhatsappTo's
+    // web fallback, just via whatever app the OS share sheet opens instead
+    // of wa.me specifically.
+    let gateLine = null;
+    if (activePageData.includeGatePass && event?.id) {
+      const passCode = await ensureGuestPass(guest);
+      if (passCode) gateLine = `🔒 Gate pass code: ${passCode}`;
+    }
     const text = [
       `Dear ${guest.name} Ji,`,
       `You're invited to ${displayName || event?.name || 'our event'}!`,
@@ -2810,6 +2925,7 @@ export default function GuestList({ route, navigation }) {
       resolvedPlanContext?.venue?.label ? `📍 ${resolvedPlanContext.venue.label}` : null,
       `✅ RSVP: ${rsvpLink}`,
       codeLine,
+      gateLine,
     ].filter(Boolean).join('\n\n');
     Share.share({ message: text }).catch(err => console.log('shareInviteToGuest error:', err.message));
   }
@@ -2866,28 +2982,129 @@ export default function GuestList({ route, navigation }) {
     });
   }
 
+  // Web equivalent of ViewShot's cardRef.current.capture() — snapshots the
+  // on-screen preview card (cardRef now points at its real DOM node, see
+  // the CardWrapper wrapperProps above) and returns a data: URL, the same
+  // "picture, ready to attach" shape the native capture() call returns.
+  async function captureCardImage() {
+    if (Platform.OS !== 'web') return cardRef.current.capture();
+    if (!Html2Canvas || !cardRef.current) {
+      throw new Error('Image capture is not available in this browser.');
+    }
+    const canvas = await Html2Canvas(cardRef.current, {
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      scale: 2, // sharper image, matches the app's own 0.92-quality capture
+    });
+    return canvas.toDataURL('image/jpeg', 0.92);
+  }
+
+  // Triggers a normal browser file download — the same thing as right-
+  // clicking an image and choosing "Save image", just done for the person.
+  // This is the guaranteed-to-work fallback when the browser can't open a
+  // share sheet with the picture attached: the guest still ends up with
+  // the actual invite image on their device either way.
+  function downloadDataUrl(dataUrl, filename) {
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  // navigator.clipboard.writeText() can throw "Document is not focused" if
+  // focus drifted away during an earlier await (e.g. a share sheet opened
+  // and closed) — this tries it, and if that fails, falls back to the
+  // older execCommand('copy') trick via a hidden textarea, which browsers
+  // are more forgiving about. Never throws — copying the caption is a
+  // convenience on top of the image, not something worth blocking on.
+  async function copyTextSafely(text) {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (err) {
+      console.log('clipboard.writeText failed, trying fallback:', err.message);
+    }
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return ok;
+    } catch (err) {
+      console.log('execCommand copy fallback failed:', err.message);
+      return false;
+    }
+  }
+
   async function doShareInvite() {
     setSharing(true);
     try {
       const caption = buildInviteCaption();
 
-      // ViewShot capture has no meaningful web equivalent — share as text
-      // there. Many desktop browsers don't implement the Web Share API at
-      // all, so Share.share() can reject outright — Alert.alert() renders
-      // nothing on web (RN-Web gotcha), so falling into the outer catch
-      // would look like the button silently did nothing. Fall back to
-      // copying the caption (with both links) to the clipboard instead.
+      // Web: no ViewShot, and neither the Web Share API nor the Clipboard
+      // API can be counted on the way the native share sheet can — so this
+      // takes its own real snapshot (captureCardImage, via html2canvas)
+      // and tries, in order: (1) the browser's native share sheet WITH the
+      // picture attached — this is what Chrome on Android actually
+      // supports, so most guests get the same "tap Share, pick WhatsApp"
+      // flow as the app; (2) if the browser can share but not attach files,
+      // share the text and download the picture separately; (3) if there's
+      // no share sheet at all (most desktop browsers), just download the
+      // picture and copy the caption, so the person still has both.
       if (Platform.OS === 'web') {
+        let dataUrl = null;
         try {
-          await Share.share({ message: caption });
-        } catch (shareErr) {
-          if (navigator?.clipboard?.writeText) {
-            await navigator.clipboard.writeText(caption);
-            window.alert("Your browser can't open a share sheet, so the invite text — including the RSVP and venue links — was copied to your clipboard. Paste it anywhere to send.");
-          } else {
-            window.alert(caption);
-          }
+          dataUrl = await captureCardImage();
+        } catch (captureErr) {
+          console.log('Web invite image capture failed:', captureErr.message);
         }
+
+        try {
+          if (dataUrl && navigator?.share && navigator?.canShare) {
+            const blob = await (await fetch(dataUrl)).blob();
+            const file = new File([blob], 'invite.jpg', { type: 'image/jpeg' });
+            if (navigator.canShare({ files: [file] })) {
+              await navigator.share({ files: [file], text: caption });
+              markInvitesSent();
+              return;
+            }
+          }
+          if (navigator?.share) {
+            // Can share text/links but not files on this browser — the
+            // picture still reaches the person, just as a download instead
+            // of an attachment.
+            if (dataUrl) downloadDataUrl(dataUrl, 'invite.jpg');
+            await navigator.share({ text: caption });
+            markInvitesSent();
+            return;
+          }
+        } catch (shareErr) {
+          if (shareErr?.name === 'AbortError') { return; } // person cancelled the share sheet — not an error
+          console.log('Web share failed:', shareErr.message);
+        }
+
+        // No share sheet available at all (common on desktop browsers) —
+        // guaranteed-to-work fallback: download the picture, copy the text.
+        if (dataUrl) downloadDataUrl(dataUrl, 'invite.jpg');
+        const copied = await copyTextSafely(caption);
+        window.alert(
+          dataUrl
+            ? (copied
+              ? "Your browser can't open a share sheet, so the invite picture was downloaded and the invite text — including the RSVP and venue links — was copied to your clipboard. Attach the picture and paste the text wherever you're sending it."
+              : "Your browser can't open a share sheet, so the invite picture was downloaded. Copy this text separately to send along with it:\n\n" + caption)
+            : (copied
+              ? "Your browser can't open a share sheet, so the invite text — including the RSVP and venue links — was copied to your clipboard. Paste it anywhere to send."
+              : caption)
+        );
         markInvitesSent();
         return;
       }
@@ -4051,7 +4268,13 @@ export default function GuestList({ route, navigation }) {
             </Text>
             {(() => {
               const CardWrapper = Platform.OS === 'web' ? View : ViewShot;
-              const wrapperProps = Platform.OS === 'web' ? {} : { ref: cardRef, options: { format: 'jpg', quality: 0.92 } };
+              // On web, cardRef now points at the card's actual DOM node
+              // (react-native-web forwards a View's ref to its underlying
+              // <div>) — that's what captureCardImage()'s html2canvas call
+              // below needs to snapshot it.
+              const wrapperProps = Platform.OS === 'web'
+                ? { ref: cardRef }
+                : { ref: cardRef, options: { format: 'jpg', quality: 0.92 } };
               const hasImage = !!activePageData.imageUri;
               const placement = activePageData.imagePlacement || 'top';
               const isBackground = hasImage && placement === 'background';
@@ -4083,6 +4306,20 @@ export default function GuestList({ route, navigation }) {
                   {activePageData.date ? <Text style={[s.inviteDetail, { color: textColor }]}>📅  {activePageData.date}</Text> : null}
                   {activePageData.time ? <Text style={[s.inviteDetail, { color: textColor }]}>🕐  {activePageData.time}</Text> : null}
                   {activePageData.venue ? <Text style={[s.inviteDetail, { color: textColor }]}>📍  {activePageData.venue}</Text> : null}
+
+                  {/* Placeholder QR while editing (no single guest in
+                      context yet) — swapped for the real, per-guest QR by
+                      sendWhatsappTo right before it captures this card as
+                      an image, so what actually gets sent carries that
+                      guest's own working gate-pass code. */}
+                  {activePageData.includeGatePass ? (
+                    <View style={s.gatePassQrBox}>
+                      <SvgXml xml={qrSvgFor(previewPassCodeForGuest || 'PREVIEW')} width={110} height={110} />
+                      <Text style={[s.gatePassQrLabel, { color: textColor }]}>
+                        {previewPassCodeForGuest ? `Gate pass: ${previewPassCodeForGuest}` : 'Your gate pass QR'}
+                      </Text>
+                    </View>
+                  ) : null}
 
                   <View style={[s.inviteFooter, { borderTopColor: accentColor + '44' }]}>
                     <Text style={[s.inviteFooterText, { color: accentColor }]}>
@@ -4265,6 +4502,28 @@ export default function GuestList({ route, navigation }) {
               )}
               <Text style={s.venueHint}>This becomes the "View on Google Maps" link guests see when they RSVP.</Text>
             </View>
+
+            {/* "gate pass or qrcode should be essential in built in invite
+                itself... in case of gated society address or where
+                security check gate passes." Off by default — most events
+                don't need it. When on, each guest's own QR is drawn
+                directly onto their invite picture when it's sent (see the
+                Preview card below and sendWhatsappTo's ensureGuestPass()) —
+                one thing to save and show at the gate, not a separate pass
+                to issue and share later. */}
+            <View style={s.gatePassToggleRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.gatePassToggleTitle}>🔒 Security gate pass on this invite</Text>
+                <Text style={s.gatePassToggleSub}>
+                  For gated societies or venues with a security check — each guest's invite gets their own QR code, so they can check in at the gate straight from the invite you send.
+                </Text>
+              </View>
+              <Switch
+                value={!!activePageData.includeGatePass}
+                onValueChange={v => updateActivePage('includeGatePass', v)}
+              />
+            </View>
+
             <View>
               <Text style={s.fieldLabel}>Dietary note</Text>
               <TextInput
@@ -5238,6 +5497,15 @@ const styles = theme => StyleSheet.create({
   inviteDetail: { fontSize: 14, fontWeight: '600', marginTop: 2 },
   inviteFooter: { borderTopWidth: 0.5, marginTop: 16, paddingTop: 12, width: '100%', alignItems: 'center' },
   inviteFooterText: { fontSize: 10.5, fontWeight: '600', letterSpacing: 0.3 },
+  gatePassQrBox: { alignItems: 'center', marginTop: 14 },
+  gatePassQrLabel: { fontSize: 11, fontWeight: '700', marginTop: 8, letterSpacing: 0.5 },
+  gatePassToggleRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 0.5, borderColor: theme.border,
+    padding: 14, marginTop: 6, marginBottom: 4,
+  },
+  gatePassToggleTitle: { fontSize: 13.5, fontWeight: '700', color: theme.text, marginBottom: 4 },
+  gatePassToggleSub: { fontSize: 11.5, color: theme.textSecondary, lineHeight: 16 },
   shareInviteBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: '#25D366', borderRadius: 14, paddingVertical: 15,
