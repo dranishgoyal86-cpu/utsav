@@ -7,6 +7,7 @@ import { showAlert } from '../../helpers';
 import { useEventPlan } from '../../hooks/useEventPlan';
 import { eventTypeName } from '../../lib/eventTypeNames';
 import AppHeader from '../../components/AppHeader';
+import EventTabStrip from '../../components/EventTabStrip';
 import ActivityIdeasLibrary from '../../components/ActivityIdeasLibrary';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import { MAROON, CARD, LINE, TEXT, MUTED } from '../../lib/desktopTheme';
@@ -21,9 +22,14 @@ const DESKTOP_BREAKPOINT = 768;
 // computes via useEventPlan — nothing about that engine changes here, this
 // screen just presents it differently: a plain include/skip toggle per
 // item, a rough price shown only as a light hint (not tappable, no vendor
-// browsing at all), and a single "Done planning" action at the bottom that
-// hands off to PlanView.js. See the project doc
+// browsing at all), and a "Save" action at the bottom. See the project doc
 // "planning-vs-execution-split.md" for the full design this implements.
+//
+// Sept 16 hierarchy update — this is now one of three peer, always-
+// reachable tabs (see components/EventTabStrip.js), not a forced one-way
+// step into PlanView. Saving no longer auto-navigates anywhere; the host
+// stays right here (tabs still visible) and switches to "Execute & book"
+// themselves whenever they're ready.
 const PRIORITY_META = {
   P1: 'The Essentials',
   P2: 'Important to lock in',
@@ -40,7 +46,6 @@ export default function EventScope({ route, navigation }) {
   const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const { resolved, estimates, resolvedByFunction, event, allocation, extraActivities, loading, refresh } = useEventPlan(eventId);
   const [movingOn, setMovingOn] = useState(false);
-  const [togglingItem, setTogglingItem] = useState(null);
   const [startingSelection, setStartingSelection] = useState(true);
   const initedRef = useRef(false);
 
@@ -88,24 +93,29 @@ export default function EventScope({ route, navigation }) {
     });
   }, [loading, event, resolved, resolvedByFunction, eventId, refresh]);
 
-  const excludedItems = event?.excluded_items || [];
-  const excludedSet = new Set(excludedItems);
+  // "when clicking any toggle its updating everytime which is frustrating —
+  // it should update once when hosts select - done planning" (Anish, Sept
+  // 16). Every toggle tap below is now purely local state — a plain JS Set,
+  // seeded once from event.excluded_items the moment startingSelection's
+  // own one-time init (above) has settled — no Supabase write per tap, no
+  // network round trip, no lag. The ONE write to the database happens in
+  // save() below, when the host is actually done: it writes the whole
+  // localExcluded set back to events.excluded_items in a single call.
+  const [localExcluded, setLocalExcluded] = useState(new Set());
+  const localExcludedInitedRef = useRef(false);
+  useEffect(() => {
+    if (localExcludedInitedRef.current || loading || !event || startingSelection) return;
+    localExcludedInitedRef.current = true;
+    setLocalExcluded(new Set(event.excluded_items || []));
+  }, [loading, event, startingSelection]);
 
-  async function toggleItem(itemName) {
-    if (!event) return;
-    setTogglingItem(itemName);
-    try {
-      const nextExcluded = excludedSet.has(itemName)
-        ? excludedItems.filter(n => n !== itemName)
-        : [...excludedItems, itemName];
-      const { error } = await supabase.from('events').update({ excluded_items: nextExcluded }).eq('id', eventId);
-      if (error) throw error;
-      await refresh();
-    } catch (err) {
-      showAlert('Error', err.message);
-    } finally {
-      setTogglingItem(null);
-    }
+  function toggleItem(itemName) {
+    setLocalExcluded(prev => {
+      const next = new Set(prev);
+      if (next.has(itemName)) next.delete(itemName);
+      else next.add(itemName);
+      return next;
+    });
   }
 
   // Activity Ideas Library — moved here from PlanView.js (Sept 16):
@@ -139,19 +149,33 @@ export default function EventScope({ route, navigation }) {
     refresh();
   }
 
-  async function doneWithPlanning() {
+  // Sept 16 hierarchy update — this used to force-navigate straight into
+  // PlanView the moment the host tapped this. Now it just saves (both the
+  // item choices and planning_stage, so SlotPrompt.js's one-time "where do
+  // we land first" check still works for a brand-new event) and stays put
+  // — the host is still on the "Plan the event" tab, tabs visible, and
+  // moves to "Execute & book" on their own whenever they're ready. Matches
+  // exactly what Anish described: "Once we save it, it goes again back to
+  // the event planning where we see all the tabs... Now we click on book
+  // the event to book whatever vendors we want to."
+  async function savePlanning() {
     setMovingOn(true);
     try {
-      const { error } = await supabase.from('events').update({ planning_stage: 'executing' }).eq('id', eventId);
+      const { error } = await supabase
+        .from('events')
+        .update({ excluded_items: [...localExcluded], planning_stage: 'executing' })
+        .eq('id', eventId);
       if (error) throw error;
-      navigation.replace('PlanView', { eventId });
+      await refresh();
+      showAlert('Saved', 'Your planning choices are saved. Switch to "Execute & book" whenever you\'re ready to see pricing and book vendors.');
     } catch (err) {
       showAlert('Error', err.message);
+    } finally {
       setMovingOn(false);
     }
   }
 
-  if (loading || !event || startingSelection) {
+  if (loading || !event || startingSelection || !localExcluded) {
     return (
       <SafeAreaView style={s.container}>
         <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
@@ -177,8 +201,7 @@ export default function EventScope({ route, navigation }) {
               key={item.item_name}
               item={item}
               estimate={estimates[item.item_name]}
-              included={!excludedSet.has(item.item_name)}
-              busy={togglingItem === item.item_name}
+              included={!localExcluded.has(item.item_name)}
               onToggle={() => toggleItem(item.item_name)}
               description={ITEM_DESCRIPTIONS[item.item_name]}
               theme={theme}
@@ -197,8 +220,7 @@ export default function EventScope({ route, navigation }) {
                 key={item.item_name}
                 item={item}
                 estimate={estimates[item.item_name]}
-                included={!excludedSet.has(item.item_name)}
-                busy={togglingItem === item.item_name}
+                included={!localExcluded.has(item.item_name)}
                 onToggle={() => toggleItem(item.item_name)}
                 description={ITEM_DESCRIPTIONS[item.item_name]}
                 theme={theme}
@@ -222,14 +244,14 @@ export default function EventScope({ route, navigation }) {
   );
 
   const ctaEl = (
-    <TouchableOpacity style={s.ctaBtn} onPress={doneWithPlanning} disabled={movingOn}>
-      {movingOn ? <ActivityIndicator color="#FFF" /> : <Text style={s.ctaBtnText}>Done planning — see pricing & vendors →</Text>}
+    <TouchableOpacity style={s.ctaBtn} onPress={savePlanning} disabled={movingOn}>
+      {movingOn ? <ActivityIndicator color="#FFF" /> : <Text style={s.ctaBtnText}>Save planning ✓</Text>}
     </TouchableOpacity>
   );
 
   if (isDesktopWeb) {
     return (
-      <DesktopEventShell activeItem="overview" event={event} guestCount={0} currentUserName="" navigation={navigation}>
+      <DesktopEventShell activeItem="plan" event={event} guestCount={0} currentUserName="" navigation={navigation}>
         <Text style={ds.title}>{event.working_title || eventTypeName(event.event_type_slug)}</Text>
         <Text style={ds.subtitle}>Planning</Text>
         <View style={ds.body}>{body}</View>
@@ -246,6 +268,7 @@ export default function EventScope({ route, navigation }) {
         navigation={navigation}
         onBack={() => navigation.goBack()}
       />
+      <EventTabStrip active="plan" eventId={eventId} navigation={navigation} theme={theme} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
         {body}
       </ScrollView>
@@ -254,7 +277,7 @@ export default function EventScope({ route, navigation }) {
   );
 }
 
-function ScopeItemRow({ item, estimate, included, busy, onToggle, description, theme, s }) {
+function ScopeItemRow({ item, estimate, included, onToggle, description, theme, s }) {
   const label = item.contextual_label || item.item_name;
   // "add description also below features which are not self explanatory —
   // with more details tab" (Anish, Sept 16) — only items with a real entry
@@ -273,7 +296,7 @@ function ScopeItemRow({ item, estimate, included, busy, onToggle, description, t
     <View style={[s.itemRow, !included && s.itemRowExcluded]}>
       <View style={{ flex: 1 }}>
         <View style={s.itemNameRow}>
-          <Text style={[s.itemName, !included && s.itemNameExcluded]}>{label}</Text>
+          <Text style={s.itemName}>{label}</Text>
           {description ? (
             <TouchableOpacity onPress={() => setDetailsOpen(o => !o)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
               <Text style={s.moreDetailsLink}>{detailsOpen ? 'Less details ▾' : 'More details ▸'}</Text>
@@ -283,9 +306,7 @@ function ScopeItemRow({ item, estimate, included, busy, onToggle, description, t
         <Text style={s.itemPriceHint}>{priceHint()}</Text>
         {description && detailsOpen ? <Text style={s.itemDescription}>{description}</Text> : null}
       </View>
-      {busy ? <ActivityIndicator color={theme.accent} /> : (
-        <Switch value={included} onValueChange={onToggle} />
-      )}
+      <Switch value={included} onValueChange={onToggle} />
     </View>
   );
 }
@@ -304,10 +325,12 @@ function makeStyles(theme) {
       backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border,
       paddingHorizontal: 16, paddingVertical: 14, marginBottom: 8,
     },
+    // "there should not be a cut line across the feature — that makes it
+    // difficult to read" (Anish, Sept 16) — excluded items are now shown
+    // only with reduced opacity, no strikethrough text.
     itemRowExcluded: { opacity: 0.55 },
     itemNameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
     itemName: { fontSize: 14.5, fontWeight: '600', color: theme.text },
-    itemNameExcluded: { textDecorationLine: 'line-through' },
     itemPriceHint: { fontSize: 12, color: theme.textTertiary, marginTop: 3 },
     moreDetailsLink: { fontSize: 11.5, fontWeight: '700', color: theme.accent },
     itemDescription: { fontSize: 12.5, color: theme.textSecondary, lineHeight: 18, marginTop: 8 },

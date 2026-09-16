@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Modal, TextInput, Linking, KeyboardAvoidingView, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PencilSimple } from 'phosphor-react-native';
@@ -10,15 +10,22 @@ import { eventTypeName } from '../../lib/eventTypeNames';
 import { isNonFestive } from '../../lib/inviteSchemas';
 import { isHomeVenueType, buildContext } from '../../lib/eventContext';
 import { useEventCapabilities } from '../../hooks/useEventCapabilities';
-import SlotField, { slotApplies, slotFilled, slotDisplayValue, SLOT_LABELS } from '../../components/SlotField';
 import AppHeader from '../../components/AppHeader';
+import EventTabStrip from '../../components/EventTabStrip';
 import { resolveInviteDesignColors } from './GuestList';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import { CARD, LINE, TEXT } from '../../lib/desktopTheme';
 import TextPromptModal from '../../components/TextPromptModal';
-import { detectGuestFacingChange, notifyGuestsOfEventChange, cancelEventAndNotifyGuests } from '../../lib/eventGuestNotifications';
+import { cancelEventAndNotifyGuests } from '../../lib/eventGuestNotifications';
 
 const DESKTOP_BREAKPOINT = 768;
+
+// "Event details" (sub_type_slug, event_date, city, venue_type, guest_count,
+// theme, budget_total, etc.) moved out to its own screen/tab, EventDetailsScreen.js
+// — Sept 16 hierarchy request. This screen (the "Execute & book" tab) no
+// longer fetches, edits, or displays any of those fields itself; the
+// EDITABLE_SLOTS/SOFT_SLOTS lists and the saveField()/pendingPatch overlay
+// that used to live here moved there with it, unchanged.
 
 // Warmer, celebration-framed language in place of the old raw P1-P5 labels —
 // display text only. The 'P1'-'P5' keys themselves stay unchanged: they're
@@ -45,38 +52,13 @@ const PRIORITY_META = {
 // adult-birthday events (slotApplies() in SlotField.js), and it's what
 // decides which of those two an event even is, so it's treated as soft
 // (not blocking) but nudged early, same as theme/budget etc.
-const SOFT_SLOTS = ['birthday_person', 'event_time', 'venue_type', 'location', 'guest_count', 'theme', 'dietary_restrictions', 'budget_total'];
-
-// Every field the host can ever set, blocking or soft — used by the "Event
-// details" section below so nothing is edit-once. Unlike SOFT_SLOTS above,
-// this isn't filtered by fill state: a field that's already set still shows
-// here, pre-filled, so it can be changed. This is the direct fix for "no
-// option of modifying the details" — every one of these used to disappear
-// from the UI forever the moment it was first set.
-const EDITABLE_SLOTS = ['sub_type_slug', 'birthday_person', 'event_date', 'event_time', 'city', 'venue_type', 'location', 'guest_count', 'theme', 'dietary_restrictions', 'budget_total'];
-
 export default function PlanView({ route, navigation }) {
   const { eventId } = route.params;
   const { theme } = useTheme();
   const s = makeStyles(theme);
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
-  const { resolved, estimates, progress, allocation, event: rawEvent, venue, resolvedByFunction, itemHandledByName, loading, error, refresh } = useEventPlan(eventId);
-
-  // Sept 2026 UX pass — "the other options in the plan are too slow when
-  // clicked ... sometimes presses it twice". saveField() below writes to
-  // Supabase and then calls refresh(), which re-runs useEventPlan's whole
-  // resolution pass (requirements/estimates/budget allocation, not just a
-  // re-fetch of the events row) — real work, so on a mid/low-end phone
-  // there's a visible gap between tapping a chip and it actually looking
-  // selected, which reads as "nothing happened" and invites a second tap.
-  // pendingPatch is an optimistic overlay: the instant a save starts, its
-  // patch is merged into what every SlotField renders, so the tapped chip
-  // highlights immediately instead of waiting for the round trip. It's
-  // cleared once refresh() resolves, at which point the real event object
-  // is authoritative again (whether the save succeeded or not).
-  const [pendingPatch, setPendingPatch] = useState({});
-  const event = useMemo(() => (rawEvent ? { ...rawEvent, ...pendingPatch } : rawEvent), [rawEvent, pendingPatch]);
+  const { resolved, estimates, progress, allocation, event, venue, resolvedByFunction, itemHandledByName, loading, error, refresh } = useEventPlan(eventId);
 
   // Activity Ideas Library moved to EventScope.js (Planning stage) — Sept
   // 16: "the browse activity ideas should also be in planning stage" (this
@@ -164,11 +146,6 @@ export default function PlanView({ route, navigation }) {
   const [renameModal, setRenameModal] = useState(false);
   const [renameInput, setRenameInput] = useState('');
   const [saving, setSaving] = useState(false);
-  // undefined = no manual choice yet, defaults to "editing" whenever
-  // something's still missing (same undefined-until-touched pattern as
-  // openSections.details below) — once the host taps Modify or Save it's
-  // their call from then on.
-  const [detailsEditingOverride, setDetailsEditingOverride] = useState(undefined);
 
   // One-time celebratory note when the Essentials tier transitions into
   // fully-booked DURING this visit — a ref tracks the previous handled
@@ -188,80 +165,8 @@ export default function PlanView({ route, navigation }) {
     prevP1HandledRef.current = { handled: progress.p1Handled, total: progress.p1Total };
   }, [progress.p1Handled, progress.p1Total]);
 
-  async function saveField(patch) {
-    // Captured BEFORE the optimistic overlay/write below — the real
-    // "what did this used to be" for the guest-facing-change check after a
-    // successful save (event/rawEvent both move the instant pendingPatch
-    // does, so this has to be grabbed first).
-    const oldEvent = event;
-    // Optimistic UI first (see pendingPatch comment above) — every
-    // SlotField reading `event` sees the new value immediately, before the
-    // network round trip even starts.
-    setPendingPatch(prev => ({ ...prev, ...patch }));
-    setSaving(true);
-    try {
-      const { error: err } = await supabase.from('events').update(patch).eq('id', eventId);
-      if (err) throw err;
-
-      // saved_plans.event_date/total_budget are what PlanScreen.js's "YOUR
-      // PLANS" cards and sort options actually read — they don't live-join
-      // the events row, so without this mirror a new-flow plan permanently
-      // shows "No date set"/no budget badge even after both are filled in.
-      const planMirror = {};
-      if ('event_date' in patch) planMirror.event_date = patch.event_date;
-      if ('budget_total' in patch) planMirror.total_budget = patch.budget_total;
-      if (Object.keys(planMirror).length > 0) {
-        await supabase.from('saved_plans').update(planMirror).eq('event_id', eventId);
-      }
-
-      await refresh();
-
-      // Guest-visibility wave — only worth asking about once invites have
-      // actually gone out (invites_sent_at, stamped by GuestList.js's
-      // markInvitesSent — the same signal rsvp-reminders already relies
-      // on). Editing the date while still planning, before anyone's been
-      // told anything, isn't a "change" from a guest's point of view.
-      if (oldEvent?.invites_sent_at) {
-        const changedSummary = detectGuestFacingChange(oldEvent, patch);
-        if (changedSummary) setGuestNotifyPrompt({ changedSummary });
-      }
-    } catch (err) {
-      showAlert('Error', err.message);
-    } finally {
-      setSaving(false);
-      // Whether the save succeeded or failed, refresh() has now put the
-      // authoritative row into rawEvent — drop the overlay so it can't go
-      // stale (e.g. a failed save silently continuing to show the tapped
-      // value as if it had saved).
-      setPendingPatch({});
-    }
-  }
-
-  // Host-confirmed guest notification for a date/time/venue change — never
-  // fires silently (plan decision #2). unreachable guests (phone-only, no
-  // account, no email) are surfaced back to the host rather than the app
-  // quietly doing nothing for them.
-  const [guestNotifyPrompt, setGuestNotifyPrompt] = useState(null); // { changedSummary } | null
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-
-  async function confirmNotifyGuests(message) {
-    const summary = guestNotifyPrompt?.changedSummary;
-    setGuestNotifyPrompt(null);
-    try {
-      const result = await notifyGuestsOfEventChange(event, message || summary);
-      const parts = [];
-      if (result.notifiedCount) parts.push(`${result.notifiedCount} notified in-app`);
-      if (result.emailedCount) parts.push(`${result.emailedCount} emailed`);
-      let msg = parts.length ? parts.join(', ') + '.' : 'No guests to notify yet.';
-      if (result.unreachable.length) {
-        msg += `\n\n${result.unreachable.length} guest${result.unreachable.length === 1 ? '' : 's'} can't be auto-notified (no account or email on file) — message them yourself: ${result.unreachable.map(g => g.name).join(', ')}.`;
-      }
-      showAlert('Guests notified', msg);
-    } catch (err) {
-      showAlert('Error', err.message);
-    }
-  }
 
   async function confirmCancelEvent(reason) {
     setCancelModalVisible(false);
@@ -281,19 +186,6 @@ export default function PlanView({ route, navigation }) {
       showAlert('Error', err.message);
     } finally {
       setCancelling(false);
-    }
-  }
-
-  const [goingBackToPlanning, setGoingBackToPlanning] = useState(false);
-  async function backToPlanning() {
-    setGoingBackToPlanning(true);
-    try {
-      const { error: err } = await supabase.from('events').update({ planning_stage: 'planning' }).eq('id', eventId);
-      if (err) throw err;
-      navigation.replace('EventScope', { eventId });
-    } catch (err) {
-      showAlert('Error', err.message);
-      setGoingBackToPlanning(false);
     }
   }
 
@@ -382,13 +274,6 @@ export default function PlanView({ route, navigation }) {
   const eventContext = buildContext(event, venue);
   const daysUntil = eventContext?.daysUntil ?? null;
 
-  const pendingSoftSlots = SOFT_SLOTS.filter(slot => slotApplies(slot, event) && !slotFilled(slot, event));
-  const applicableEditableSlots = EDITABLE_SLOTS.filter(slot => slotApplies(slot, event));
-  // Opens by default whenever something's still missing; once the host has
-  // touched it manually, their choice wins from then on.
-  const detailsOpen = openSections.details !== undefined ? openSections.details : pendingSoftSlots.length > 0;
-  const detailsEditing = detailsEditingOverride !== undefined ? detailsEditingOverride : pendingSoftSlots.length > 0;
-
   // Same content either way -- desktop wraps it in DesktopEventShell
   // (Batch B's real "Overview" nav entry, see DesktopEventShell.js), mobile
   // keeps its own AppHeader+ScrollView unchanged. Kept as a single JSX
@@ -430,68 +315,6 @@ export default function PlanView({ route, navigation }) {
             {event.guest_count != null ? ` · ${event.guest_count} guests` : ''}
           </Text>
           {(event.venue || venue?.name) ? <Text style={s.metaLine}>{venue?.name || event.venue}</Text> : null}
-        </View>
-
-        {/* ── Back to planning — Planning vs. Execution split. Freely
-             revisitable both ways per Anish's call: this never locks
-             anything, just flips planning_stage back and hands off to
-             EventScope.js; nothing booked here is touched or lost, and
-             anything re-included there shows back up here again on return. ── */}
-        <TouchableOpacity style={s.backToPlanningLink} onPress={backToPlanning} disabled={goingBackToPlanning}>
-          {goingBackToPlanning ? <ActivityIndicator color={theme.textSecondary} size="small" /> : (
-            <Text style={s.backToPlanningLinkText}>← Back to planning</Text>
-          )}
-        </TouchableOpacity>
-
-        {/* ── Event details — every field the host can set, always here, not
-             just while empty. This is the direct fix for "no option of
-             modifying the details". Opens automatically when something's
-             still missing, straight into edit mode; otherwise opens as a
-             clean read-only summary with a Modify button, and a Save
-             button to close back out of edit mode once done — the
-             underlying fields still autosave individually on change either
-             way, this toggle is purely about what's shown. */}
-        <View style={s.section}>
-          <TouchableOpacity style={s.sectionHeader} onPress={() => setOpenSections(prev => ({ ...prev, details: !detailsOpen }))}>
-            <Text style={s.sectionTitle}>
-              Event details{pendingSoftSlots.length > 0 ? ` · ${pendingSoftSlots.length} to fill in` : ''}
-            </Text>
-            <Text style={s.sectionCaret}>{detailsOpen ? '▾' : '▸'}</Text>
-          </TouchableOpacity>
-          {detailsOpen && (
-            <View style={s.detailsBody}>
-              {saving && <ActivityIndicator color={theme.accent} style={{ marginBottom: 10 }} />}
-              {detailsEditing ? (
-                <>
-                  {applicableEditableSlots.map(slot => (
-                    <View key={slot} style={{ marginBottom: 18 }}>
-                      <SlotField slotKey={slot} event={event} onSave={saveField} navigation={navigation} />
-                    </View>
-                  ))}
-                  <TouchableOpacity style={s.detailsSaveBtn} onPress={() => setDetailsEditingOverride(false)}>
-                    <Text style={s.detailsSaveBtnText}>Save</Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  {applicableEditableSlots.map(slot => {
-                    const value = slotDisplayValue(slot, event, venue);
-                    if (!value) return null;
-                    return (
-                      <View key={slot} style={s.detailsRow}>
-                        <Text style={s.detailsRowLabel}>{SLOT_LABELS[slot]}</Text>
-                        <Text style={s.detailsRowValue}>{value}</Text>
-                      </View>
-                    );
-                  })}
-                  <TouchableOpacity style={s.detailsModifyBtn} onPress={() => setDetailsEditingOverride(true)}>
-                    <PencilSimple size={14} color={theme.text} />
-                    <Text style={s.detailsModifyBtnText}>Modify</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          )}
         </View>
 
         {/* ── Gate pass — surfaced only when entryControl actually resolves
@@ -721,24 +544,13 @@ export default function PlanView({ route, navigation }) {
     </Modal>
   );
 
-  // Two small TextPromptModal instances — "notify guests of this change?"
-  // (optional message, skippable) and "cancel this event" (reason
-  // required). Kept as one JSX value referenced from both the mobile and
-  // desktop return branches, same pattern as renameModalEl above.
-  const guestChangeAndCancelModals = (
+  // "Cancel this event" confirmation. Kept as its own JSX value referenced
+  // from both the mobile and desktop return branches, same pattern as
+  // renameModalEl above. (The old "notify guests of this change?" modal
+  // that used to live here moved to EventDetailsScreen.js along with the
+  // event-detail fields that actually trigger it.)
+  const cancelModal = (
     <>
-      <TextPromptModal
-        visible={!!guestNotifyPrompt}
-        title="Notify guests about this?"
-        message={guestNotifyPrompt ? `You changed ${guestNotifyPrompt.changedSummary}. Guests already invited to this event can be told.` : ''}
-        placeholder="Optional note to include, e.g. why it moved"
-        defaultValue=""
-        required={false}
-        confirmLabel="Notify guests"
-        cancelLabel="Skip"
-        onConfirm={confirmNotifyGuests}
-        onCancel={() => setGuestNotifyPrompt(null)}
-      />
       <TextPromptModal
         visible={cancelModalVisible}
         title="Cancel this event?"
@@ -756,7 +568,7 @@ export default function PlanView({ route, navigation }) {
   if (isDesktopWeb) {
     return (
       <DesktopEventShell
-        activeItem="overview"
+        activeItem="execute"
         event={event}
         guestCount={guestCount}
         currentUserName={currentUserName}
@@ -780,7 +592,7 @@ export default function PlanView({ route, navigation }) {
         </View>
         <View style={ds.body}>{body}</View>
         {renameModalEl}
-        {guestChangeAndCancelModals}
+        {cancelModal}
       </DesktopEventShell>
     );
   }
@@ -812,11 +624,12 @@ export default function PlanView({ route, navigation }) {
           ] : []),
         ]}
       />
+      <EventTabStrip active="execute" eventId={eventId} navigation={navigation} theme={theme} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
         {body}
       </ScrollView>
       {renameModalEl}
-      {guestChangeAndCancelModals}
+      {cancelModal}
     </SafeAreaView>
   );
 }

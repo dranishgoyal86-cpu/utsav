@@ -1,7 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Compass, Users, PaperPlaneTilt, ChartBar, CheckSquare, Gift, QrCode, CalendarCheck, GearSix,
+  Compass, Users, PaperPlaneTilt, ChartBar, CheckSquare, Gift, QrCode, CalendarCheck, GearSix, PencilSimple, Sparkle,
 } from 'phosphor-react-native';
 import TornArch from '../invite/motifs/TornArch';
 import { MAROON, MAROON_DEEP, GOLD, GOLD_SOFT } from '../../lib/desktopTheme';
@@ -21,11 +21,16 @@ import { MAROON, MAROON_DEEP, GOLD, GOLD_SOFT } from '../../lib/desktopTheme';
 // reasoning on why MAROON_DEEP/GOLD_SOFT are the two literal exceptions.
 
 const NAV_ITEMS = [
-  // Overview links to PlanView (the event's real plan document -- P1-P5
-  // checklist, budget, event details), Batch B's real finding: nothing in
-  // this shell pointed back at it before, even though it's the natural
-  // "home" of an event's own workspace, one level up from Guests.
-  { section: 'Manage', key: 'overview', label: 'Overview', icon: Compass, screen: 'PlanView' },
+  // Sept 16 hierarchy update — "1. event details, then 2. event planning
+  // ... 3. executing booking stage", always freely reachable, never a
+  // one-way flow (Anish: tabs should be "always unlocked, no gate"). These
+  // three replace what used to be a single 'overview' item pointing only
+  // at PlanView — now each of the three per-event screens gets its own
+  // sidebar entry, matching the mobile EventTabStrip.js's own three tabs
+  // key-for-key ('details'/'plan'/'execute').
+  { section: 'Manage', key: 'details', label: 'Event details', icon: PencilSimple, screen: 'EventDetailsScreen' },
+  { section: 'Manage', key: 'plan', label: 'Plan the event', icon: Sparkle, screen: 'EventScope' },
+  { section: 'Manage', key: 'execute', label: 'Execute & book', icon: Compass, screen: 'PlanView' },
   { section: 'Manage', key: 'guests', label: 'Guests', icon: Users, screen: 'GuestList' },
   { section: 'Manage', key: 'invites', label: 'Invites', icon: PaperPlaneTilt, screen: 'ToranInvites' },
   { section: 'Manage', key: 'rsvp', label: 'RSVP dashboard', icon: ChartBar, screen: 'RsvpDashboard' },

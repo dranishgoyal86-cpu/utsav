@@ -4,17 +4,19 @@ import { Microphone } from 'phosphor-react-native';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
-import { showAlert, callEdgeFunction } from '../../helpers';
+import { showAlert } from '../../helpers';
 import { matchEventTypeText, EVENT_TYPE_NAMES, eventTypeName } from '../../lib/eventTypeNames';
 import { registerTourTarget } from '../../lib/tourTargets';
+import { extractEventDetails } from '../../lib/eventPromptRules';
 
-// "whatever details a client is putting in the main plan screen ... app
-// should pick all possible details and autofill event planning screen
-// eventually" (Anish, Sept 16). Builds the short "here's what we picked
-// up" recap line SlotPrompt.js shows once, from exactly the fields
-// parse-event-prompt returned — kept in sync by hand with that edge
-// function's ALLOWED_KEYS and components/SlotField.js's real slots.
-function buildRecapLines(patch) {
+// "can we make a schema and policy for this rather than AI guessing"
+// (Anish, Sept 16) — lib/eventPromptRules.js is that schema/policy: a
+// plain, rule-based reader of the host's own free text, no AI call
+// involved (replaces the earlier parse-event-prompt edge function
+// entirely). Builds the short "here's what we picked up" recap line
+// SlotPrompt.js shows once, from exactly the fields extractEventDetails()
+// returned — kept in sync by hand with that file's own field list.
+function buildRecapLines(patch, hostedBy) {
   const lines = [];
   if (patch.guest_count != null) lines.push(`${patch.guest_count} guests`);
   if (patch.city) lines.push(patch.city);
@@ -27,6 +29,7 @@ function buildRecapLines(patch) {
   if (patch.is_dry_event === true) lines.push('Dry event (no alcohol)');
   if (patch.is_veg_only === true) lines.push('Vegetarian only');
   if (patch.birthday_person_name) lines.push(`For ${patch.birthday_person_name}`);
+  if (hostedBy) lines.push(`Hosted by ${hostedBy}`);
   return lines;
 }
 
@@ -101,23 +104,22 @@ export default function PlanHero({ navigation }) {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { showAlert('Not signed in', 'Please log in to start planning.'); return; }
 
-      const workingTitle = text.trim().slice(0, 80) || eventTypeName(eventTypeSlug);
+      // "app saving the name of the event as it is whatever i have typed...
+      // it should only pick the type of event as the name" (Anish, Sept
+      // 16) — the event's name/title is always just the event type's own
+      // display name ("Wedding", "Kids Birthday", ...), never the host's
+      // raw description. The raw text is still fully used for autofill via
+      // extractEventDetails() below — it's just no longer echoed back as
+      // the event's name.
+      const workingTitle = eventTypeName(eventTypeSlug);
 
-      // Best-effort auto-fill from the host's own free text — never blocks
-      // event creation. A timeout, a missing OPENAI_API_KEY, or a parse
-      // failure all fall back to exactly today's behavior: an empty patch,
-      // nothing pre-filled, every question asked the normal way.
-      let autofillPatch = {};
-      try {
-        const { patch } = await callEdgeFunction('parse-event-prompt', {
-          text: text.trim(),
-          todayDate: new Date().toISOString().slice(0, 10),
-        });
-        autofillPatch = patch || {};
-      } catch (autofillErr) {
-        console.log('parse-event-prompt non-fatal error:', autofillErr.message);
-      }
-      const recapLines = buildRecapLines(autofillPatch);
+      // Rule-based auto-fill from the host's own free text — synchronous,
+      // local, no network call. Never throws (every extractor function
+      // returns null on no-match rather than erroring), so there's no
+      // try/catch needed here the way the old AI call needed one.
+      const today = new Date().toISOString().slice(0, 10);
+      const { patch: autofillPatch, hostedBy } = extractEventDetails(text.trim(), eventTypeSlug, today);
+      const recapLines = buildRecapLines(autofillPatch, hostedBy);
 
       const { data: event, error } = await supabase
         .from('events')
@@ -162,6 +164,22 @@ export default function PlanHero({ navigation }) {
       // the event on every future rename, so nothing else needs to change
       // for the name to stay linked going forward.
       await supabase.from('albums').insert({ user_id: session.user.id, name: workingTitle, event_id: event.id });
+
+      // "Pre-fill the invite's 'Hosted by' field too" (Anish, Sept 16) —
+      // hosted_by is a real column on event_invite_content (see
+      // lib/inviteSchemas/fields.js's hostedBy field), the table
+      // ToranInvites.js's designer reads/writes. That table has no row at
+      // all until a host first opens the designer — this creates one early
+      // with just hosted_by set, so it's already there by the time they
+      // get to invites. Non-fatal: a failure here never blocks event
+      // creation, same as everything else in this function.
+      if (hostedBy) {
+        const { error: inviteContentError } = await supabase.from('event_invite_content').upsert(
+          { event_id: event.id, host_id: session.user.id, hosted_by: hostedBy },
+          { onConflict: 'event_id' }
+        );
+        if (inviteContentError) console.log('hosted_by prefill non-fatal error:', inviteContentError.message);
+      }
 
       setText('');
       setAskingType(false);

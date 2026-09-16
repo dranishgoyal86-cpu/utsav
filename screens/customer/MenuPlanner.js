@@ -166,6 +166,19 @@ export default function MenuPlanner({ route, navigation }) {
     return <SafeAreaView style={s.container} />;
   }
 
+  // "first after selecting it should make a items list for menu, and give
+  // an option to see prices and quantity later" (Anish, Sept 16) - this
+  // exact Selecting/Pricing split was already designed and built (see
+  // claude/menu-planning-vs-execution-split.md): a brand-new event is
+  // meant to default to selecting (plain list, no price/quantity fields
+  // until "Done selecting" is tapped). The fallback below used to say
+  // pricing instead - the wrong direction. events.menu_stage is
+  // not-null-default-selecting at the database level, so this fallback
+  // should rarely even matter - unless that migration
+  // (20260917000000_menu_planning_execution.sql) has not been pushed to
+  // the live database yet, in which case the column does not exist,
+  // event.menu_stage comes back undefined for every event, and this
+  // fallback decided the behavior every time.
   return (
     <SafeAreaView style={s.container}>
       <AppHeader theme={theme} navigation={navigation} onBack={() => navigation.goBack()} title="Menu" eventId={event.id} />
@@ -192,7 +205,7 @@ export default function MenuPlanner({ route, navigation }) {
           event={event}
           selections={selections}
           providerNote={event.menu_provider_note}
-          menuStage={event.menu_stage || 'pricing'}
+          menuStage={event.menu_stage || 'selecting'}
           onSetMenuType={handleSetMenuType}
           onSetMenuStage={handleSetMenuStage}
           onAddDish={handleAddDish}
