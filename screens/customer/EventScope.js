@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Switch, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
@@ -7,8 +7,10 @@ import { showAlert } from '../../helpers';
 import { useEventPlan } from '../../hooks/useEventPlan';
 import { eventTypeName } from '../../lib/eventTypeNames';
 import AppHeader from '../../components/AppHeader';
+import ActivityIdeasLibrary from '../../components/ActivityIdeasLibrary';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import { MAROON, CARD, LINE, TEXT, MUTED } from '../../lib/desktopTheme';
+import { ITEM_DESCRIPTIONS } from '../../lib/itemDescriptions';
 
 const DESKTOP_BREAKPOINT = 768;
 
@@ -36,9 +38,55 @@ export default function EventScope({ route, navigation }) {
   const s = makeStyles(theme);
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
-  const { resolved, estimates, resolvedByFunction, event, loading, refresh } = useEventPlan(eventId);
+  const { resolved, estimates, resolvedByFunction, event, allocation, extraActivities, loading, refresh } = useEventPlan(eventId);
   const [movingOn, setMovingOn] = useState(false);
   const [togglingItem, setTogglingItem] = useState(null);
+  const [startingSelection, setStartingSelection] = useState(true);
+  const initedRef = useRef(false);
+
+  // "things in the planning screen are already selected — it should be
+  // opposite so that host can select whatever he wants, not unselect"
+  // (Anish, Sept 16). We keep events.excluded_items exactly as it is —
+  // same column, same meaning ("these item names are hidden from
+  // Execution"), so PlanView.js and every pre-existing event that's
+  // already past Planning are completely untouched. The only thing that
+  // changes is what a BRAND NEW event's excluded_items starts as: instead
+  // of empty (= everything included, today's bug), the very first time
+  // this screen opens for an event we write the FULL resolved item list
+  // into excluded_items once — so every toggle below starts OFF, and the
+  // host turns ON only what they actually want (which removes that one
+  // item from excluded_items). This only fires once per event, guarded by
+  // "excluded_items is still empty" — once the host touches anything, the
+  // array is never empty again (removing even one item still leaves the
+  // rest excluded), so it can never accidentally re-fire and wipe a host's
+  // real choices.
+  useEffect(() => {
+    if (initedRef.current || loading || !event) return;
+    if (event.excluded_items && event.excluded_items.length > 0) {
+      initedRef.current = true;
+      setStartingSelection(false);
+      return;
+    }
+    const allNames = new Set();
+    ['P1', 'P2', 'P3', 'P4', 'P5'].forEach(p => (resolved[p] || []).forEach(item => allNames.add(item.item_name)));
+    resolvedByFunction.forEach(fn => fn.items.forEach(item => allNames.add(item.item_name)));
+    if (allNames.size === 0) {
+      // Nothing resolved yet (or genuinely nothing applies) — nothing to
+      // pre-exclude. Leave excluded_items empty and stop waiting on it.
+      initedRef.current = true;
+      setStartingSelection(false);
+      return;
+    }
+    initedRef.current = true;
+    supabase.from('events').update({ excluded_items: [...allNames] }).eq('id', eventId).then(({ error }) => {
+      if (error) {
+        console.log('EventScope opt-in init error:', error.message);
+        setStartingSelection(false);
+        return;
+      }
+      refresh().then(() => setStartingSelection(false));
+    });
+  }, [loading, event, resolved, resolvedByFunction, eventId, refresh]);
 
   const excludedItems = event?.excluded_items || [];
   const excludedSet = new Set(excludedItems);
@@ -60,6 +108,37 @@ export default function EventScope({ route, navigation }) {
     }
   }
 
+  // Activity Ideas Library — moved here from PlanView.js (Sept 16):
+  // "the browse activity ideas should also be in planning stage" — this is
+  // choosing WHAT the event includes, same as every other item toggle on
+  // this screen, so it belongs before Execution now, not after. Handlers
+  // ported as-is from PlanView.js, unchanged.
+  async function handleAddActivity(item) {
+    const { error: err } = await supabase.from('event_extra_activities').insert({
+      event_id: eventId,
+      activity_slug: item.slug,
+      item_name: item.name,
+      category_slug: item.categorySlug,
+      age_hint: item.ages || null,
+      note: item.note || null,
+    });
+    if (err) { showAlert('Could not add that', err.message); return; }
+    refresh();
+  }
+
+  async function handleRemoveActivity(row) {
+    const { error: err } = await supabase.from('event_extra_activities').delete().eq('id', row.id);
+    if (err) { showAlert('Could not remove that', err.message); return; }
+    refresh();
+  }
+
+  async function handleToggleFeatureActivity(row) {
+    const { error: err } = await supabase
+      .from('event_extra_activities').update({ is_featured_on_invite: !row.is_featured_on_invite }).eq('id', row.id);
+    if (err) { showAlert('Could not update that', err.message); return; }
+    refresh();
+  }
+
   async function doneWithPlanning() {
     setMovingOn(true);
     try {
@@ -72,7 +151,7 @@ export default function EventScope({ route, navigation }) {
     }
   }
 
-  if (loading || !event) {
+  if (loading || !event || startingSelection) {
     return (
       <SafeAreaView style={s.container}>
         <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 60 }} />
@@ -87,7 +166,7 @@ export default function EventScope({ route, navigation }) {
   const body = (
     <>
       <Text style={s.intro}>
-        Let's figure out what this event actually needs. Toggle off anything you don't want — you can always turn it back on later, and nothing here books or prices out a vendor yet.
+        Let's figure out what this event actually needs. Turn on whatever you want to include — nothing is added until you switch it on, and nothing here books or prices out a vendor yet.
       </Text>
 
       {priorityGroups.map(group => (
@@ -101,6 +180,7 @@ export default function EventScope({ route, navigation }) {
               included={!excludedSet.has(item.item_name)}
               busy={togglingItem === item.item_name}
               onToggle={() => toggleItem(item.item_name)}
+              description={ITEM_DESCRIPTIONS[item.item_name]}
               theme={theme}
               s={s}
             />
@@ -120,6 +200,7 @@ export default function EventScope({ route, navigation }) {
                 included={!excludedSet.has(item.item_name)}
                 busy={togglingItem === item.item_name}
                 onToggle={() => toggleItem(item.item_name)}
+                description={ITEM_DESCRIPTIONS[item.item_name]}
                 theme={theme}
                 s={s}
               />
@@ -127,6 +208,16 @@ export default function EventScope({ route, navigation }) {
           </View>
         ) : null
       ))}
+
+      <ActivityIdeasLibrary
+        event={event}
+        added={extraActivities}
+        onAdd={handleAddActivity}
+        onRemove={handleRemoveActivity}
+        onToggleFeature={handleToggleFeatureActivity}
+        theme={theme}
+        allocation={allocation}
+      />
     </>
   );
 
@@ -163,8 +254,13 @@ export default function EventScope({ route, navigation }) {
   );
 }
 
-function ScopeItemRow({ item, estimate, included, busy, onToggle, theme, s }) {
+function ScopeItemRow({ item, estimate, included, busy, onToggle, description, theme, s }) {
   const label = item.contextual_label || item.item_name;
+  // "add description also below features which are not self explanatory —
+  // with more details tab" (Anish, Sept 16) — only items with a real entry
+  // in lib/itemDescriptions.js show this at all, so obvious items (a plain
+  // "Photographer", say) stay exactly as compact as they are today.
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   function priceHint() {
     if (!estimate || estimate.available === false) {
@@ -176,8 +272,16 @@ function ScopeItemRow({ item, estimate, included, busy, onToggle, theme, s }) {
   return (
     <View style={[s.itemRow, !included && s.itemRowExcluded]}>
       <View style={{ flex: 1 }}>
-        <Text style={[s.itemName, !included && s.itemNameExcluded]}>{label}</Text>
+        <View style={s.itemNameRow}>
+          <Text style={[s.itemName, !included && s.itemNameExcluded]}>{label}</Text>
+          {description ? (
+            <TouchableOpacity onPress={() => setDetailsOpen(o => !o)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+              <Text style={s.moreDetailsLink}>{detailsOpen ? 'Less details ▾' : 'More details ▸'}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
         <Text style={s.itemPriceHint}>{priceHint()}</Text>
+        {description && detailsOpen ? <Text style={s.itemDescription}>{description}</Text> : null}
       </View>
       {busy ? <ActivityIndicator color={theme.accent} /> : (
         <Switch value={included} onValueChange={onToggle} />
@@ -201,9 +305,12 @@ function makeStyles(theme) {
       paddingHorizontal: 16, paddingVertical: 14, marginBottom: 8,
     },
     itemRowExcluded: { opacity: 0.55 },
+    itemNameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
     itemName: { fontSize: 14.5, fontWeight: '600', color: theme.text },
     itemNameExcluded: { textDecorationLine: 'line-through' },
     itemPriceHint: { fontSize: 12, color: theme.textTertiary, marginTop: 3 },
+    moreDetailsLink: { fontSize: 11.5, fontWeight: '700', color: theme.accent },
+    itemDescription: { fontSize: 12.5, color: theme.textSecondary, lineHeight: 18, marginTop: 8 },
 
     bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: theme.bg, borderTopWidth: 0.5, borderTopColor: theme.border },
     ctaBtn: { backgroundColor: theme.btnPrimary, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },

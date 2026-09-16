@@ -12,7 +12,6 @@ import { isHomeVenueType, buildContext } from '../../lib/eventContext';
 import { useEventCapabilities } from '../../hooks/useEventCapabilities';
 import SlotField, { slotApplies, slotFilled, slotDisplayValue, SLOT_LABELS } from '../../components/SlotField';
 import AppHeader from '../../components/AppHeader';
-import ActivityIdeasLibrary from '../../components/ActivityIdeasLibrary';
 import { resolveInviteDesignColors } from './GuestList';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import { CARD, LINE, TEXT } from '../../lib/desktopTheme';
@@ -62,7 +61,7 @@ export default function PlanView({ route, navigation }) {
   const s = makeStyles(theme);
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
-  const { resolved, estimates, progress, allocation, event: rawEvent, venue, resolvedByFunction, itemHandledByName, extraActivities, loading, error, refresh } = useEventPlan(eventId);
+  const { resolved, estimates, progress, allocation, event: rawEvent, venue, resolvedByFunction, itemHandledByName, loading, error, refresh } = useEventPlan(eventId);
 
   // Sept 2026 UX pass — "the other options in the plan are too slow when
   // clicked ... sometimes presses it twice". saveField() below writes to
@@ -79,38 +78,11 @@ export default function PlanView({ route, navigation }) {
   const [pendingPatch, setPendingPatch] = useState({});
   const event = useMemo(() => (rawEvent ? { ...rawEvent, ...pendingPatch } : rawEvent), [rawEvent, pendingPatch]);
 
-  // Activity Ideas Library (Piece 3) — the library component itself is
-  // purely presentational (same split as SlotField's onSave), so the actual
-  // insert/delete against event_extra_activities lives here, right next to
-  // every other supabase.from('events')-style mutation on this screen.
-  async function handleAddActivity(item) {
-    const { error: err } = await supabase.from('event_extra_activities').insert({
-      event_id: eventId,
-      activity_slug: item.slug,
-      item_name: item.name,
-      category_slug: item.categorySlug,
-      age_hint: item.ages || null,
-      note: item.note || null,
-    });
-    if (err) { showAlert('Could not add that', err.message); return; }
-    refresh();
-  }
-
-  async function handleRemoveActivity(row) {
-    const { error: err } = await supabase.from('event_extra_activities').delete().eq('id', row.id);
-    if (err) { showAlert('Could not remove that', err.message); return; }
-    refresh();
-  }
-
-  // Piece 4 — starring/unstarring which added activities feature on the
-  // invite's "What to expect" line (ToranInvites.js reads is_featured_on_invite
-  // straight off this same table).
-  async function handleToggleFeatureActivity(row) {
-    const { error: err } = await supabase
-      .from('event_extra_activities').update({ is_featured_on_invite: !row.is_featured_on_invite }).eq('id', row.id);
-    if (err) { showAlert('Could not update that', err.message); return; }
-    refresh();
-  }
+  // Activity Ideas Library moved to EventScope.js (Planning stage) — Sept
+  // 16: "the browse activity ideas should also be in planning stage" (this
+  // is choosing WHAT the event includes, same as everything else Planning
+  // covers now). event_extra_activities' insert/delete/feature-toggle
+  // handlers moved there with it; nothing here reads that table anymore.
 
   // Menu planner (Piece 5, rebuilt) — used to be an inline collapsible
   // section here (course-size model, menu_type/menu_course_size/
@@ -719,16 +691,6 @@ export default function PlanView({ route, navigation }) {
             ))}
           </View>
         ); })()}
-
-        <ActivityIdeasLibrary
-          event={event}
-          added={extraActivities}
-          onAdd={handleAddActivity}
-          onRemove={handleRemoveActivity}
-          onToggleFeature={handleToggleFeatureActivity}
-          theme={theme}
-          allocation={allocation}
-        />
 
         <View style={{ height: 60 }} />
     </>

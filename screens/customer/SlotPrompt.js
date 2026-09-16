@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, ScrollView, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
@@ -10,18 +10,27 @@ import { CREAM } from '../../lib/desktopTheme';
 
 const DESKTOP_BREAKPOINT = 768;
 
-// sub_type_slug/event_date/city block — city joins them because too much
-// downstream (venue search, provider matching, price-median lookups) quietly
-// degrades to "nationwide, generic" without it, the same way it was a
-// required field on the old EventPlanner.js form. Everything else
-// (venue_type, location, guest_count, theme, dietary_restrictions,
-// budget_total) is a soft prompt rendered inline on PlanView.js instead,
-// fillable at the host's own pace — and, unlike before, editable again
-// afterward too (PlanView.js's "Event details" section).
-const BLOCKING_SLOTS = ['sub_type_slug', 'event_date', 'city'];
+// "the planning screen should come after the event details and should show
+// all the possible options pertaining to that event then execution part"
+// (Anish, Sept 16) — Planning (EventScope.js) needs venue_type/guest_count/
+// budget_total/theme already known to resolve the full checklist, so those
+// four moved from soft prompts into blocking slots here, alongside the
+// original sub_type_slug/event_date/city. dietary_restrictions stays a
+// soft prompt on purpose — slotFilled() always treats it as answered (a
+// boolean's default "no restrictions" is a real answer, not a missing
+// one), so it could never block here even if listed. venue_type is safe to
+// block on: its "Not decided yet" chip is itself a real, always-available
+// answer (SlotField.js's VENUE_TYPE_OPTIONS), so this can never be a dead
+// end for a host who genuinely hasn't chosen a venue yet. location stays a
+// soft prompt (PlanView.js only) — it depends on venue_type first and
+// isn't itself required to resolve the checklist. Confirmed via a
+// full-codebase search that SlotPrompt.js is the ONLY place any of these
+// slots are navigated to, so widening this list is safe for every
+// pre-existing event too (they never revisit this screen).
+const BLOCKING_SLOTS = ['sub_type_slug', 'event_date', 'city', 'venue_type', 'guest_count', 'budget_total', 'theme'];
 
 export default function SlotPrompt({ route, navigation }) {
-  const { eventId } = route.params;
+  const { eventId, recap } = route.params;
   const { theme } = useTheme();
   const s = makeStyles(theme);
   const { width } = useWindowDimensions();
@@ -29,6 +38,14 @@ export default function SlotPrompt({ route, navigation }) {
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // "app should pick all possible details and autofill" (Anish, Sept 16) —
+  // PlanHero.js's parse-event-prompt call may have already filled several
+  // of these slots from the host's own free-text description before this
+  // screen ever loaded; recap (a list of "Label: value" strings, passed as
+  // a navigation param, never persisted) surfaces exactly what got picked
+  // up so a wrong guess is visible and one tap away from fixing, without
+  // blocking on a confirm step. Dismissible, shown only once per visit.
+  const [recapVisible, setRecapVisible] = useState(!!(recap && recap.length > 0));
 
   useEffect(() => { fetchEvent(); }, [eventId]);
 
@@ -102,6 +119,18 @@ export default function SlotPrompt({ route, navigation }) {
     <SafeAreaView style={[s.container, isDesktopWeb && { backgroundColor: CREAM }]}>
       <AppHeader title={event.working_title || 'New event'} theme={theme} navigation={navigation} />
       <ScrollView contentContainerStyle={isDesktopWeb ? ds.centerCol : s.scroll} keyboardShouldPersistTaps="handled">
+        {recapVisible && (
+          <View style={s.recapBox}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.recapTitle}>✨ Picked up from what you typed</Text>
+              <Text style={s.recapText}>{recap.join(' · ')}</Text>
+              <Text style={s.recapHint}>Anything wrong? Just answer that question normally below to fix it.</Text>
+            </View>
+            <TouchableOpacity onPress={() => setRecapVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={s.recapClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {saving ? <ActivityIndicator color={theme.accent} style={{ marginBottom: 12 }} /> : null}
         <SlotField slotKey={currentSlot} event={event} onSave={saveField} navigation={navigation} />
       </ScrollView>
@@ -115,6 +144,16 @@ function makeStyles(theme) {
     header: { paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 0.5, borderBottomColor: theme.border },
     headerTitle: { fontSize: 16, fontWeight: '700', color: theme.text },
     scroll: { padding: 20 },
+
+    recapBox: {
+      flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+      backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border,
+      padding: 14, marginBottom: 18,
+    },
+    recapTitle: { fontSize: 13, fontWeight: '700', color: theme.text, marginBottom: 4 },
+    recapText: { fontSize: 12.5, color: theme.textSecondary, lineHeight: 18 },
+    recapHint: { fontSize: 11.5, color: theme.textTertiary, marginTop: 6 },
+    recapClose: { fontSize: 15, color: theme.textTertiary, fontWeight: '700' },
   });
 }
 

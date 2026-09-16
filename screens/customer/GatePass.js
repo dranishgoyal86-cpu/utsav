@@ -37,13 +37,13 @@ const GATEPASS_TOUR_STEPS = [
     key: 'issue',
     target: 'gatepass-issue-btn',
     title: 'Issue gate passes',
-    description: 'Generate QR passes for your guests — each one carries exactly what your gate needs to know.',
+    description: "Generate a QR pass for each guest — it's shared straight to them (in-app, or via a link on WhatsApp/SMS) so they can pull it up on their own phone at the gate. No printing needed.",
   },
   {
     key: 'scan',
     target: 'gatepass-scanner-btn',
     title: 'Scan guests in',
-    description: "Open the scanner at the gate to check guests in as they arrive — no manual list-checking needed.",
+    description: "Open the scanner at the gate to check guests in as they arrive by scanning their QR pass — no manual list-checking needed. Guests near the venue can also check themselves in from their own pass screen, without anyone needing to scan them at all.",
   },
 ];
 
@@ -243,6 +243,19 @@ export default function GatePass({ route, navigation }) {
               </TouchableOpacity>
             </View>
           )}
+
+          {/* Shared across all 3 capability branches — "how does check-in
+              actually work for the guest" is the same question whichever
+              branch a host is looking at, so this explainer lives once
+              here instead of being repeated per-branch. */}
+          <View style={s.explainer}>
+            <Text style={s.explainerTitle}>🔎 How guests check in</Text>
+            <Text style={s.explainerText}>
+              Every pass you issue is sent straight to the guest. From their own pass screen, they either show their QR
+              code to be scanned at the gate, or, if they're near the venue, tap a "check in now" button to check
+              themselves in without anyone scanning anything. Either way, it shows up here as checked in right away.
+            </Text>
+          </View>
         </>
       )}
     </>
@@ -313,6 +326,10 @@ function makeStyles(theme) {
     },
     actionBtnIcon: { fontSize: 18 },
     actionBtnText: { fontSize: 14, fontWeight: '600', color: theme.text },
+
+    explainer: { backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border, padding: 14, marginTop: 4 },
+    explainerTitle: { fontSize: 13, fontWeight: '700', color: theme.text, marginBottom: 6 },
+    explainerText: { fontSize: 12.5, color: theme.textSecondary, lineHeight: 18 },
   });
 }
 

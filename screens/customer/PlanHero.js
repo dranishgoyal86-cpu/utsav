@@ -4,9 +4,31 @@ import { Microphone } from 'phosphor-react-native';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
-import { showAlert } from '../../helpers';
+import { showAlert, callEdgeFunction } from '../../helpers';
 import { matchEventTypeText, EVENT_TYPE_NAMES, eventTypeName } from '../../lib/eventTypeNames';
 import { registerTourTarget } from '../../lib/tourTargets';
+
+// "whatever details a client is putting in the main plan screen ... app
+// should pick all possible details and autofill event planning screen
+// eventually" (Anish, Sept 16). Builds the short "here's what we picked
+// up" recap line SlotPrompt.js shows once, from exactly the fields
+// parse-event-prompt returned — kept in sync by hand with that edge
+// function's ALLOWED_KEYS and components/SlotField.js's real slots.
+function buildRecapLines(patch) {
+  const lines = [];
+  if (patch.guest_count != null) lines.push(`${patch.guest_count} guests`);
+  if (patch.city) lines.push(patch.city);
+  if (patch.event_date) {
+    lines.push(new Date(patch.event_date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }));
+  }
+  if (patch.venue_type) lines.push(patch.venue_type === 'home' ? 'At home' : 'At a venue');
+  if (patch.budget_total != null) lines.push(`₹${patch.budget_total.toLocaleString('en-IN')} budget`);
+  if (patch.theme) lines.push(`${patch.theme} theme`);
+  if (patch.is_dry_event === true) lines.push('Dry event (no alcohol)');
+  if (patch.is_veg_only === true) lines.push('Vegetarian only');
+  if (patch.birthday_person_name) lines.push(`For ${patch.birthday_person_name}`);
+  return lines;
+}
 
 // Replaces PlanScreen.js's old chat-style hero input. The moment a host
 // submits an idea, a draft events row exists (status: 'draft') and every
@@ -81,6 +103,22 @@ export default function PlanHero({ navigation }) {
 
       const workingTitle = text.trim().slice(0, 80) || eventTypeName(eventTypeSlug);
 
+      // Best-effort auto-fill from the host's own free text — never blocks
+      // event creation. A timeout, a missing OPENAI_API_KEY, or a parse
+      // failure all fall back to exactly today's behavior: an empty patch,
+      // nothing pre-filled, every question asked the normal way.
+      let autofillPatch = {};
+      try {
+        const { patch } = await callEdgeFunction('parse-event-prompt', {
+          text: text.trim(),
+          todayDate: new Date().toISOString().slice(0, 10),
+        });
+        autofillPatch = patch || {};
+      } catch (autofillErr) {
+        console.log('parse-event-prompt non-fatal error:', autofillErr.message);
+      }
+      const recapLines = buildRecapLines(autofillPatch);
+
       const { data: event, error } = await supabase
         .from('events')
         .insert({
@@ -89,6 +127,7 @@ export default function PlanHero({ navigation }) {
           working_title: workingTitle,
           event_type_slug: eventTypeSlug,
           status: 'draft',
+          ...autofillPatch,
         })
         .select().single();
       if (error) throw error;
@@ -97,12 +136,20 @@ export default function PlanHero({ navigation }) {
       // notifications, checklist and everything else built this session key
       // off saved_plans, not events directly. A companion row keeps all of
       // that working unchanged for plans started through this new flow.
+      // event_date/city are mirrored here too when autofill already caught
+      // them — SlotPrompt.js's own saveField() only mirrors on a fresh
+      // save, and a slot autofill already filled is one the host may never
+      // revisit (SlotPrompt skips anything already answered), so without
+      // this the "YOUR PLANS" card would keep showing "No date set" forever
+      // even though the event genuinely has one.
       const { error: planError } = await supabase.from('saved_plans').insert({
         customer_id: session.user.id,
         event_type: eventTypeSlug,
         title: workingTitle,
         event_id: event.id,
         status: 'planning',
+        ...(autofillPatch.event_date ? { event_date: autofillPatch.event_date } : {}),
+        ...(autofillPatch.city ? { city: autofillPatch.city } : {}),
       });
       if (planError) throw planError;
 
@@ -118,7 +165,7 @@ export default function PlanHero({ navigation }) {
 
       setText('');
       setAskingType(false);
-      navigation.navigate('SlotPrompt', { eventId: event.id });
+      navigation.navigate('SlotPrompt', { eventId: event.id, recap: recapLines.length > 0 ? recapLines : undefined });
     } catch (err) {
       showAlert('Error', err.message);
     } finally {

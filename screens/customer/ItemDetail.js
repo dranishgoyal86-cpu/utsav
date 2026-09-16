@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, Modal, KeyboardAvoidingView, ScrollView, Linking, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
-import { showAlert } from '../../helpers';
+import { showAlert, callEdgeFunction, toWhatsappNumber } from '../../helpers';
 import { resolveMatchKey } from '../../vendorTaxonomy';
 import { eventTypeName } from '../../lib/eventTypeNames';
 import { getAvoidProviderIds } from '../../customerMemory';
+import { PUBLIC_WEB_URL } from '../../config';
 import AppHeader from '../../components/AppHeader';
 import DesktopStandalonePage from '../../components/desktop/DesktopStandalonePage';
 import { MAROON, CARD, LINE, TEXT, MUTED } from '../../lib/desktopTheme';
@@ -27,6 +28,23 @@ export default function ItemDetail({ route, navigation }) {
   const [notifying, setNotifying] = useState(false);
   const [alreadyArranged, setAlreadyArranged] = useState(false);
 
+  // "booked outside the Utsav app" (Anish, Sept 16) — an optional, richer
+  // layer on top of the plain arranged_categories flag above. Saved to its
+  // own external_vendor_bookings row (one per event+category) so a host
+  // can not only mark the item handled, but also keep the vendor's own
+  // contact details here and message them straight from the app.
+  const [externalBooking, setExternalBooking] = useState(null);
+  const [vendorFormVisible, setVendorFormVisible] = useState(false);
+  const [vendorName, setVendorName] = useState('');
+  const [vendorEmail, setVendorEmail] = useState('');
+  const [vendorPhone, setVendorPhone] = useState('');
+  const [vendorAddress, setVendorAddress] = useState('');
+  const [vendorBudget, setVendorBudget] = useState('');
+  const [vendorInstructions, setVendorInstructions] = useState('');
+  const [savingVendor, setSavingVendor] = useState(false);
+  const [emailPreviewVisible, setEmailPreviewVisible] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+
   useEffect(() => { fetchData(); }, [eventId, categorySlug]);
 
   async function fetchData() {
@@ -36,6 +54,25 @@ export default function ItemDetail({ route, navigation }) {
       if (eventError) throw eventError;
       setEvent(eventData);
       setAlreadyArranged((eventData.arranged_categories || []).includes(categorySlug));
+
+      // Any previously-saved "outside Utsav" vendor details for this exact
+      // item, if the host has filled them in before — prefills the form so
+      // reopening this screen doesn't lose what they already typed.
+      const { data: extBooking } = await supabase
+        .from('external_vendor_bookings')
+        .select('*')
+        .eq('event_id', eventId)
+        .eq('category_slug', categorySlug)
+        .maybeSingle();
+      if (extBooking) {
+        setExternalBooking(extBooking);
+        setVendorName(extBooking.vendor_name || '');
+        setVendorEmail(extBooking.vendor_email || '');
+        setVendorPhone(extBooking.vendor_phone || '');
+        setVendorAddress(extBooking.vendor_address || '');
+        setVendorBudget(extBooking.budget != null ? String(extBooking.budget) : '');
+        setVendorInstructions(extBooking.instructions || '');
+      }
 
       // Booking (CreateBookingScreen.js) prefills from the event via
       // saved_plans.id, not eventId directly — bookings.saved_plan_id is
@@ -134,6 +171,98 @@ export default function ItemDetail({ route, navigation }) {
     }
   }
 
+  async function saveVendorDetails() {
+    setSavingVendor(true);
+    try {
+      const cleanedBudget = vendorBudget.trim().replace(/[^\d.]/g, '');
+      const payload = {
+        event_id: eventId,
+        category_slug: categorySlug,
+        item_name: itemName,
+        vendor_name: vendorName.trim() || null,
+        vendor_email: vendorEmail.trim() || null,
+        vendor_phone: vendorPhone.trim() || null,
+        vendor_address: vendorAddress.trim() || null,
+        budget: cleanedBudget ? Number(cleanedBudget) : null,
+        instructions: vendorInstructions.trim() || null,
+        updated_at: new Date().toISOString(),
+      };
+      const { data, error } = await supabase
+        .from('external_vendor_bookings')
+        .upsert(payload, { onConflict: 'event_id,category_slug' })
+        .select()
+        .single();
+      if (error) throw error;
+      setExternalBooking(data);
+      // Saving real vendor details is a strong enough signal that this
+      // item is being handled outside the app — reuse the exact same
+      // arranged_categories flag markArranged() already writes, so every
+      // other screen's "is this item handled" logic keeps working without
+      // needing to know external_vendor_bookings exists at all.
+      if (!alreadyArranged) {
+        const updated = [...(event.arranged_categories || []), categorySlug];
+        const { error: arrangeErr } = await supabase.from('events').update({ arranged_categories: updated }).eq('id', eventId);
+        if (arrangeErr) throw arrangeErr;
+        setEvent(prev => ({ ...prev, arranged_categories: updated }));
+        setAlreadyArranged(true);
+      }
+      setVendorFormVisible(false);
+      showAlert('Saved ✓', 'Vendor details saved for this item.');
+    } catch (err) {
+      showAlert('Error', err.message);
+    } finally {
+      setSavingVendor(false);
+    }
+  }
+
+  function buildVendorMessage() {
+    const dateStr = event?.event_date
+      ? new Date(event.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null;
+    const lines = [
+      `Hi${vendorName.trim() ? ' ' + vendorName.trim() : ''},`,
+      '',
+      `This is regarding ${label}${event?.working_title ? ` for "${event.working_title}"` : ''}${dateStr ? ` on ${dateStr}` : ''}.`,
+    ];
+    if (vendorBudget.trim()) lines.push(`Budget: ₹${vendorBudget.trim()}`);
+    if (vendorAddress.trim()) lines.push(`Venue/address: ${vendorAddress.trim()}`);
+    if (vendorInstructions.trim()) lines.push(`Notes: ${vendorInstructions.trim()}`);
+    lines.push('', `— Sent via Utsav (${PUBLIC_WEB_URL})`);
+    return lines.join('\n');
+  }
+
+  function sendViaWhatsapp() {
+    const number = toWhatsappNumber(vendorPhone);
+    if (!number) { showAlert('No phone number', "Add the vendor's phone number first, then save."); return; }
+    const url = `https://wa.me/${number}?text=${encodeURIComponent(buildVendorMessage())}`;
+    Linking.openURL(url).catch(() => {
+      showAlert('Could not open WhatsApp', 'Make sure WhatsApp is installed on this device.');
+    });
+  }
+
+  function openEmailPreview() {
+    if (!vendorEmail.trim()) { showAlert('No email address', "Add the vendor's email first, then save."); return; }
+    setEmailPreviewVisible(true);
+  }
+
+  async function confirmSendEmail() {
+    setSendingEmail(true);
+    try {
+      const html = buildVendorMessage().split('\n').map(l => (l ? `<p>${l}</p>` : '<br/>')).join('');
+      await callEdgeFunction('send-email', {
+        to: vendorEmail.trim(),
+        subject: `Regarding ${label}${event?.working_title ? ` — ${event.working_title}` : ''}`,
+        html,
+      });
+      setEmailPreviewVisible(false);
+      showAlert('Email sent ✓', `Your message was sent to ${vendorEmail.trim()}.`);
+    } catch (err) {
+      showAlert('Could not send email', err.message);
+    } finally {
+      setSendingEmail(false);
+    }
+  }
+
   async function notifyMe() {
     setNotifying(true);
     try {
@@ -180,6 +309,105 @@ export default function ItemDetail({ route, navigation }) {
   const priceText = quoteOnRequest
     ? 'Quote on request'
     : (priceLow != null ? `₹${priceLow.toLocaleString('en-IN')}–${priceHigh.toLocaleString('en-IN')}` : 'Price unavailable yet');
+  const vs = isDesktopWeb ? ds : s;
+
+  // "keep it optional" (Anish, Sept 16) — this whole block is available
+  // whether or not the item is already marked arranged, and filling it in
+  // is never required. Shared between the mobile and desktop return
+  // branches below (same pattern as the rest of this file — vs picks the
+  // matching style set for whichever branch is rendering).
+  const vendorSectionEl = (
+    <View style={vs.vendorSection}>
+      <TouchableOpacity onPress={() => setVendorFormVisible(true)}>
+        <Text style={vs.vendorLinkText}>
+          {externalBooking ? '✎ Edit vendor details' : '+ Booked this outside Utsav? Add vendor details'}
+        </Text>
+      </TouchableOpacity>
+      {externalBooking ? (
+        <View style={vs.vendorSummaryCard}>
+          <Text style={vs.vendorSummaryValue}>{externalBooking.vendor_name || 'Vendor'}</Text>
+          {externalBooking.budget != null ? <Text style={vs.vendorSummaryLabel}>Budget: ₹{Number(externalBooking.budget).toLocaleString('en-IN')}</Text> : null}
+          <View style={vs.vendorSendRow}>
+            <TouchableOpacity
+              style={[vs.vendorSendBtn, !externalBooking.vendor_email && vs.vendorSendBtnDisabled]}
+              onPress={openEmailPreview}
+              disabled={!externalBooking.vendor_email}
+            >
+              <Text style={vs.vendorSendBtnText}>✉️ Email vendor</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[vs.vendorSendBtn, !externalBooking.vendor_phone && vs.vendorSendBtnDisabled]}
+              onPress={sendViaWhatsapp}
+              disabled={!externalBooking.vendor_phone}
+            >
+              <Text style={vs.vendorSendBtnText}>💬 WhatsApp vendor</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+
+  const vendorFormModalEl = (
+    <Modal visible={vendorFormVisible} transparent animationType="fade" onRequestClose={() => setVendorFormVisible(false)}>
+      <KeyboardAvoidingView style={s.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={s.modalCard}>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <Text style={s.modalTitle}>Vendor details for {label}</Text>
+            <Text style={s.formLabel}>Vendor / business name</Text>
+            <TextInput style={s.formInput} value={vendorName} onChangeText={setVendorName} placeholder="e.g. Sharma Caterers" placeholderTextColor={theme.textTertiary} />
+            <Text style={s.formLabel}>Email</Text>
+            <TextInput style={s.formInput} value={vendorEmail} onChangeText={setVendorEmail} placeholder="vendor@example.com" placeholderTextColor={theme.textTertiary} keyboardType="email-address" autoCapitalize="none" />
+            <Text style={s.formLabel}>Phone</Text>
+            <TextInput style={s.formInput} value={vendorPhone} onChangeText={setVendorPhone} placeholder="9999999999" placeholderTextColor={theme.textTertiary} keyboardType="phone-pad" />
+            <Text style={s.formLabel}>Address</Text>
+            <TextInput style={s.formInput} value={vendorAddress} onChangeText={setVendorAddress} placeholder="Shop / venue address" placeholderTextColor={theme.textTertiary} />
+            <Text style={s.formLabel}>Budget (₹)</Text>
+            <TextInput style={s.formInput} value={vendorBudget} onChangeText={setVendorBudget} placeholder="e.g. 50000" placeholderTextColor={theme.textTertiary} keyboardType="numeric" />
+            <Text style={s.formLabel}>Instructions for the vendor</Text>
+            <TextInput
+              style={[s.formInput, s.formInputMultiline]}
+              value={vendorInstructions}
+              onChangeText={setVendorInstructions}
+              placeholder="Anything specific they should know"
+              placeholderTextColor={theme.textTertiary}
+              multiline
+            />
+            <View style={s.modalBtnRow}>
+              <TouchableOpacity style={s.modalCancelBtn} onPress={() => setVendorFormVisible(false)} disabled={savingVendor}>
+                <Text style={s.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.modalSaveBtn} onPress={saveVendorDetails} disabled={savingVendor}>
+                {savingVendor ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={s.modalSaveText}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+
+  const emailPreviewModalEl = (
+    <Modal visible={emailPreviewVisible} transparent animationType="fade" onRequestClose={() => setEmailPreviewVisible(false)}>
+      <View style={s.modalOverlay}>
+        <View style={s.modalCard}>
+          <Text style={s.modalTitle}>Send email to vendor?</Text>
+          <Text style={s.formLabel}>To: {vendorEmail}</Text>
+          <View style={s.previewBox}>
+            <Text style={s.previewText}>{buildVendorMessage()}</Text>
+          </View>
+          <View style={s.modalBtnRow}>
+            <TouchableOpacity style={s.modalCancelBtn} onPress={() => setEmailPreviewVisible(false)} disabled={sendingEmail}>
+              <Text style={s.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.modalSaveBtn} onPress={confirmSendEmail} disabled={sendingEmail}>
+              {sendingEmail ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={s.modalSaveText}>Send</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 
   if (isDesktopWeb) {
     return (
@@ -204,6 +432,8 @@ export default function ItemDetail({ route, navigation }) {
               {notifying ? <ActivityIndicator color={MAROON} size="small" /> : <Text style={ds.notifyBtnText}>🔔 Notify me when a new vendor is available</Text>}
             </TouchableOpacity>
 
+            {vendorSectionEl}
+
             <Text style={ds.sectionLabel}>{providers.length > 0 ? `VENDORS IN THIS CATEGORY (${providers.length})` : 'NO VENDORS LISTED YET'}</Text>
             {providers.length === 0 ? (
               <Text style={ds.emptyText}>No vendors listed here yet — tap notify above and we'll tell you when one is.</Text>
@@ -219,6 +449,8 @@ export default function ItemDetail({ route, navigation }) {
             )}
           </>
         )}
+        {vendorFormModalEl}
+        {emailPreviewModalEl}
       </DesktopStandalonePage>
     );
   }
@@ -262,6 +494,8 @@ export default function ItemDetail({ route, navigation }) {
                 )}
               </TouchableOpacity>
 
+              {vendorSectionEl}
+
               <Text style={s.sectionLabel}>
                 {providers.length > 0 ? `VENDORS IN THIS CATEGORY (${providers.length})` : 'NO VENDORS LISTED YET'}
               </Text>
@@ -280,6 +514,8 @@ export default function ItemDetail({ route, navigation }) {
           }
         />
       )}
+      {vendorFormModalEl}
+      {emailPreviewModalEl}
     </SafeAreaView>
   );
 }
@@ -311,6 +547,30 @@ function makeStyles(theme) {
     providerName: { fontSize: 14, fontWeight: '700', color: theme.text, marginBottom: 3 },
     providerMeta: { fontSize: 12, color: theme.textSecondary },
     emptyText: { fontSize: 13, color: theme.textSecondary, textAlign: 'center', paddingVertical: 20, lineHeight: 19 },
+
+    vendorSection: { marginBottom: 20 },
+    vendorLinkText: { fontSize: 13, fontWeight: '700', color: theme.accent },
+    vendorSummaryCard: { backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border, padding: 14, marginTop: 10 },
+    vendorSummaryValue: { fontSize: 14, fontWeight: '700', color: theme.text, marginBottom: 3 },
+    vendorSummaryLabel: { fontSize: 12.5, color: theme.textSecondary, marginBottom: 8 },
+    vendorSendRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
+    vendorSendBtn: { flex: 1, backgroundColor: theme.btnPrimary, borderRadius: 12, paddingVertical: 11, alignItems: 'center' },
+    vendorSendBtnDisabled: { opacity: 0.4 },
+    vendorSendBtnText: { color: theme.btnPrimaryText, fontSize: 12.5, fontWeight: '700' },
+
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 20 },
+    modalCard: { backgroundColor: theme.cardBg, borderRadius: 20, padding: 20, maxHeight: '85%' },
+    modalTitle: { fontSize: 16, fontWeight: '700', color: theme.text, marginBottom: 14 },
+    formLabel: { fontSize: 12.5, fontWeight: '700', color: theme.textSecondary, marginBottom: 6, marginTop: 12 },
+    formInput: { backgroundColor: theme.bg, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 11, fontSize: 14, borderWidth: 1, borderColor: theme.border, color: theme.text },
+    formInputMultiline: { minHeight: 70, textAlignVertical: 'top' },
+    modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 20 },
+    modalCancelBtn: { flex: 1, paddingVertical: 13, alignItems: 'center', borderRadius: 14, borderWidth: 1, borderColor: theme.border },
+    modalCancelText: { color: theme.text, fontSize: 14, fontWeight: '700' },
+    modalSaveBtn: { flex: 1, paddingVertical: 13, alignItems: 'center', borderRadius: 14, backgroundColor: theme.btnPrimary },
+    modalSaveText: { color: theme.btnPrimaryText, fontSize: 14, fontWeight: '700' },
+    previewBox: { backgroundColor: theme.bg, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 14, marginTop: 10 },
+    previewText: { fontSize: 13, color: theme.text, lineHeight: 19 },
   });
 }
 
@@ -331,4 +591,14 @@ const ds = StyleSheet.create({
   providerCard: { width: 240, backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: LINE, padding: 14 },
   providerName: { fontSize: 14, fontWeight: '700', color: TEXT, marginBottom: 3 },
   providerMeta: { fontSize: 12, color: MUTED },
+
+  vendorSection: { marginBottom: 18 },
+  vendorLinkText: { fontSize: 13, fontWeight: '700', color: MAROON },
+  vendorSummaryCard: { backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: LINE, padding: 14, marginTop: 10 },
+  vendorSummaryValue: { fontSize: 14, fontWeight: '700', color: TEXT, marginBottom: 3 },
+  vendorSummaryLabel: { fontSize: 12.5, color: MUTED, marginBottom: 8 },
+  vendorSendRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  vendorSendBtn: { flex: 1, backgroundColor: MAROON, borderRadius: 12, paddingVertical: 11, alignItems: 'center' },
+  vendorSendBtnDisabled: { opacity: 0.4 },
+  vendorSendBtnText: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
 });
