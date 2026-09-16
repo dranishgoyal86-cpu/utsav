@@ -16,6 +16,7 @@ import { resolveCapabilities, isEnabled } from '../../lib/capabilities';
 import { PUBLIC_WEB_URL } from '../../config';
 import { TOUR_DEFINITIONS } from '../../lib/tourTargets';
 import { CREAM } from '../../lib/desktopTheme';
+import { DESKTOP_THEME_PALETTES, DESKTOP_THEME_IDS, applyDesktopTheme } from '../../lib/desktopThemePalettes';
 
 const DESKTOP_BREAKPOINT = 768;
 const CITIES = ['Delhi', 'Mumbai', 'Bangalore', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune', 'Ahmedabad'];
@@ -78,6 +79,8 @@ export default function ProfileScreen({ navigation }) {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [cityInput, setCityInput] = useState('');
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
+  const [desktopThemeModalVisible, setDesktopThemeModalVisible] = useState(false);
+  const [savingDesktopTheme, setSavingDesktopTheme] = useState(false);
   const [notifSaving, setNotifSaving] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', phone: '', address: '', gender: '', dobDay: null, dobMonth: null, dobYear: null });
@@ -286,6 +289,30 @@ export default function ProfileScreen({ navigation }) {
     await updateUser({ language: value });
   }
 
+  // Ten desktop themes (Sept 16) — saves to the account first (so the
+  // choice survives even if the reload below is somehow interrupted), then
+  // applyDesktopTheme() updates the local cache and reloads the page —
+  // every one of the 41 files reading lib/desktopTheme.js's exports picks
+  // up the new palette from that fresh module load, no per-screen change
+  // needed. See claude/desktop-themes.md for the full reasoning.
+  async function handleDesktopThemeSelect(themeId) {
+    if (themeId === (user?.desktop_theme || 'toran')) {
+      setDesktopThemeModalVisible(false);
+      return;
+    }
+    setSavingDesktopTheme(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { error } = await supabase.from('users').update({ desktop_theme: themeId }).eq('id', session.user.id);
+      if (error) throw error;
+      applyDesktopTheme(themeId);
+    } catch (err) {
+      showAlert('Error', err.message);
+      setSavingDesktopTheme(false);
+    }
+  }
+
   async function handleNotificationsToggle(value) {
     setNotifSaving(true);
     try {
@@ -449,6 +476,21 @@ export default function ProfileScreen({ navigation }) {
               {LANGUAGES.find(l => l.value === user?.language)?.label || 'English'} ›
             </Text>
           </TouchableOpacity>
+          {/* Desktop-only — lib/desktopTheme.js's palette only matters to
+              the desktop-web chrome, so this row would be meaningless
+              (and confusing) on the mobile app. */}
+          {isDesktopWeb && (
+            <>
+              <View style={s.divider} />
+              <TouchableOpacity style={s.settingRow} onPress={() => setDesktopThemeModalVisible(true)}>
+                <Text style={s.settingIcon}>🎨</Text>
+                <Text style={s.settingLabel}>Desktop theme</Text>
+                <Text style={s.settingValue}>
+                  {DESKTOP_THEME_PALETTES[user?.desktop_theme]?.label || 'Toran'} ›
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         <Text style={s.sectionLabel}>ACCOUNT</Text>
@@ -675,6 +717,45 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
       </Modal>
 
+      {/* Desktop theme picker — 10 swatches, each a little two-color chip
+          (sidebar color + accent) so the theme is recognizable at a
+          glance, same modal-card chrome as every other picker on this
+          screen. Tapping one saves it, then reloads the page (see
+          handleDesktopThemeSelect/applyDesktopTheme) so the new palette
+          actually takes effect everywhere. */}
+      <Modal visible={desktopThemeModalVisible} transparent animationType="fade" onRequestClose={() => setDesktopThemeModalVisible(false)}>
+        <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setDesktopThemeModalVisible(false)}>
+          <TouchableOpacity style={[s.modalCard, isDesktopWeb && ds.modalCardDesktop]} activeOpacity={1} onPress={() => {}}>
+            <Text style={s.modalTitle}>Choose a desktop theme</Text>
+            <Text style={s.modalHint}>Applies across the whole desktop site. The page will reload once to apply it.</Text>
+            {savingDesktopTheme ? (
+              <ActivityIndicator color={theme.accent} style={{ marginVertical: 20 }} />
+            ) : (
+              <View style={s.themeGrid}>
+                {DESKTOP_THEME_IDS.map(themeId => {
+                  const palette = DESKTOP_THEME_PALETTES[themeId];
+                  const active = (user?.desktop_theme || 'toran') === themeId;
+                  return (
+                    <TouchableOpacity
+                      key={themeId}
+                      style={[s.themeSwatchBtn, active && s.themeSwatchBtnActive]}
+                      onPress={() => handleDesktopThemeSelect(themeId)}
+                    >
+                      <View style={s.themeSwatchChip}>
+                        <View style={[s.themeSwatchHalf, { backgroundColor: palette.maroon }]} />
+                        <View style={[s.themeSwatchHalf, { backgroundColor: palette.gold }]} />
+                      </View>
+                      <Text style={[s.themeSwatchLabel, active && s.themeSwatchLabelActive]}>{palette.label}</Text>
+                      {active ? <Text style={s.langCheck}>✓</Text> : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Edit profile */}
       <Modal visible={editModalVisible} transparent animationType="slide" onRequestClose={() => setEditModalVisible(false)}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -892,6 +973,18 @@ function makeStyles(theme) {
     langOptionText: { fontSize: 14.5, color: theme.text, fontWeight: '500' },
     langOptionTextActive: { fontWeight: '700' },
     langCheck: { fontSize: 15, color: theme.accent, fontWeight: '700' },
+
+    themeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    themeSwatchBtn: {
+      flexDirection: 'row', alignItems: 'center', gap: 8, width: '47%',
+      paddingVertical: 10, paddingHorizontal: 10, borderRadius: 12,
+      backgroundColor: theme.cardBg, borderWidth: 0.5, borderColor: theme.border,
+    },
+    themeSwatchBtnActive: { borderColor: theme.text },
+    themeSwatchChip: { flexDirection: 'row', width: 26, height: 26, borderRadius: 8, overflow: 'hidden' },
+    themeSwatchHalf: { width: 13, height: 26 },
+    themeSwatchLabel: { fontSize: 13, color: theme.text, fontWeight: '500', flex: 1 },
+    themeSwatchLabelActive: { fontWeight: '700' },
   });
 }
 

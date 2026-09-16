@@ -7,6 +7,7 @@ import { supabase } from '../supabase';
 import { useTheme } from '../ThemeContext';
 import SparkleIcon from '../components/SparkleIcon';
 import { isPasswordStrong, PASSWORD_POLICY_HINT } from '../helpers';
+import { syncCachedDesktopThemeId } from '../lib/desktopThemePalettes';
 
 export default function SignupScreen({ navigation }) {
   const { theme } = useTheme();
@@ -61,6 +62,25 @@ export default function SignupScreen({ navigation }) {
       if (profileError) {
         // Non-fatal: trigger already guaranteed a profile row exists.
         console.log('Profile refine error (non-fatal, trigger already created base row):', profileError.message);
+      }
+
+      // Ten desktop themes (Sept 16) — lib/desktopTheme.js resolves which
+      // palette to export at MODULE LOAD, from a cache read synchronously
+      // before any Supabase call could finish. On web, this page never
+      // reloads on its own after signup (client-side navigation, same SPA
+      // instance that loaded before this account existed, when the cache
+      // fallback was 'toran') — so without this, a brand-new signup would
+      // still see Toran until they happened to reload some other way. The
+      // real users.desktop_theme is already 'simple' (the column's actual
+      // default — this upsert never sets it), so caching that value here
+      // and reloading once is what makes the very first screen a new
+      // customer sees actually show Simple, per Anish's ask.
+      if (Platform.OS === 'web') {
+        syncCachedDesktopThemeId('simple');
+        if (typeof window !== 'undefined' && window.location) {
+          window.location.reload();
+          return;
+        }
       }
 
       // Success — auth state change will trigger navigation
