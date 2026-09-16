@@ -80,6 +80,12 @@ export default function PlanView({ route, navigation }) {
   // never the shell's own "Host"/"0" placeholders.
   const [currentUserName, setCurrentUserName] = useState('');
   const [guestCount, setGuestCount] = useState(0);
+  // "once guest list, menu done - should show after society gate pass"
+  // (Anish, Sept 16) — a plain existence check (has at least one dish been
+  // picked?), same shallow-count pattern guestCount already uses just
+  // below. Menu itself is still owned entirely by MenuPlanner.js — this is
+  // only enough to know whether to show the status card further down.
+  const [menuSelectionsCount, setMenuSelectionsCount] = useState(0);
   useEffect(() => {
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -92,6 +98,8 @@ export default function PlanView({ route, navigation }) {
     if (!eventId) return;
     supabase.from('event_invitees').select('id', { count: 'exact', head: true }).eq('event_id', eventId)
       .then(({ count }) => setGuestCount(count || 0));
+    supabase.from('event_menu_selections').select('id', { count: 'exact', head: true }).eq('event_id', eventId)
+      .then(({ count }) => setMenuSelectionsCount(count || 0));
   }, [eventId]);
 
   // Palette reuse from the host's own saved invite design (Step 2) — most
@@ -302,13 +310,21 @@ export default function PlanView({ route, navigation }) {
             unchanged, deliberately not absorbed into AppHeader yet (see
             AppHeader.js's own comment on scope). ── */}
         <View style={s.header}>
-          <TouchableOpacity
-            style={s.titleRow}
-            onPress={() => { setRenameInput(event.working_title || ''); setRenameModal(true); }}
-          >
-            <Text style={s.titleWarm}>{event.working_title || eventTypeName(event.event_type_slug)}</Text>
-            <PencilSimple size={15} color={theme.textTertiary} />
-          </TouchableOpacity>
+          {/* "birthday should be at the top" (Anish, Sept 16, pointing at
+              this exact title) — on mobile the title now lives in
+              AppHeader's own row (top of the screen, next to back/icons),
+              so it's not duplicated here. Desktop keeps it exactly as it
+              was — DesktopEventShell's body doesn't have its own header
+              row for it. */}
+          {isDesktopWeb ? (
+            <TouchableOpacity
+              style={s.titleRow}
+              onPress={() => { setRenameInput(event.working_title || ''); setRenameModal(true); }}
+            >
+              <Text style={s.titleWarm}>{event.working_title || eventTypeName(event.event_type_slug)}</Text>
+              <PencilSimple size={15} color={theme.textTertiary} />
+            </TouchableOpacity>
+          ) : null}
           <Text style={s.metaLine}>
             {eventTypeName(event.event_type_slug)}
             {event.event_date ? ` · ${new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
@@ -331,23 +347,45 @@ export default function PlanView({ route, navigation }) {
           </TouchableOpacity>
         )}
 
-        {/* ── Cancellation — banner if already cancelled, otherwise the
-             action itself. Guest fan-out + gate-pass revocation both happen
-             inside cancelEventAndNotifyGuests() (lib/eventGuestNotifications.js);
-             this is purely the confirm + trigger. ── */}
-        {event.is_cancelled ? (
+        {/* "once guest list, menu done - should show after society gate
+             pass" (Anish, Sept 16) — same s.linkCard look as the gate pass
+             card just above, shown only once there's actually something to
+             show (at least one guest added / at least one dish picked), so
+             an untouched event doesn't get cluttered with empty-state
+             cards for things the host hasn't started yet. */}
+        {guestCount > 0 && (
+          <TouchableOpacity style={s.linkCard} onPress={() => navigation.navigate('GuestList', { event })}>
+            <Text style={s.linkCardIcon}>👥</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={s.linkCardTitle}>Guest list</Text>
+              <Text style={s.linkCardSub}>{guestCount} guest{guestCount === 1 ? '' : 's'} added</Text>
+            </View>
+            <Text style={s.linkCardArrow}>›</Text>
+          </TouchableOpacity>
+        )}
+        {menuSelectionsCount > 0 && (
+          <TouchableOpacity style={s.linkCard} onPress={() => navigation.navigate('MenuPlanner', { event })}>
+            <Text style={s.linkCardIcon}>🍽️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={s.linkCardTitle}>Menu</Text>
+              <Text style={s.linkCardSub}>{menuSelectionsCount} dish{menuSelectionsCount === 1 ? '' : 'es'} picked</Text>
+            </View>
+            <Text style={s.linkCardArrow}>›</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* ── Cancellation status banner — stays near the top so an already-
+             cancelled event is unmissable. The "Cancel this event" action
+             itself moved to the very bottom of the screen (Anish, Sept 16)
+             — see the end of this body, right before the closing spacer.
+             Guest fan-out + gate-pass revocation both happen inside
+             cancelEventAndNotifyGuests() (lib/eventGuestNotifications.js);
+             the modal below is purely the confirm + trigger. ── */}
+        {event.is_cancelled && (
           <View style={s.cancelledBanner}>
             <Text style={s.cancelledBannerTitle}>This event is cancelled</Text>
             {event.cancellation_reason ? <Text style={s.cancelledBannerSub}>{event.cancellation_reason}</Text> : null}
           </View>
-        ) : (
-          <TouchableOpacity
-            style={s.cancelEventLink}
-            onPress={() => setCancelModalVisible(true)}
-            disabled={cancelling}
-          >
-            {cancelling ? <ActivityIndicator color={theme.statusDeclinedText} /> : <Text style={s.cancelEventLinkText}>Cancel this event</Text>}
-          </TouchableOpacity>
         )}
 
         {/* ── Progress (Step 5) — milestone-framed copy matching the
@@ -515,6 +553,18 @@ export default function PlanView({ route, navigation }) {
           </View>
         ); })()}
 
+        {/* "cancel this event should be at the bottom last on the screen"
+             (Anish, Sept 16) — moved here from right under the header. */}
+        {!event.is_cancelled && (
+          <TouchableOpacity
+            style={s.cancelEventLink}
+            onPress={() => setCancelModalVisible(true)}
+            disabled={cancelling}
+          >
+            {cancelling ? <ActivityIndicator color={theme.statusDeclinedText} /> : <Text style={s.cancelEventLinkText}>Cancel this event</Text>}
+          </TouchableOpacity>
+        )}
+
         <View style={{ height: 60 }} />
     </>
   );
@@ -603,6 +653,8 @@ export default function PlanView({ route, navigation }) {
           its own horizontal padding, and s.scroll already applies padding:20
           to everything below it (the title/meta/venue block, unchanged). */}
       <AppHeader
+        title={event.working_title || eventTypeName(event.event_type_slug)}
+        onTitlePress={() => { setRenameInput(event.working_title || ''); setRenameModal(true); }}
         theme={theme}
         navigation={navigation}
         onBack={() => navigation.goBack()}

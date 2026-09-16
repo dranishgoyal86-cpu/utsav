@@ -185,11 +185,23 @@ export function slotFilled(slotKey, event) {
 // cutoff), which is what unlocks/hides ThemeField and ActivityIdeasLibrary
 // elsewhere on this screen. Shown for both birthday types (not just
 // kids-birthday) since a wrong guess needs a way back in either direction.
+// "once we set birthdate there should be a save button or once we select
+// date it should auto save showing only birthdate — collapsing the
+// calendar — with an edit button" (Anish, Sept 16) — same collapsible
+// summary pattern EventDateField below already uses for event_date: starts
+// open only while there's no date yet, onChange both saves immediately
+// (no separate Save button needed — matches this field's own existing
+// autosave-on-blur/onChange convention) and collapses back to a one-line
+// summary with a "Change" toggle to reopen it.
 function BirthdayPersonField({ event, onSave, theme, s }) {
   const [name, setName] = useState(event.birthday_person_name || '');
+  const [dobOpen, setDobOpen] = useState(!event.birthday_person_dob);
   const todayStr = new Date().toISOString().slice(0, 10);
   const age = computeAgeOn(event.birthday_person_dob, event.event_date || todayStr);
   const impliedType = eventTypeForAge(age);
+  const dobLabel = event.birthday_person_dob
+    ? new Date(event.birthday_person_dob + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
 
   function saveName() {
     onSave({ birthday_person_name: name.trim() || null });
@@ -204,7 +216,24 @@ function BirthdayPersonField({ event, onSave, theme, s }) {
     // event type this field doesn't apply to in the first place (gated by
     // slotApplies() before this component even renders).
     if (newType && newType !== event.event_type_slug) patch.event_type_slug = newType;
+    // "below 'when is it' should auto pick birth date as the event date -
+    // editable" (Anish, Sept 16) — only fills event_date when it's not
+    // already set (never overwrites a date the host already picked or
+    // changed themselves), using the birthdate's month/day resolved to
+    // the next upcoming occurrence — same "next occurrence" idea
+    // lib/eventPromptRules.js's extractEventDate already uses for
+    // free-text dates. EventDateField below still lets the host change
+    // it afterward, same as any other date.
+    if (!event.event_date) {
+      const [, month, day] = dateStr.split('-');
+      const today = new Date(todayStr + 'T00:00:00');
+      const year = today.getFullYear();
+      let candidate = new Date(year, Number(month) - 1, Number(day));
+      if (candidate < today) candidate = new Date(year + 1, Number(month) - 1, Number(day));
+      patch.event_date = `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, '0')}-${String(candidate.getDate()).padStart(2, '0')}`;
+    }
     onSave(patch);
+    setDobOpen(false);
   }
 
   return (
@@ -222,7 +251,15 @@ function BirthdayPersonField({ event, onSave, theme, s }) {
       <Text style={[s.chipText, { color: theme.textSecondary, fontWeight: '500', marginBottom: 10, fontSize: 12.5, lineHeight: 17 }]}>
         This is what decides whether kids-party themes and activity ideas show up below, instead of guessing from typed text.
       </Text>
-      <CalendarPicker value={event.birthday_person_dob} minDate="1900-01-01" maxDate={todayStr} onChange={saveDob} />
+      <TouchableOpacity style={s.dateSummaryBtn} onPress={() => setDobOpen(o => !o)} activeOpacity={0.7}>
+        <Text style={s.dateSummaryText}>🎂 {dobLabel || 'Choose a birthdate'}</Text>
+        <Text style={s.dateSummaryCaret}>{dobOpen ? 'Hide ▲' : 'Change ▼'}</Text>
+      </TouchableOpacity>
+      {dobOpen && (
+        <View style={{ marginTop: 12 }}>
+          <CalendarPicker value={event.birthday_person_dob} minDate="1900-01-01" maxDate={todayStr} onChange={saveDob} />
+        </View>
+      )}
       {age != null && (
         <Text style={[s.chipText, { color: theme.textSecondary, fontWeight: '600', marginTop: 10 }]}>
           {event.event_date ? `Turning ${age} on the event date` : `${age} years old today`}
@@ -300,25 +337,6 @@ const QUICK_TIME_PRESETS = [
   { label: 'Night · 8:00 PM', value: '20:00' },
 ];
 
-// Sept 2026 UX pass — "time is too complex, make it easy to just put time
-// of event": the old control was three stacked chip rows (12 hour chips +
-// 4 minute chips + 2 AM/PM chips = 18 taps' worth of options just to see),
-// on top of the quick presets above it. Replaced with one horizontal row
-// of real clock times in 30-minute steps, 6:00 AM through 11:30 PM — a
-// single tap sets the exact time, same as the quick presets already did,
-// just covering the rest of the day too instead of a second whole
-// interaction pattern next to them.
-function buildTimeSlots() {
-  const slots = [];
-  for (let h = 6; h <= 23; h++) {
-    for (const m of ['00', '30']) {
-      slots.push(`${String(h).padStart(2, '0')}:${m}`);
-    }
-  }
-  return slots;
-}
-const TIME_SLOTS = buildTimeSlots();
-
 // "timings/duration of event should also be confirmed in the plan only, to
 // be intimated to guests through invites" — event_duration_hours (new
 // column) is optional, and once set, lib/eventContext.js's
@@ -333,9 +351,48 @@ const DURATION_OPTIONS = [
   { label: '5+ hrs', value: 5 },
 ];
 
+// "what time should show just single slot to choose time or enter time
+// with am/pm rather than list of whole 24 hours slot. thats messy" (Anish,
+// Sept 16) — replaces the old horizontal scroll of 36 half-hour chips with
+// one compact Hour : Minute + AM/PM entry, collapsed behind the same
+// "tap to open, saves and collapses back to a summary" pattern
+// EventDateField/BirthdayPersonField already use. Quick presets above stay
+// (those are genuinely one-tap shortcuts, not the messy part); this is
+// only for "some other exact time".
 function EventTimeField({ event, onSave, theme, s }) {
-  const { width } = useWindowDimensions();
-  const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
+  const [customOpen, setCustomOpen] = useState(false);
+  const [hourText, setHourText] = useState('');
+  const [minuteText, setMinuteText] = useState('');
+  const [ampm, setAmpm] = useState('PM');
+
+  function openCustom() {
+    // Seeds the editor from whatever's already saved, so re-opening to
+    // tweak the time doesn't start blank.
+    if (event.event_time) {
+      const [h24, m] = event.event_time.split(':').map(Number);
+      const isPM = h24 >= 12;
+      let h12 = h24 % 12;
+      if (h12 === 0) h12 = 12;
+      setHourText(String(h12));
+      setMinuteText(String(m).padStart(2, '0'));
+      setAmpm(isPM ? 'PM' : 'AM');
+    } else {
+      setHourText('');
+      setMinuteText('');
+      setAmpm('PM');
+    }
+    setCustomOpen(true);
+  }
+
+  function saveCustomTime() {
+    const h12 = parseInt(hourText, 10);
+    const m = minuteText.trim() === '' ? 0 : parseInt(minuteText, 10);
+    if (!Number.isInteger(h12) || h12 < 1 || h12 > 12 || !Number.isInteger(m) || m < 0 || m > 59) return;
+    let h24 = h12 % 12;
+    if (ampm === 'PM') h24 += 12;
+    onSave({ event_time: `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}` });
+    setCustomOpen(false);
+  }
 
   return (
     <View>
@@ -345,27 +402,54 @@ function EventTimeField({ event, onSave, theme, s }) {
           <TouchableOpacity
             key={opt.value}
             style={[s.chip, event.event_time === opt.value && s.chipActive]}
-            onPress={() => onSave({ event_time: opt.value })}
+            onPress={() => { onSave({ event_time: opt.value }); setCustomOpen(false); }}
           >
             <Text style={[s.chipText, event.event_time === opt.value && s.chipTextActive]}>{opt.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <Text style={[s.label, { marginTop: 14, fontSize: 12 }]}>Or pick the exact time</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.timeSlotScroll, isDesktopWeb && { maxWidth: 420 }]}>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          {TIME_SLOTS.map(slot => (
-            <TouchableOpacity
-              key={slot}
-              style={[s.chip, event.event_time === slot && s.chipActive]}
-              onPress={() => onSave({ event_time: slot })}
-            >
-              <Text style={[s.chipText, event.event_time === slot && s.chipTextActive]}>{formatTimeLabel(slot)}</Text>
-            </TouchableOpacity>
-          ))}
+      <TouchableOpacity
+        style={[s.dateSummaryBtn, { marginTop: 12 }]}
+        onPress={() => (customOpen ? setCustomOpen(false) : openCustom())}
+        activeOpacity={0.7}
+      >
+        <Text style={s.dateSummaryText}>🕐 {event.event_time ? formatTimeLabel(event.event_time) : 'Or set an exact time'}</Text>
+        <Text style={s.dateSummaryCaret}>{customOpen ? 'Hide ▲' : 'Change ▼'}</Text>
+      </TouchableOpacity>
+      {customOpen && (
+        <View style={s.timeEntryRow}>
+          <TextInput
+            style={s.timeEntryInput}
+            placeholder="HH"
+            placeholderTextColor={theme.textTertiary}
+            value={hourText}
+            onChangeText={setHourText}
+            keyboardType="number-pad"
+            maxLength={2}
+          />
+          <Text style={s.timeEntryColon}>:</Text>
+          <TextInput
+            style={s.timeEntryInput}
+            placeholder="MM"
+            placeholderTextColor={theme.textTertiary}
+            value={minuteText}
+            onChangeText={setMinuteText}
+            keyboardType="number-pad"
+            maxLength={2}
+          />
+          <View style={s.ampmWrap}>
+            {['AM', 'PM'].map(v => (
+              <TouchableOpacity key={v} style={[s.ampmBtn, ampm === v && s.ampmBtnActive]} onPress={() => setAmpm(v)}>
+                <Text style={[s.ampmBtnText, ampm === v && s.ampmBtnTextActive]}>{v}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity style={s.timeEntrySetBtn} onPress={saveCustomTime}>
+            <Text style={s.timeEntrySetBtnText}>Set</Text>
+          </TouchableOpacity>
         </View>
-      </ScrollView>
+      )}
 
       <Text style={[s.label, { marginTop: 14, fontSize: 12 }]}>How long does it run? (optional — this is what guests see on the invite)</Text>
       <View style={s.chipsWrap}>
@@ -755,6 +839,19 @@ function makeStyles(theme) {
     },
     dateSummaryText: { fontSize: 14, fontWeight: '700', color: theme.text },
     dateSummaryCaret: { fontSize: 12.5, fontWeight: '600', color: theme.textSecondary },
-    timeSlotScroll: { marginBottom: 8 },
+    timeEntryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+    timeEntryInput: {
+      width: 52, textAlign: 'center', backgroundColor: theme.cardBg, borderRadius: 12,
+      borderWidth: 0.5, borderColor: theme.border, paddingVertical: 10, fontSize: 15,
+      fontWeight: '700', color: theme.text,
+    },
+    timeEntryColon: { fontSize: 16, fontWeight: '700', color: theme.text },
+    ampmWrap: { flexDirection: 'row', gap: 4, marginLeft: 4 },
+    ampmBtn: { paddingHorizontal: 10, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.cardBg, borderWidth: 0.5, borderColor: theme.border },
+    ampmBtnActive: { backgroundColor: theme.text, borderColor: theme.text },
+    ampmBtnText: { fontSize: 12.5, fontWeight: '700', color: theme.text },
+    ampmBtnTextActive: { color: theme.bg },
+    timeEntrySetBtn: { marginLeft: 'auto', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, backgroundColor: theme.btnPrimary },
+    timeEntrySetBtnText: { fontSize: 13, fontWeight: '700', color: theme.btnPrimaryText },
   });
 }

@@ -12,6 +12,7 @@ import ActivityIdeasLibrary from '../../components/ActivityIdeasLibrary';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import { MAROON, CARD, LINE, TEXT, MUTED } from '../../lib/desktopTheme';
 import { ITEM_DESCRIPTIONS } from '../../lib/itemDescriptions';
+import { getCategoryIcon } from '../../vendorTaxonomy';
 
 const DESKTOP_BREAKPOINT = 768;
 
@@ -44,7 +45,7 @@ export default function EventScope({ route, navigation }) {
   const s = makeStyles(theme);
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
-  const { resolved, estimates, resolvedByFunction, event, allocation, extraActivities, loading, refresh } = useEventPlan(eventId);
+  const { resolved, resolvedByFunction, event, allocation, extraActivities, loading, refresh } = useEventPlan(eventId);
   const [movingOn, setMovingOn] = useState(false);
   const [startingSelection, setStartingSelection] = useState(true);
   const initedRef = useRef(false);
@@ -200,7 +201,6 @@ export default function EventScope({ route, navigation }) {
             <ScopeItemRow
               key={item.item_name}
               item={item}
-              estimate={estimates[item.item_name]}
               included={!localExcluded.has(item.item_name)}
               onToggle={() => toggleItem(item.item_name)}
               description={ITEM_DESCRIPTIONS[item.item_name]}
@@ -219,7 +219,6 @@ export default function EventScope({ route, navigation }) {
               <ScopeItemRow
                 key={item.item_name}
                 item={item}
-                estimate={estimates[item.item_name]}
                 included={!localExcluded.has(item.item_name)}
                 onToggle={() => toggleItem(item.item_name)}
                 description={ITEM_DESCRIPTIONS[item.item_name]}
@@ -277,25 +276,34 @@ export default function EventScope({ route, navigation }) {
   );
 }
 
-function ScopeItemRow({ item, estimate, included, onToggle, description, theme, s }) {
+// "remove pricing from this screen" (Anish, Sept 16) — Planning is now a
+// pure include/skip decision; the price hint (estimate/priceHint) is no
+// longer shown here at all. Pricing still lives on Execute & book
+// (PlanView.js), which is the only place it belongs.
+//
+// "add icon library and give icons to all the features" (Anish, Sept 16) —
+// reuses vendorTaxonomy.js's existing Category -> icon map (getCategoryIcon,
+// with its own safe '📌' fallback) instead of a new icon library or
+// per-item phosphor-react-native names — PlanView.js's ItemRow already has
+// a comment flagging that path as unsafe (a mistyped icon name can't be
+// verified without running the app, and would crash the whole screen).
+function ScopeItemRow({ item, included, onToggle, description, theme, s }) {
   const label = item.contextual_label || item.item_name;
+  const parentCategory = item.category_slug && item.category_slug.includes(' > ')
+    ? item.category_slug.split(' > ')[0]
+    : item.category_slug;
+  const icon = getCategoryIcon(parentCategory);
   // "add description also below features which are not self explanatory —
   // with more details tab" (Anish, Sept 16) — only items with a real entry
   // in lib/itemDescriptions.js show this at all, so obvious items (a plain
   // "Photographer", say) stay exactly as compact as they are today.
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  function priceHint() {
-    if (!estimate || estimate.available === false) {
-      return estimate?.quoteOnRequest ? 'Quote on request' : 'Price unavailable yet';
-    }
-    return `~ ₹${estimate.low.toLocaleString('en-IN')}–${estimate.high.toLocaleString('en-IN')}`;
-  }
-
   return (
     <View style={[s.itemRow, !included && s.itemRowExcluded]}>
       <View style={{ flex: 1 }}>
         <View style={s.itemNameRow}>
+          <Text style={s.itemIcon}>{icon}</Text>
           <Text style={s.itemName}>{label}</Text>
           {description ? (
             <TouchableOpacity onPress={() => setDetailsOpen(o => !o)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
@@ -303,7 +311,6 @@ function ScopeItemRow({ item, estimate, included, onToggle, description, theme, 
             </TouchableOpacity>
           ) : null}
         </View>
-        <Text style={s.itemPriceHint}>{priceHint()}</Text>
         {description && detailsOpen ? <Text style={s.itemDescription}>{description}</Text> : null}
       </View>
       <Switch value={included} onValueChange={onToggle} />
@@ -315,10 +322,18 @@ function makeStyles(theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.bg },
     scroll: { padding: 20, paddingBottom: 110 },
-    intro: { fontSize: 13.5, color: theme.textSecondary, lineHeight: 20, marginBottom: 18 },
+    // "change the font color- its not readable - make it dark" (Anish,
+    // Sept 16) — this screen's body text used theme.textSecondary/
+    // textTertiary (medium/light gray), which read as too washed out.
+    // Bumped to theme.text (the same near-black/white token every clearly
+    // legible label on this screen already used) wherever it's real
+    // content the host needs to read, not a decorative accent.
+    // "font size should be editable from profile" was flagged by Anish as
+    // a separate, later request — intentionally not built here.
+    intro: { fontSize: 13.5, color: theme.text, lineHeight: 20, marginBottom: 18 },
 
     section: { marginBottom: 18 },
-    sectionTitle: { fontSize: 13, fontWeight: '700', color: theme.textSecondary, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+    sectionTitle: { fontSize: 13, fontWeight: '700', color: theme.text, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
 
     itemRow: {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -330,10 +345,10 @@ function makeStyles(theme) {
     // only with reduced opacity, no strikethrough text.
     itemRowExcluded: { opacity: 0.55 },
     itemNameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+    itemIcon: { fontSize: 16, marginRight: 2 },
     itemName: { fontSize: 14.5, fontWeight: '600', color: theme.text },
-    itemPriceHint: { fontSize: 12, color: theme.textTertiary, marginTop: 3 },
     moreDetailsLink: { fontSize: 11.5, fontWeight: '700', color: theme.accent },
-    itemDescription: { fontSize: 12.5, color: theme.textSecondary, lineHeight: 18, marginTop: 8 },
+    itemDescription: { fontSize: 12.5, color: theme.text, lineHeight: 18, marginTop: 8 },
 
     bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: theme.bg, borderTopWidth: 0.5, borderTopColor: theme.border },
     ctaBtn: { backgroundColor: theme.btnPrimary, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
