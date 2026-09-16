@@ -2,8 +2,6 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, Modal, ActivityIndicator, ScrollView, Share, Platform, Image, ImageBackground, Linking, KeyboardAvoidingView, useWindowDimensions, Switch
 } from 'react-native';
-import { SvgXml } from 'react-native-svg';
-import QRCode from 'qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
@@ -59,7 +57,7 @@ import { resolveVenue, resolveDietary, formatTimeLabel, formatTimeRangeLabel } f
 import { PUBLIC_WEB_URL } from '../../config';
 import { useCapabilities } from '../../hooks/useCapabilities';
 import { isEnabled, insertGuestPassesWithRetry } from '../../lib/capabilities';
-import { buildPassCardHtml } from '../../gatePassTemplate';
+import { buildPassCardHtml, buildInviteWithPassHtml } from '../../gatePassTemplate';
 import { registerTourTarget } from '../../lib/tourTargets';
 import { useTour } from '../../hooks/useTour';
 import CoachMarkTour from '../../components/CoachMarkTour';
@@ -444,14 +442,6 @@ export function resolveInviteDesignColors(templateId, variant) {
 
 function googleMapsUrl(address) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
-}
-
-// Same qrSvgFor shape as PassCard.js/GuestAccess.js's own — the QR just
-// needs to resolve to the pass at PUBLIC_WEB_URL/p/:passCode, same guest-
-// pass system those screens already use, not a separate code space.
-function qrSvgFor(passCode) {
-  const raw = new QRCode({ content: `${PUBLIC_WEB_URL}/p/${passCode}`, width: 110, height: 110, padding: 4, color: '#000000', background: '#ffffff', ecl: 'M' }).svg();
-  return raw.replace(/^<\?xml[^>]*\?>\s*/, '');
 }
 
 // A design's own "date" field only ever gets set from the linked event's
@@ -1254,7 +1244,7 @@ export default function GuestList({ route, navigation }) {
   // that guest receives — null the rest of the time, when the Preview card
   // shows a generic placeholder QR instead (there's no single guest in
   // context while the host is still editing).
-  const [previewPassCodeForGuest, setPreviewPassCodeForGuest] = useState(null);
+
   const activeTemplate = resolveTemplateColors(template, inviteVariant);
   const activePageData = pages[activePage];
   const nameFields = NAME_FIELDS[inviteEventType] || [];
@@ -2712,28 +2702,50 @@ export default function GuestList({ route, navigation }) {
     }
     const personalized = `Dear ${guest.name} Ji,\n\n${buildInviteCaption(guest.id, guest.guest_code)}`;
 
-    // "gate pass or qrcode should be essential in built in invite itself" —
-    // when the host has this on, swap the Preview card's placeholder QR for
-    // THIS guest's real, working code and give React a moment to actually
-    // re-render it before the image gets captured below, so what's baked
-    // into the picture is a real pass, not a sample.
+    // "gate pass or qrcode should be essential in built in invite itself...
+    // it can be put on the back of the image... or if back side not
+    // possible then second page for qr code but never on the same invite
+    // side" (Anish, Sept 16) — the QR no longer gets baked onto the same
+    // captured picture at all (see the removed placeholder-QR block in the
+    // Preview card's JSX above). Instead, when this guest has a gate pass,
+    // the plain invite picture becomes page 1 of a combined PDF and their
+    // gate-pass card (same layout PassCard.js/sendPassToGuest use) becomes
+    // page 2 — see buildInviteWithPassHtml (gatePassTemplate.js).
     let issuedPassCode = null;
     if (activePageData.includeGatePass && event?.id) {
       issuedPassCode = await ensureGuestPass(guest);
-      if (issuedPassCode) {
-        setPreviewPassCodeForGuest(issuedPassCode);
-        await new Promise(resolve => setTimeout(resolve, 150));
-      }
     }
 
     if (Platform.OS !== 'web' && NativeShare && cardRef.current) {
       try {
-        const uri = await cardRef.current.capture();
-        await NativeShare.open({ url: uri, message: personalized, failOnCancel: false });
+        if (issuedPassCode && Print && FileSystem) {
+          const imageUri = await cardRef.current.capture();
+          const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 });
+          const inviteImageDataUrl = `data:image/jpeg;base64,${base64}`;
+          const QRCode = require('qrcode-svg');
+          const raw = new QRCode({ content: `${PUBLIC_WEB_URL}/p/${issuedPassCode}`, width: 160, height: 160, padding: 4, color: '#000000', background: '#ffffff', ecl: 'M' }).svg();
+          const html = buildInviteWithPassHtml({
+            inviteImageDataUrl,
+            pass: {
+              guestName: guest.name,
+              partySize: resolveGuestPartySize(guest),
+              venueLabel: resolvedPlanContext?.venue?.label || null,
+              venueAddress: resolvedPlanContext?.venue?.address || null,
+              dateLabel: resolvedPlanContext?.dateLabel || null,
+              entryWindow: null,
+              passCode: issuedPassCode,
+              qrSvgString: raw.replace(/^<\?xml[^>]*\?>\s*/, ''),
+            },
+          });
+          const { uri } = await Print.printToFileAsync({ html, base64: false });
+          await NativeShare.open({ url: uri, message: personalized, failOnCancel: false });
+        } else {
+          const uri = await cardRef.current.capture();
+          await NativeShare.open({ url: uri, message: personalized, failOnCancel: false });
+        }
       } catch (err) {
         console.log('Invite image share failed:', err.message);
         showAlert('Could not share', 'Make sure WhatsApp is installed, or use "Share as image" instead.');
-        if (issuedPassCode) setPreviewPassCodeForGuest(null);
         return;
       }
     } else {
@@ -2746,8 +2758,6 @@ export default function GuestList({ route, navigation }) {
         showAlert('Could not open WhatsApp', 'Make sure WhatsApp is installed, or use "Share as image" instead.');
       });
     }
-
-    if (issuedPassCode) setPreviewPassCodeForGuest(null);
 
     // Persisted per-guest send tracking — replaces the old session-only
     // waSentIds Set, which reset every time this modal reopened.
@@ -4307,19 +4317,15 @@ export default function GuestList({ route, navigation }) {
                   {activePageData.time ? <Text style={[s.inviteDetail, { color: textColor }]}>🕐  {activePageData.time}</Text> : null}
                   {activePageData.venue ? <Text style={[s.inviteDetail, { color: textColor }]}>📍  {activePageData.venue}</Text> : null}
 
-                  {/* Placeholder QR while editing (no single guest in
-                      context yet) — swapped for the real, per-guest QR by
-                      sendWhatsappTo right before it captures this card as
-                      an image, so what actually gets sent carries that
-                      guest's own working gate-pass code. */}
-                  {activePageData.includeGatePass ? (
-                    <View style={s.gatePassQrBox}>
-                      <SvgXml xml={qrSvgFor(previewPassCodeForGuest || 'PREVIEW')} width={110} height={110} />
-                      <Text style={[s.gatePassQrLabel, { color: textColor }]}>
-                        {previewPassCodeForGuest ? `Gate pass: ${previewPassCodeForGuest}` : 'Your gate pass QR'}
-                      </Text>
-                    </View>
-                  ) : null}
+                  {/* "never on the same invite side" (Anish, Sept 16) — the
+                      gate-pass QR used to render right here, baked onto the
+                      same picture that gets shared. It no longer does:
+                      sendWhatsappTo now puts it on its own page of a
+                      combined PDF instead (see gatePassTemplate.js's
+                      buildInviteWithPassHtml). The "Gate pass" toggle below
+                      still controls whether a pass gets issued and attached
+                      at send time — it just doesn't touch this card's own
+                      design anymore. */}
 
                   <View style={[s.inviteFooter, { borderTopColor: accentColor + '44' }]}>
                     <Text style={[s.inviteFooterText, { color: accentColor }]}>
@@ -5497,8 +5503,6 @@ const styles = theme => StyleSheet.create({
   inviteDetail: { fontSize: 14, fontWeight: '600', marginTop: 2 },
   inviteFooter: { borderTopWidth: 0.5, marginTop: 16, paddingTop: 12, width: '100%', alignItems: 'center' },
   inviteFooterText: { fontSize: 10.5, fontWeight: '600', letterSpacing: 0.3 },
-  gatePassQrBox: { alignItems: 'center', marginTop: 14 },
-  gatePassQrLabel: { fontSize: 11, fontWeight: '700', marginTop: 8, letterSpacing: 0.5 },
   gatePassToggleRow: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 0.5, borderColor: theme.border,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
@@ -32,7 +32,14 @@ const DESKTOP_BREAKPOINT = 768;
 // always editable, still autosaving individually on change (no Save
 // button needed) — one less piece of state to explain, same underlying
 // behavior.
-const EDITABLE_SLOTS = ['sub_type_slug', 'birthday_person', 'event_date', 'event_time', 'city', 'venue_type', 'location', 'guest_count', 'theme', 'dietary_restrictions', 'budget_total'];
+// "remove which city and where it will held, just keep address of venue"
+// (Anish, Sept 16) — 'city' and 'venue_type' dropped from this screen's
+// own field list. Both are still asked once during first-time event setup
+// (SlotPrompt.js's BLOCKING_SLOTS, untouched) — this only stops Event
+// details from asking them again on every revisit. 'location' (now a
+// structured house no./sector/road/landmark/pincode form, see
+// SlotField.js's LocationField) stays.
+const EDITABLE_SLOTS = ['sub_type_slug', 'birthday_person', 'event_date', 'event_time', 'location', 'guest_count', 'theme', 'dietary_restrictions', 'budget_total'];
 
 export default function EventDetailsScreen({ route, navigation }) {
   const { eventId } = route.params;
@@ -147,6 +154,19 @@ export default function EventDetailsScreen({ route, navigation }) {
           <SlotField slotKey={slot} event={event} onSave={saveField} navigation={navigation} />
         </View>
       ))}
+      {/* "saving event details move to plan the event" (Anish, Sept 16) —
+          every field above still autosaves the instant it changes (no
+          batch Save to hook into), so this is a separate, explicit "I'm
+          done here" step rather than a real save action. navigation.replace
+          (not .navigate), same lateral-move convention EventTabStrip's own
+          tab taps already use, so the back button behaves identically
+          either way you got to Plan the event. */}
+      <TouchableOpacity
+        style={s.continueBtn}
+        onPress={() => navigation.replace('EventScope', { eventId })}
+      >
+        <Text style={s.continueBtnText}>Continue to Plan the event →</Text>
+      </TouchableOpacity>
       <View style={{ height: 60 }} />
     </>
   );
@@ -203,6 +223,8 @@ function makeStyles(theme) {
     errorText: { fontSize: 14, color: theme.textSecondary, textAlign: 'center' },
     intro: { fontSize: 13, color: theme.textSecondary, lineHeight: 19, marginBottom: 18 },
     fieldWrap: { marginBottom: 18 },
+    continueBtn: { backgroundColor: theme.btnPrimary, borderRadius: 16, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
+    continueBtnText: { fontSize: 15, fontWeight: '700', color: theme.btnPrimaryText },
   });
 }
 

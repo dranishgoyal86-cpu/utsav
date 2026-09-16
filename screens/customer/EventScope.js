@@ -49,6 +49,13 @@ export default function EventScope({ route, navigation }) {
   const [movingOn, setMovingOn] = useState(false);
   const [startingSelection, setStartingSelection] = useState(true);
   const initedRef = useRef(false);
+  // "saving plan moves to main event planning screen with a prompt to
+  // click execute and book" (Anish, Sept 16) — host picked "stay on this
+  // screen, show a banner" over building a brand-new hub screen. True the
+  // moment savePlanning() below succeeds; cleared again the moment they
+  // touch another toggle, since a saved banner pointing at stale choices
+  // would be misleading.
+  const [justSaved, setJustSaved] = useState(false);
 
   // "things in the planning screen are already selected — it should be
   // opposite so that host can select whatever he wants, not unselect"
@@ -111,6 +118,7 @@ export default function EventScope({ route, navigation }) {
   }, [loading, event, startingSelection]);
 
   function toggleItem(itemName) {
+    setJustSaved(false);
     setLocalExcluded(prev => {
       const next = new Set(prev);
       if (next.has(itemName)) next.delete(itemName);
@@ -168,7 +176,7 @@ export default function EventScope({ route, navigation }) {
         .eq('id', eventId);
       if (error) throw error;
       await refresh();
-      showAlert('Saved', 'Your planning choices are saved. Switch to "Execute & book" whenever you\'re ready to see pricing and book vendors.');
+      setJustSaved(true);
     } catch (err) {
       showAlert('Error', err.message);
     } finally {
@@ -242,6 +250,27 @@ export default function EventScope({ route, navigation }) {
     </>
   );
 
+  // "add menu tab, guest list tab, invites tab on the right top corner - as
+  // they are also part of planning only" (Anish, Sept 16) — same shortcuts,
+  // same icons, same navigate({ event }) shape PlanView.js's own header
+  // already uses for these three, just without its 4th "add to calendar"
+  // button (not asked for here).
+  const shortcutButtons = [
+    { key: 'guests', icon: '👥', screen: 'GuestList' },
+    { key: 'menu', icon: '🍽️', screen: 'MenuPlanner' },
+    { key: 'invites', icon: '🎨', screen: 'InviteHub' },
+  ];
+
+  const savedBanner = justSaved ? (
+    <TouchableOpacity
+      style={s.savedBanner}
+      onPress={() => { setJustSaved(false); navigation.replace('PlanView', { eventId }); }}
+    >
+      <Text style={s.savedBannerText}>✓ Saved! Ready to book vendors?</Text>
+      <Text style={s.savedBannerLink}>Execute & book →</Text>
+    </TouchableOpacity>
+  ) : null;
+
   const ctaEl = (
     <TouchableOpacity style={s.ctaBtn} onPress={savePlanning} disabled={movingOn}>
       {movingOn ? <ActivityIndicator color="#FFF" /> : <Text style={s.ctaBtnText}>Save planning ✓</Text>}
@@ -253,8 +282,18 @@ export default function EventScope({ route, navigation }) {
       <DesktopEventShell activeItem="plan" event={event} guestCount={0} currentUserName="" navigation={navigation}>
         <Text style={ds.title}>{event.working_title || eventTypeName(event.event_type_slug)}</Text>
         <Text style={ds.subtitle}>Planning</Text>
+        <View style={ds.quickActions}>
+          {shortcutButtons.map(btn => (
+            <TouchableOpacity key={btn.key} style={ds.quickBtn} onPress={() => navigation.navigate(btn.screen, { event })}>
+              <Text style={ds.quickBtnText}>{btn.icon} {btn.key === 'guests' ? 'Guests' : btn.key === 'menu' ? 'Menu' : 'Invites'}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
         <View style={ds.body}>{body}</View>
-        <View style={ds.ctaRow}>{ctaEl}</View>
+        <View style={ds.ctaRow}>
+          {savedBanner}
+          {ctaEl}
+        </View>
       </DesktopEventShell>
     );
   }
@@ -266,12 +305,21 @@ export default function EventScope({ route, navigation }) {
         theme={theme}
         navigation={navigation}
         onBack={() => navigation.goBack()}
+        eventId={event.id}
+        rightActions={shortcutButtons.map(btn => (
+          <TouchableOpacity key={btn.key} onPress={() => navigation.navigate(btn.screen, { event })} style={s.calendarBtn}>
+            <Text style={s.calendarBtnText}>{btn.icon}</Text>
+          </TouchableOpacity>
+        ))}
       />
       <EventTabStrip active="plan" eventId={eventId} navigation={navigation} theme={theme} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
         {body}
       </ScrollView>
-      <View style={s.bottomBar}>{ctaEl}</View>
+      <View style={s.bottomBar}>
+        {savedBanner}
+        {ctaEl}
+      </View>
     </SafeAreaView>
   );
 }
@@ -353,6 +401,14 @@ function makeStyles(theme) {
     bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: theme.bg, borderTopWidth: 0.5, borderTopColor: theme.border },
     ctaBtn: { backgroundColor: theme.btnPrimary, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
     ctaBtnText: { fontSize: 15, fontWeight: '700', color: theme.btnPrimaryText },
+    savedBanner: {
+      backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border,
+      padding: 14, marginBottom: 10, alignItems: 'center',
+    },
+    savedBannerText: { fontSize: 13, fontWeight: '600', color: theme.text, marginBottom: 4 },
+    savedBannerLink: { fontSize: 13.5, fontWeight: '700', color: theme.accent },
+    calendarBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.cardBg, borderWidth: 0.5, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' },
+    calendarBtnText: { fontSize: 15 },
   });
 }
 
@@ -361,4 +417,7 @@ const ds = StyleSheet.create({
   subtitle: { fontSize: 13, fontWeight: '700', color: MAROON, marginTop: 4, marginBottom: 20, textTransform: 'uppercase', letterSpacing: 0.5 },
   body: { maxWidth: 640 },
   ctaRow: { maxWidth: 640, marginTop: 10 },
+  quickActions: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  quickBtn: { backgroundColor: CARD, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, borderWidth: 1, borderColor: LINE },
+  quickBtnText: { fontSize: 13, fontWeight: '600', color: TEXT },
 });

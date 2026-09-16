@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform, useWindowDimensions, Linking } from 'react-native';
 import { useTheme } from '../ThemeContext';
 import CalendarPicker from './CalendarPicker';
 import SuggestionChips from './SuggestionChips';
@@ -75,7 +75,12 @@ export function slotApplies(slotKey, event) {
   if (!event) return false;
   if (slotKey === 'sub_type_slug') return getSubTypeOptions(event.event_type_slug).length > 0;
   if (slotKey === 'theme') return getThemeOptions(event.event_type_slug).length > 0;
-  if (slotKey === 'location') return isHomeVenueType(event.venue_type) || event.venue_type === 'venue';
+  // "just keep address of venue" (Anish, Sept 16) — always applies now,
+  // regardless of venue_type (home/undecided/unset all use the structured
+  // address form; only 'venue' — a booked marketplace venue — shows the
+  // different "Browse venues" button instead, handled inside LocationField
+  // itself, not gated out here).
+  if (slotKey === 'location') return true;
   // Sept 2026 — "differentiation between kids birthday and normal birthday
   // has to be placed in the event plan itself": applies to both birthday
   // event types (not just kids-birthday) since a wrong initial guess needs
@@ -133,8 +138,8 @@ export function slotDisplayValue(slotKey, event, venue) {
       return opt?.label || event.venue_type;
     }
     case 'location':
-      if (isHomeVenueType(event.venue_type)) return event.venue || null;
-      return venue?.name || (event.venue_id ? 'Venue selected' : null);
+      if (event.venue_type === 'venue') return venue?.name || (event.venue_id ? 'Venue selected' : null);
+      return event.venue || null;
     case 'guest_count':
       return event.guest_count != null ? `${event.guest_count} guests` : null;
     case 'theme': {
@@ -163,7 +168,7 @@ export function slotFilled(slotKey, event) {
     case 'event_time': return !!event.event_time;
     case 'city': return !!event.city;
     case 'venue_type': return !!event.venue_type;
-    case 'location': return isHomeVenueType(event.venue_type) ? !!event.venue : !!event.venue_id;
+    case 'location': return event.venue_type === 'venue' ? !!event.venue_id : !!event.venue;
     case 'guest_count': return event.guest_count != null;
     case 'theme': return !!event.theme;
     // Booleans are always in a complete state (false is a real answer, not
@@ -330,13 +335,6 @@ function EventDateField({ event, onSave, theme, s }) {
 // need the pure formatter, like the unauthed guest-facing RSVPScreen.js).
 export { formatTimeLabel };
 
-const QUICK_TIME_PRESETS = [
-  { label: 'Morning · 10:00 AM', value: '10:00' },
-  { label: 'Afternoon · 1:00 PM', value: '13:00' },
-  { label: 'Evening · 6:00 PM', value: '18:00' },
-  { label: 'Night · 8:00 PM', value: '20:00' },
-];
-
 // "timings/duration of event should also be confirmed in the plan only, to
 // be intimated to guests through invites" — event_duration_hours (new
 // column) is optional, and once set, lib/eventContext.js's
@@ -356,9 +354,10 @@ const DURATION_OPTIONS = [
 // Sept 16) — replaces the old horizontal scroll of 36 half-hour chips with
 // one compact Hour : Minute + AM/PM entry, collapsed behind the same
 // "tap to open, saves and collapses back to a summary" pattern
-// EventDateField/BirthdayPersonField already use. Quick presets above stay
-// (those are genuinely one-tap shortcuts, not the messy part); this is
-// only for "some other exact time".
+// EventDateField/BirthdayPersonField already use. The four "Morning/
+// Afternoon/Evening/Night" quick-preset chips that used to sit above this
+// were removed too (Anish, Sept 16 follow-up) — this custom entry is now
+// the only way to set a time.
 function EventTimeField({ event, onSave, theme, s }) {
   const [customOpen, setCustomOpen] = useState(false);
   const [hourText, setHourText] = useState('');
@@ -397,20 +396,9 @@ function EventTimeField({ event, onSave, theme, s }) {
   return (
     <View>
       <Text style={s.label}>What time?</Text>
-      <View style={s.chipsWrap}>
-        {QUICK_TIME_PRESETS.map(opt => (
-          <TouchableOpacity
-            key={opt.value}
-            style={[s.chip, event.event_time === opt.value && s.chipActive]}
-            onPress={() => { onSave({ event_time: opt.value }); setCustomOpen(false); }}
-          >
-            <Text style={[s.chipText, event.event_time === opt.value && s.chipTextActive]}>{opt.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
 
       <TouchableOpacity
-        style={[s.dateSummaryBtn, { marginTop: 12 }]}
+        style={s.dateSummaryBtn}
         onPress={() => (customOpen ? setCustomOpen(false) : openCustom())}
         activeOpacity={0.7}
       >
@@ -613,10 +601,42 @@ function VenueTypeField({ event, onSave, theme, s }) {
   );
 }
 
+// "remove which city and where it will held, just keep address of venue"
+// + "address- general address- with house no., sector, road, nearby
+// landmark, pincode slots- then saved as address of venue (to be tagged
+// as home address/venue by the host)- same address to be autofilled in
+// all the invites/gatepasses/qr codes/for vendors for delivery/logistics/
+// billing/invoicing" + "auto generate a google maps link with a verify
+// tab - to be verified by the host once- then saved same for invites/
+// qrcodes/vendors" (Anish, Sept 16) — replaces the old single free-text
+// "Street address" box with these five structured fields, composed into
+// one string and saved into the same event.venue column every consumer
+// (InviteDetails.js, RSVPScreen.js, VisitorList.js, GatePass.js, etc.)
+// already reads — nothing downstream needs to change. The sub-fields
+// themselves are UI-only scaffolding, same pattern CityField's cityGroup
+// already uses above — only the composed address is persisted, so editing
+// an already-saved address starts from blank fields with the current
+// saved value shown just above the form, not a (currently impossible)
+// re-split of one string back into five parts.
+//
+// "Browse venues" (booking one of Utsav's own listed venues) is a
+// different, unrelated flow and is untouched — this only replaces how a
+// host enters their OWN address. venue_type itself is still collected
+// once during first-time event setup (SlotPrompt.js) — not touched here —
+// so Society Gate Pass detection (which depends on venue_type) still
+// works exactly as before; this screen just stops asking about it again.
+//
+// No Google Places/Geocoding API involved (confirmed elsewhere in this
+// codebase that it's blocked/unbilled) — the "verify" step just opens a
+// plain Google Maps search link built from the typed address and asks the
+// host to confirm it looks right, which needs no API key at all.
 function LocationField({ event, onSave, navigation, theme, s }) {
-  const [address, setAddress] = useState(event.venue || '');
-  const [mapsLink, setMapsLink] = useState(event.maps_link || '');
-  const { suggestions, record } = useInputHistory('home_address');
+  const [houseNo, setHouseNo] = useState('');
+  const [sector, setSector] = useState('');
+  const [road, setRoad] = useState('');
+  const [landmark, setLandmark] = useState('');
+  const [pincode, setPincode] = useState('');
+  const [verified, setVerified] = useState(false);
 
   if (event.venue_type === 'venue') {
     return (
@@ -629,36 +649,105 @@ function LocationField({ event, onSave, navigation, theme, s }) {
     );
   }
 
-  if (!isHomeVenueType(event.venue_type)) return null;
+  const composed = [
+    houseNo.trim() && `House No. ${houseNo.trim()}`,
+    sector.trim(),
+    road.trim(),
+    landmark.trim() && `Near ${landmark.trim()}`,
+    pincode.trim(),
+  ].filter(Boolean).join(', ');
 
   function saveAddress() {
-    if (!address.trim()) return;
-    record(address.trim());
-    onSave({ venue: address.trim(), maps_link: mapsLink.trim() || null });
+    if (!composed) return;
+    onSave({ venue: composed });
+  }
+
+  function buildMapsUrl() {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(composed)}`;
+  }
+
+  function openMapsToVerify() {
+    if (!composed) return;
+    Linking.openURL(buildMapsUrl());
+  }
+
+  function confirmVerified() {
+    if (!composed) return;
+    onSave({ venue: composed, maps_link: buildMapsUrl() });
+    setVerified(true);
+  }
+
+  function markUnverified(setter) {
+    return t => { setter(t); setVerified(false); };
   }
 
   return (
     <View>
-      <Text style={s.label}>Home address</Text>
-      <SuggestionChips suggestions={suggestions} onSelect={v => { setAddress(v); onSave({ venue: v, maps_link: mapsLink.trim() || null }); }} />
+      <Text style={s.label}>Address of venue</Text>
+      {event.venue ? <Text style={s.currentAddressText}>Currently saved: {event.venue}</Text> : null}
+
+      <View style={s.addressRow}>
+        <TextInput
+          style={[s.input, s.addressInputHalf]}
+          placeholder="House no."
+          placeholderTextColor={theme.textTertiary}
+          value={houseNo}
+          onChangeText={markUnverified(setHouseNo)}
+          onBlur={saveAddress}
+        />
+        <TextInput
+          style={[s.input, s.addressInputHalf]}
+          placeholder="Sector / area"
+          placeholderTextColor={theme.textTertiary}
+          value={sector}
+          onChangeText={markUnverified(setSector)}
+          onBlur={saveAddress}
+        />
+      </View>
       <TextInput
-        style={s.input}
-        placeholder="Street address"
+        style={[s.input, { marginTop: 8 }]}
+        placeholder="Road"
         placeholderTextColor={theme.textTertiary}
-        value={address}
-        onChangeText={setAddress}
+        value={road}
+        onChangeText={markUnverified(setRoad)}
         onBlur={saveAddress}
       />
-      <Text style={[s.label, { marginTop: 10 }]}>Google Maps link (optional)</Text>
       <TextInput
-        style={s.input}
-        placeholder="Paste a Google Maps link"
+        style={[s.input, { marginTop: 8 }]}
+        placeholder="Nearby landmark"
         placeholderTextColor={theme.textTertiary}
-        value={mapsLink}
-        onChangeText={setMapsLink}
+        value={landmark}
+        onChangeText={markUnverified(setLandmark)}
         onBlur={saveAddress}
-        autoCapitalize="none"
       />
+      <TextInput
+        style={[s.input, { marginTop: 8 }]}
+        placeholder="Pincode"
+        placeholderTextColor={theme.textTertiary}
+        value={pincode}
+        onChangeText={markUnverified(setPincode)}
+        onBlur={saveAddress}
+        keyboardType="number-pad"
+        maxLength={6}
+      />
+
+      {composed ? (
+        <View style={s.verifyCard}>
+          <Text style={s.verifyPreview}>{composed}</Text>
+          {event.maps_link && verified ? (
+            <Text style={s.verifiedBadge}>✓ Verified on Google Maps</Text>
+          ) : (
+            <>
+              <TouchableOpacity style={s.verifyBtn} onPress={openMapsToVerify}>
+                <Text style={s.verifyBtnText}>Open in Google Maps to check →</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.verifyConfirmBtn} onPress={confirmVerified}>
+                <Text style={s.verifyConfirmBtnText}>✓ Yes, this is correct</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -853,5 +942,15 @@ function makeStyles(theme) {
     ampmBtnTextActive: { color: theme.bg },
     timeEntrySetBtn: { marginLeft: 'auto', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, backgroundColor: theme.btnPrimary },
     timeEntrySetBtnText: { fontSize: 13, fontWeight: '700', color: theme.btnPrimaryText },
+    currentAddressText: { fontSize: 12.5, color: theme.textSecondary, marginBottom: 10, fontStyle: 'italic' },
+    addressRow: { flexDirection: 'row', gap: 8 },
+    addressInputHalf: { flex: 1 },
+    verifyCard: { backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border, padding: 14, marginTop: 12 },
+    verifyPreview: { fontSize: 13, color: theme.text, lineHeight: 18, marginBottom: 10 },
+    verifyBtn: { backgroundColor: theme.btnPrimary, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginBottom: 8 },
+    verifyBtnText: { color: theme.btnPrimaryText, fontSize: 13, fontWeight: '700' },
+    verifyConfirmBtn: { borderWidth: 1, borderColor: theme.accent, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+    verifyConfirmBtnText: { color: theme.accent, fontSize: 13, fontWeight: '700' },
+    verifiedBadge: { fontSize: 13, fontWeight: '700', color: '#2E7D32' },
   });
 }

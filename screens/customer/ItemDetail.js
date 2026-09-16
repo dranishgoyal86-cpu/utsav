@@ -316,35 +316,52 @@ export default function ItemDetail({ route, navigation }) {
   // is never required. Shared between the mobile and desktop return
   // branches below (same pattern as the rest of this file — vs picks the
   // matching style set for whichever branch is rendering).
+  // "add a bigger prompt for this" (Anish, Sept 16) — the entry point used
+  // to be a small 13px text link, easy to miss under the two big action
+  // buttons above. Now a full-width card for the empty state, same visual
+  // weight as the vendor-listing cards below it. Once details are actually
+  // saved, the existing summary card (name, budget, email/WhatsApp
+  // buttons) already carries plenty of visual weight on its own, so that
+  // part is unchanged — just a smaller "edit" link above it, same as
+  // before.
   const vendorSectionEl = (
     <View style={vs.vendorSection}>
-      <TouchableOpacity onPress={() => setVendorFormVisible(true)}>
-        <Text style={vs.vendorLinkText}>
-          {externalBooking ? '✎ Edit vendor details' : '+ Booked this outside Utsav? Add vendor details'}
-        </Text>
-      </TouchableOpacity>
       {externalBooking ? (
-        <View style={vs.vendorSummaryCard}>
-          <Text style={vs.vendorSummaryValue}>{externalBooking.vendor_name || 'Vendor'}</Text>
-          {externalBooking.budget != null ? <Text style={vs.vendorSummaryLabel}>Budget: ₹{Number(externalBooking.budget).toLocaleString('en-IN')}</Text> : null}
-          <View style={vs.vendorSendRow}>
-            <TouchableOpacity
-              style={[vs.vendorSendBtn, !externalBooking.vendor_email && vs.vendorSendBtnDisabled]}
-              onPress={openEmailPreview}
-              disabled={!externalBooking.vendor_email}
-            >
-              <Text style={vs.vendorSendBtnText}>✉️ Email vendor</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[vs.vendorSendBtn, !externalBooking.vendor_phone && vs.vendorSendBtnDisabled]}
-              onPress={sendViaWhatsapp}
-              disabled={!externalBooking.vendor_phone}
-            >
-              <Text style={vs.vendorSendBtnText}>💬 WhatsApp vendor</Text>
-            </TouchableOpacity>
+        <>
+          <TouchableOpacity onPress={() => setVendorFormVisible(true)}>
+            <Text style={vs.vendorLinkText}>✎ Edit vendor details</Text>
+          </TouchableOpacity>
+          <View style={vs.vendorSummaryCard}>
+            <Text style={vs.vendorSummaryValue}>{externalBooking.vendor_name || 'Vendor'}</Text>
+            {externalBooking.budget != null ? <Text style={vs.vendorSummaryLabel}>Budget: ₹{Number(externalBooking.budget).toLocaleString('en-IN')}</Text> : null}
+            <View style={vs.vendorSendRow}>
+              <TouchableOpacity
+                style={[vs.vendorSendBtn, !externalBooking.vendor_email && vs.vendorSendBtnDisabled]}
+                onPress={openEmailPreview}
+                disabled={!externalBooking.vendor_email}
+              >
+                <Text style={vs.vendorSendBtnText}>✉️ Email vendor</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[vs.vendorSendBtn, !externalBooking.vendor_phone && vs.vendorSendBtnDisabled]}
+                onPress={sendViaWhatsapp}
+                disabled={!externalBooking.vendor_phone}
+              >
+                <Text style={vs.vendorSendBtnText}>💬 WhatsApp vendor</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      ) : null}
+        </>
+      ) : (
+        <TouchableOpacity style={vs.vendorPromptCard} onPress={() => setVendorFormVisible(true)}>
+          <Text style={vs.vendorPromptIcon}>📝</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={vs.vendorPromptTitle}>Booked this outside Utsav?</Text>
+            <Text style={vs.vendorPromptSub}>Save the vendor's name & contact so you can follow up later</Text>
+          </View>
+          <Text style={vs.vendorPromptArrow}>›</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -550,6 +567,15 @@ function makeStyles(theme) {
 
     vendorSection: { marginBottom: 20 },
     vendorLinkText: { fontSize: 13, fontWeight: '700', color: theme.accent },
+    vendorPromptCard: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 1, borderColor: theme.accent,
+      padding: 16,
+    },
+    vendorPromptIcon: { fontSize: 22 },
+    vendorPromptTitle: { fontSize: 14.5, fontWeight: '700', color: theme.text, marginBottom: 3 },
+    vendorPromptSub: { fontSize: 12.5, color: theme.textSecondary, lineHeight: 17 },
+    vendorPromptArrow: { fontSize: 20, color: theme.textTertiary },
     vendorSummaryCard: { backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border, padding: 14, marginTop: 10 },
     vendorSummaryValue: { fontSize: 14, fontWeight: '700', color: theme.text, marginBottom: 3 },
     vendorSummaryLabel: { fontSize: 12.5, color: theme.textSecondary, marginBottom: 8 },
@@ -594,6 +620,15 @@ const ds = StyleSheet.create({
 
   vendorSection: { marginBottom: 18 },
   vendorLinkText: { fontSize: 13, fontWeight: '700', color: MAROON },
+  vendorPromptCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: CARD, borderRadius: 16, borderWidth: 1.5, borderColor: MAROON,
+    padding: 16,
+  },
+  vendorPromptIcon: { fontSize: 22 },
+  vendorPromptTitle: { fontSize: 14.5, fontWeight: '700', color: TEXT, marginBottom: 3 },
+  vendorPromptSub: { fontSize: 12.5, color: MUTED, lineHeight: 17 },
+  vendorPromptArrow: { fontSize: 20, color: MUTED },
   vendorSummaryCard: { backgroundColor: CARD, borderRadius: 14, borderWidth: 1, borderColor: LINE, padding: 14, marginTop: 10 },
   vendorSummaryValue: { fontSize: 14, fontWeight: '700', color: TEXT, marginBottom: 3 },
   vendorSummaryLabel: { fontSize: 12.5, color: MUTED, marginBottom: 8 },
