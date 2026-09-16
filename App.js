@@ -104,6 +104,8 @@ import ItemDetail from './screens/customer/ItemDetail';
 import VenuePicker from './screens/customer/VenuePicker';
 import GuestList from './screens/customer/GuestList';
 import MenuPlanner from './screens/customer/MenuPlanner';
+import MenuPricing from './screens/customer/MenuPricing';
+import CatererQuoteInbox from './screens/provider/CatererQuoteInbox';
 import InviteHub from './screens/customer/InviteHub';
 import SeatingChart from './screens/customer/SeatingChart';
 import GatePass from './screens/customer/GatePass';
@@ -621,6 +623,7 @@ function MainApp() {
             <Stack.Screen name="Documents" component={Documents} />
             <Stack.Screen name="Chat" component={ChatScreen} />
             <Stack.Screen name="Inbox" component={ProviderInbox} />
+            <Stack.Screen name="CatererQuoteInbox" component={CatererQuoteInbox} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="BillingProfile" component={BillingProfile} />
             <Stack.Screen name="InvoiceGenerator" component={InvoiceGenerator} />
@@ -650,6 +653,7 @@ function MainApp() {
             <Stack.Screen name="ComparePlans" component={ComparePlans} />
             <Stack.Screen name="GuestList" component={GuestList} />
             <Stack.Screen name="MenuPlanner" component={MenuPlanner} />
+            <Stack.Screen name="MenuPricing" component={MenuPricing} />
             <Stack.Screen name="InviteHub" component={InviteHub} />
             <Stack.Screen name="SeatingChart" component={SeatingChart} />
             <Stack.Screen name="GatePass" component={GatePass} />

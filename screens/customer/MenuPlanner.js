@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
@@ -119,15 +119,6 @@ export default function MenuPlanner({ route, navigation }) {
     loadEvent();
   }
 
-  // menu_stage — menu-only Selecting/Pricing split (see
-  // claude/menu-planning-vs-execution-split.md), independent of the
-  // whole-event planning_stage. Freely revisitable, same as that one.
-  async function handleSetMenuStage(stage) {
-    const { error: err } = await supabase.from('events').update({ menu_stage: stage }).eq('id', eventId);
-    if (err) { showAlert('Could not update that', err.message); return; }
-    loadEvent();
-  }
-
   async function handleSaveProviderNote(note) {
     const { error: err } = await supabase.from('events').update({ menu_provider_note: note.trim() || null }).eq('id', eventId);
     if (err) { showAlert('Could not save that', err.message); return; }
@@ -156,33 +147,26 @@ export default function MenuPlanner({ route, navigation }) {
     loadSelections();
   }
 
-  async function handleUpdateDetails(selectionId, patch) {
-    const { error: err } = await supabase.from('event_menu_selections').update(patch).eq('id', selectionId);
-    if (err) { showAlert('Could not save that', err.message); return; }
-    loadSelections();
-  }
-
   if (!event) {
     return <SafeAreaView style={s.container} />;
   }
 
-  // "first after selecting it should make a items list for menu, and give
-  // an option to see prices and quantity later" (Anish, Sept 16) - this
-  // exact Selecting/Pricing split was already designed and built (see
-  // claude/menu-planning-vs-execution-split.md): a brand-new event is
-  // meant to default to selecting (plain list, no price/quantity fields
-  // until "Done selecting" is tapped). The fallback below used to say
-  // pricing instead - the wrong direction. events.menu_stage is
-  // not-null-default-selecting at the database level, so this fallback
-  // should rarely even matter - unless that migration
-  // (20260917000000_menu_planning_execution.sql) has not been pushed to
-  // the live database yet, in which case the column does not exist,
-  // event.menu_stage comes back undefined for every event, and this
-  // fallback decided the behavior every time.
+  // "change (done selection - add pricing & quantity) to calculate
+  // pricing - and show it in bottom of page with everything else
+  // collapsed. clicking on calculate pricing should open a separate
+  // page" (Anish, Sept 16) — the old inline Selecting/Pricing toggle
+  // inside MenuLibrary.js is gone; that component is selecting-only now,
+  // and a sticky bar pinned to the bottom of the SCREEN (outside the
+  // ScrollView, so it stays put regardless of scroll position) is what
+  // takes the host to the new MenuPricing.js screen for pricing and
+  // caterer quotes. events.menu_stage is left in the database unused
+  // rather than migrated away — safe to ignore, nothing reads it anymore.
+  const showPricingBar = event.menu_type === 'customized' && selections.length > 0;
+
   return (
     <SafeAreaView style={s.container}>
       <AppHeader theme={theme} navigation={navigation} onBack={() => navigation.goBack()} title="Menu" eventId={event.id} />
-      <ScrollView style={s.scroll} contentContainerStyle={{ padding: 20 }}>
+      <ScrollView style={s.scroll} contentContainerStyle={{ padding: 20, paddingBottom: showPricingBar ? 100 : 20 }}>
         {menuEstimate.available && (
           <View style={s.estimateCard}>
             <Text style={s.estimateTitle}>
@@ -205,16 +189,21 @@ export default function MenuPlanner({ route, navigation }) {
           event={event}
           selections={selections}
           providerNote={event.menu_provider_note}
-          menuStage={event.menu_stage || 'selecting'}
           onSetMenuType={handleSetMenuType}
-          onSetMenuStage={handleSetMenuStage}
           onAddDish={handleAddDish}
           onRemoveDish={handleRemoveDish}
-          onUpdateDetails={handleUpdateDetails}
           onSaveProviderNote={handleSaveProviderNote}
           theme={theme}
         />
       </ScrollView>
+
+      {showPricingBar && (
+        <View style={s.pricingBar}>
+          <TouchableOpacity style={s.pricingBarBtn} onPress={() => navigation.navigate('MenuPricing', { eventId: event.id })}>
+            <Text style={s.pricingBarBtnText}>Calculate pricing →</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <CoachMarkTour
         visible={menuTour.isTourActive}
@@ -239,5 +228,12 @@ function makeStyles(theme) {
     estimateOverBudget: { fontSize: 12.5, fontWeight: '600', color: '#E65100', marginTop: 8 },
     estimateWithinBudget: { fontSize: 12.5, fontWeight: '600', color: '#2E7D32', marginTop: 8 },
     estimateBasis: { fontSize: 11, color: theme.textTertiary, marginTop: 8, lineHeight: 15 },
+    pricingBar: {
+      position: 'absolute', left: 0, right: 0, bottom: 0,
+      backgroundColor: theme.bg, borderTopWidth: 0.5, borderTopColor: theme.border,
+      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 20,
+    },
+    pricingBarBtn: { backgroundColor: theme.btnPrimary, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+    pricingBarBtnText: { fontSize: 14, fontWeight: '700', color: theme.btnPrimaryText },
   });
 }

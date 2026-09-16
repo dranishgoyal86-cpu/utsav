@@ -51,8 +51,8 @@ function VegDot({ status }) {
 //   onSaveProviderNote(text)
 //   onAddDish({ name, category, cuisine, foodType, isCustom })
 //   onRemoveDish(selectionId)
-//   onUpdateDetails(selectionId, { price, quantity, notes })   (autosave on blur)
-export default function MenuLibrary({ event, selections, providerNote, menuStage, onSetMenuType, onSetMenuStage, onAddDish, onRemoveDish, onUpdateDetails, onSaveProviderNote, theme }) {
+// Price/Quantity/Notes no longer live here — see MenuPricing.js.
+export default function MenuLibrary({ event, selections, providerNote, onSetMenuType, onAddDish, onRemoveDish, onSaveProviderNote, theme }) {
   const [foodType, setFoodType] = useState(null);
   const [cuisineFilters, setCuisineFilters] = useState([]);
   const [openCategory, setOpenCategory] = useState(null);
@@ -146,16 +146,13 @@ export default function MenuLibrary({ event, selections, providerNote, menuStage
           </View>
           <Text style={s.itemHint}>Leave food type unselected, or choose Multicuisine, to browse everything in a category.</Text>
 
-          {menuStage === 'selecting' && selections.length > 0 && (
-            <TouchableOpacity style={s.stageCta} onPress={onSetMenuStage ? () => onSetMenuStage('pricing') : undefined}>
-              <Text style={s.stageCtaText}>Done selecting — add pricing & quantity →</Text>
-            </TouchableOpacity>
-          )}
-          {menuStage !== 'selecting' && (
-            <TouchableOpacity style={s.backLink} onPress={onSetMenuStage ? () => onSetMenuStage('selecting') : undefined}>
-              <Text style={s.backLinkText}>← Back to selecting (just the list, no prices)</Text>
-            </TouchableOpacity>
-          )}
+          {/* "calculate pricing" now lives at the bottom of the whole
+              screen (MenuPlanner.js, outside this scroll body) and opens
+              its own page (MenuPricing.js) instead of an inline stage
+              toggle here — see "change (done selection - add pricing &
+              quantity) to calculate pricing... clicking on calculate
+              pricing should open a separate page" (Anish, Sept 16). This
+              component only ever does selecting now. */}
 
           {MENU_CATEGORIES.map(cat => {
             const dishes = getDishesForCategory(cat.slug, { foodType, cuisines: cuisineFilters });
@@ -178,9 +175,7 @@ export default function MenuLibrary({ event, selections, providerNote, menuStage
                             sel={sel}
                             theme={theme}
                             s={s}
-                            pricingMode={menuStage !== 'selecting'}
                             onRemove={() => onRemoveDish(sel.id)}
-                            onUpdate={patch => onUpdateDetails(sel.id, patch)}
                           />
                         ))}
                       </View>
@@ -236,29 +231,10 @@ export default function MenuLibrary({ event, selections, providerNote, menuStage
   );
 }
 
-function PickedDishRow({ sel, theme, s, pricingMode, onRemove, onUpdate }) {
-  const [price, setPrice] = useState(sel.price != null ? String(sel.price) : '');
-  const [quantity, setQuantity] = useState(sel.quantity || '');
-  const [notes, setNotes] = useState(sel.notes || '');
-
-  // Selecting mode — a plain list entry, no price/quantity/notes fields at
-  // all (that's the whole point of the split: pick first, price later).
-  if (!pricingMode) {
-    return (
-      <View style={s.pickedRow}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
-            <VegDot status={dishVegStatusFromSelection(sel)} />
-            <Text style={s.pickedName}>{sel.is_custom ? '✎ ' : ''}{sel.dish_name}</Text>
-          </View>
-          <TouchableOpacity onPress={onRemove}>
-            <Text style={s.removeText}>Remove</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
+function PickedDishRow({ sel, theme, s, onRemove }) {
+  // Price/Quantity/Notes now live on the dedicated MenuPricing.js screen
+  // (reached from "Calculate pricing" at the bottom of MenuPlanner) — this
+  // component only ever shows the plain pick/remove list.
   return (
     <View style={s.pickedRow}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -270,33 +246,6 @@ function PickedDishRow({ sel, theme, s, pricingMode, onRemove, onUpdate }) {
           <Text style={s.removeText}>Remove</Text>
         </TouchableOpacity>
       </View>
-      <View style={s.pickedFieldsRow}>
-        <TextInput
-          style={[s.pickedInput, { flex: 1 }]}
-          placeholder="Price"
-          placeholderTextColor={theme.textTertiary}
-          value={price}
-          onChangeText={setPrice}
-          onBlur={() => onUpdate({ price: price.trim() ? Number(price) : null })}
-          keyboardType="numeric"
-        />
-        <TextInput
-          style={[s.pickedInput, { flex: 1 }]}
-          placeholder="Quantity"
-          placeholderTextColor={theme.textTertiary}
-          value={quantity}
-          onChangeText={setQuantity}
-          onBlur={() => onUpdate({ quantity: quantity.trim() || null })}
-        />
-      </View>
-      <TextInput
-        style={s.pickedNotesInput}
-        placeholder="Notes (spice level, dietary notes, etc.)"
-        placeholderTextColor={theme.textTertiary}
-        value={notes}
-        onChangeText={setNotes}
-        onBlur={() => onUpdate({ notes: notes.trim() || null })}
-      />
     </View>
   );
 }
@@ -332,12 +281,5 @@ function makeStyles(theme) {
     pickedRow: { backgroundColor: theme.cardBg, borderRadius: 12, borderWidth: 0.5, borderColor: theme.border, padding: 12, marginBottom: 8 },
     pickedName: { fontSize: 13.5, fontWeight: '700', color: theme.text, flexShrink: 1 },
     removeText: { fontSize: 12, fontWeight: '600', color: theme.danger || '#C0392B' },
-    pickedFieldsRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
-    pickedInput: { backgroundColor: theme.bg, borderRadius: 10, borderWidth: 0.5, borderColor: theme.border, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12.5, color: theme.text },
-    pickedNotesInput: { backgroundColor: theme.bg, borderRadius: 10, borderWidth: 0.5, borderColor: theme.border, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12.5, color: theme.text, marginTop: 8 },
-    stageCta: { backgroundColor: theme.btnPrimary, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 16 },
-    stageCtaText: { fontSize: 13.5, fontWeight: '700', color: theme.btnPrimaryText },
-    backLink: { marginTop: 16, alignSelf: 'flex-start' },
-    backLinkText: { fontSize: 12.5, fontWeight: '600', color: theme.accent || theme.text },
   });
 }

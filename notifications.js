@@ -529,3 +529,91 @@ export async function notifyAccountReactivated(userId) {
     await sendPushNotification(user.push_token, title, body);
   }
 }
+// Caterer quote requests — MenuPricing.js (customer) / CatererQuoteInbox.js
+// (provider). "share with a caterer or multiple caterers of host's choice
+// to get an estimate... book from whomever" (Anish, Sept 16). Four
+// transitions, same save-to-db + push pattern as every notify* above.
+
+export async function notifyQuoteRequested(providerId, hostName, eventType, quoteRequestId) {
+  const { data: provider } = await supabase
+    .from('providers')
+    .select('user_id')
+    .eq('id', providerId)
+    .single();
+
+  if (!provider) return;
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', provider.user_id)
+    .single();
+
+  const title = 'New quote request 🍽️';
+  const body = `${hostName} wants a price quote for their ${eventType} menu.`;
+
+  await saveNotificationToDb(provider.user_id, title, body, { type: 'quote_requested', quote_request_id: quoteRequestId });
+  if (user?.push_token) {
+    await sendPushNotification(user.push_token, title, body);
+  }
+}
+
+export async function notifyQuoteReceived(hostId, providerName, price, quoteRequestId) {
+  const { data: host } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', hostId)
+    .single();
+
+  const title = 'New quote received ₹';
+  const body = `${providerName} quoted ₹${Number(price).toLocaleString('en-IN')} for your menu.`;
+
+  await saveNotificationToDb(hostId, title, body, { type: 'quote_received', quote_request_id: quoteRequestId });
+  if (host?.push_token) {
+    await sendPushNotification(host.push_token, title, body);
+  }
+}
+
+export async function notifyQuoteDeclined(hostId, providerName, quoteRequestId) {
+  const { data: host } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', hostId)
+    .single();
+
+  const title = 'Quote update';
+  const body = `${providerName} isn't able to quote on your menu this time.`;
+
+  await saveNotificationToDb(hostId, title, body, { type: 'quote_declined', quote_request_id: quoteRequestId });
+  if (host?.push_token) {
+    await sendPushNotification(host.push_token, title, body);
+  }
+}
+
+// Sent to the winning caterer when the host taps Book on their quote.
+// (Losing caterers already know their own status from the inbox — no
+// separate "you weren't picked" push, to avoid piling on notifications for
+// something that isn't actionable for them.)
+export async function notifyQuoteBooked(providerId, eventType, quoteRequestId) {
+  const { data: provider } = await supabase
+    .from('providers')
+    .select('user_id')
+    .eq('id', providerId)
+    .single();
+
+  if (!provider) return;
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', provider.user_id)
+    .single();
+
+  const title = 'Quote accepted! 🎉';
+  const body = `Your quote was accepted for a ${eventType} — check your bookings.`;
+
+  await saveNotificationToDb(provider.user_id, title, body, { type: 'quote_booked', quote_request_id: quoteRequestId });
+  if (user?.push_token) {
+    await sendPushNotification(user.push_token, title, body);
+  }
+}

@@ -505,6 +505,10 @@ function OverviewScreen({ navigation }) {
             <Text style={s.quickLinkIcon}>💬</Text>
             <Text style={s.quickLinkText}>Messages</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={s.quickLink} onPress={() => navigation.navigate('CatererQuoteInbox')}>
+            <Text style={s.quickLinkIcon}>🍽️</Text>
+            <Text style={s.quickLinkText}>Quote Requests</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={s.quickLink} onPress={() => navigation.navigate('InvoiceGenerator')}>
             <Text style={s.quickLinkIcon}>🧾</Text>
             <Text style={s.quickLinkText}>New Invoice</Text>
