@@ -51,8 +51,26 @@ export default function EventDetailsScreen({ route, navigation }) {
 
   // Same optimistic-overlay pattern PlanView.js's saveField used — a save
   // highlights immediately instead of waiting for the round trip.
+  //
+  // Sept 18: split into two overlays after Anish reported chips (dry
+  // event / veg only, etc.) "get unselected on their own, and then they
+  // again take time to get selected". Root cause — pendingPatch used to
+  // get cleared only once useEventPlan's refresh() came back, and refresh()
+  // is a DOZEN-PLUS sequential queries (events, venue, invitees, functions,
+  // sub_events, bookings, services, providers, static rule tables — all
+  // needed by PlanView/EventScope's budget math, none of it read by this
+  // screen). Any slow beat or hiccup in that whole chain left rawEvent
+  // stale right when pendingPatch got cleared, so the just-tapped chip
+  // visibly reverted until the next successful reload landed. confirmedPatch
+  // now takes over the instant this screen's own single-row write (below)
+  // succeeds — never waiting on that unrelated chain — so a tap settles
+  // immediately and only ever moves forward, never back.
   const [pendingPatch, setPendingPatch] = useState({});
-  const event = useMemo(() => (rawEvent ? { ...rawEvent, ...pendingPatch } : rawEvent), [rawEvent, pendingPatch]);
+  const [confirmedPatch, setConfirmedPatch] = useState({});
+  const event = useMemo(
+    () => (rawEvent ? { ...rawEvent, ...confirmedPatch, ...pendingPatch } : rawEvent),
+    [rawEvent, confirmedPatch, pendingPatch]
+  );
   const [saving, setSaving] = useState(false);
 
   // Same two small lookups PlanView.js/EventScope.js each already make for
@@ -93,7 +111,17 @@ export default function EventDetailsScreen({ route, navigation }) {
         await supabase.from('saved_plans').update(planMirror).eq('event_id', eventId);
       }
 
-      await refresh();
+      // Confirmed off this screen's own write above (already known to have
+      // succeeded) instead of waiting on useEventPlan's full plan reload —
+      // see the confirmedPatch comment above for why.
+      setConfirmedPatch(prev => ({ ...prev, ...patch }));
+
+      // Fired, not awaited: venue/estimate-affecting fields (guest_count,
+      // budget_total, theme, location) still need useEventPlan's fuller
+      // event/venue resync for when the host moves on to EventScope/
+      // PlanView next, but this screen's own chips/fields no longer wait on
+      // it to settle.
+      refresh().catch(() => {});
 
       if (oldEvent?.invites_sent_at) {
         const changedSummary = detectGuestFacingChange(oldEvent, patch);
@@ -165,7 +193,7 @@ export default function EventDetailsScreen({ route, navigation }) {
         style={s.continueBtn}
         onPress={() => navigation.replace('EventScope', { eventId })}
       >
-        <Text style={s.continueBtnText}>Continue to Plan the event →</Text>
+        <Text style={s.continueBtnText}>Save the details</Text>
       </TouchableOpacity>
       <View style={{ height: 60 }} />
     </>
@@ -207,7 +235,7 @@ export default function EventDetailsScreen({ route, navigation }) {
         eventId={event.id}
       />
       <EventTabStrip active="details" eventId={eventId} navigation={navigation} theme={theme} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
         {body}
       </ScrollView>
       {guestNotifyModal}

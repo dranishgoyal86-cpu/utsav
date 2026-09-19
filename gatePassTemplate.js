@@ -44,47 +44,15 @@ function passCardHtml({ guestName, partySize, venueLabel, venueAddress, dateLabe
   `;
 }
 
-// "when putting gate pass / qr code on the invite image. it can be put on
-// the back of the image which can be seen if image is clicked showing
-// back... or if back side not possible then second page for qr code but
-// never on the same invite side" (Anish, Sept 16) — the invite picture the
-// host already captures (ViewShot) becomes page 1 as-is, unchanged; this
-// guest's gate-pass card (same passCardHtml() markup buildPassCardHtml()
-// already uses) becomes page 2, with a page-break between them so nothing
-// ever overlaps the invite design itself. One Print.printToFileAsync call
-// still produces one PDF, same mechanism sendAllPasses()/sendPassToGuest()
-// already rely on for multi-page passes.
-export function buildInviteWithPassHtml({ inviteImageDataUrl, pass }) {
-  return `
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <style>
-          body { font-family: -apple-system, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }
-          .invite-page { page-break-after: always; text-align: center; padding: 20px 0; }
-          .invite-page img { max-width: 100%; max-height: 90vh; border-radius: 18px; }
-          .card {
-            max-width: 380px; margin: 40px auto; padding: 30px 24px;
-            border: 1.5px solid #D4AF37; border-radius: 18px; text-align: center;
-          }
-          .card-guest { font-size: 26px; font-weight: 800; color: #1A1225; line-height: 1.2; }
-          .card-party { font-size: 14px; font-weight: 600; color: #555; margin-top: 4px; }
-          .card-where { font-size: 18px; font-weight: 700; color: #1A1225; margin-top: 14px; }
-          .card-where-sub { font-size: 13px; color: #666; margin-top: 2px; }
-          .card-when { font-size: 14px; color: #555; margin-top: 10px; }
-          .card-code { font-size: 22px; font-weight: 800; letter-spacing: 4px; color: #1A1225; margin-top: 16px; font-family: 'Courier New', monospace; }
-          .card-qr { margin: 18px auto 0; width: 160px; height: 160px; }
-          .card-qr svg { width: 160px; height: 160px; }
-          .card-footer { font-size: 10px; color: #999; margin-top: 16px; letter-spacing: 0.3px; }
-        </style>
-      </head>
-      <body>
-        <div class="invite-page"><img src="${inviteImageDataUrl}" /></div>
-        ${passCardHtml(pass)}
-      </body>
-    </html>
-  `;
-}
+// buildInviteWithPassHtml (combined invite+pass 2-page PDF) lived here
+// briefly (Sept 16-17) — removed (Sept 17) because WhatsApp doesn't show a
+// caption on a document share, only on an image, so sending it as a PDF
+// silently dropped the whole invite message (RSVP link included). The
+// gate-pass link now travels as plain text in the WhatsApp caption instead
+// (see sendWhatsappTo in screens/customer/GuestList.js) — nothing here
+// needs to build a combined file anymore. passCardHtml() below (used by
+// buildPassCardHtml/buildGatePassHtml) is still exactly how a pass looks
+// on its own, unrelated to this.
 
 export function buildPassCardHtml(passes) {
   const list = Array.isArray(passes) ? passes : [passes];

@@ -7,6 +7,7 @@ import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { showAlert, confirmDestructive, deleteEventCascade } from '../../helpers';
+import { notifyGuestsOfEventDeletion } from '../../lib/eventGuestNotifications';
 import { X } from 'phosphor-react-native';
 import SwipeableRow from '../../components/SwipeableRow';
 import SparkleIcon from '../../components/SparkleIcon';
@@ -150,6 +151,11 @@ export default function PlanScreen({ navigation, route }) {
   // about); a never-linked plan just deletes straight away, same as before.
   const [deleteChoiceModal, setDeleteChoiceModal] = useState(null);
   const [deletingPlan, setDeletingPlan] = useState(false);
+  // Invited-guest count for the plan currently in deleteChoiceModal — looked
+  // up fresh each time the modal opens (Anish, Sept 18) so "Delete
+  // everything" can warn the host it will notify guests, same as the
+  // existing "Cancel this event" flow already does inside planning.
+  const [deleteInviteeCount, setDeleteInviteeCount] = useState(0);
 
   // Capability fields (venue_type/event_type_slug/guest_count/...) live on
   // the linked events row, not on saved_plans itself — fetched as a second,
@@ -347,7 +353,16 @@ export default function PlanScreen({ navigation, route }) {
       );
       return;
     }
+    setDeleteInviteeCount(0);
     setDeleteChoiceModal(plan);
+    // Best-effort, non-blocking — the modal opens immediately either way;
+    // the warning line just fills in a moment later once the count lands.
+    supabase.from('event_invitees')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_id', plan.event_id)
+      .is('anonymized_at', null)
+      .then(({ count }) => setDeleteInviteeCount(count || 0))
+      .catch(() => {});
   }
 
   async function deleteEverything() {
@@ -355,6 +370,18 @@ export default function PlanScreen({ navigation, route }) {
     if (!plan) return;
     setDeletingPlan(true);
     try {
+      // Notify BEFORE deleting — fanOutToGuests reads event_invitees off
+      // the events row, both of which deleteEventCascade is about to
+      // remove. Best-effort: a notify failure (e.g. no guests, a flaky
+      // push send) must never block the host's actual delete.
+      const { data: fullEvent } = await supabase.from('events').select('*').eq('id', plan.event_id).maybeSingle();
+      if (fullEvent) {
+        try {
+          await notifyGuestsOfEventDeletion(fullEvent);
+        } catch (err) {
+          console.log('notifyGuestsOfEventDeletion error (non-fatal):', err.message);
+        }
+      }
       await deleteEventCascade(plan.event_id);
       await deletePlanRow(plan);
       setDeleteChoiceModal(null);
@@ -568,6 +595,11 @@ export default function PlanScreen({ navigation, route }) {
               <Text style={s.deleteModalHint}>
                 "{deleteChoiceModal?.title}" has a guest list, invites, and checklist linked to it under the same name. Delete all of it together, or just remove this plan and leave the rest as-is. Its photo album is never touched either way.
               </Text>
+              {deleteInviteeCount > 0 && (
+                <Text style={s.deleteModalWarning}>
+                  ⚠️ {deleteInviteeCount} guest{deleteInviteeCount === 1 ? '' : 's'} invited — deleting will notify {deleteInviteeCount === 1 ? 'them' : 'them all'} that the event is cancelled.
+                </Text>
+              )}
               <TouchableOpacity style={[s.deleteModalBtn, { backgroundColor: '#F44336' }]} onPress={deleteEverything} disabled={deletingPlan}>
                 {deletingPlan ? <ActivityIndicator color="#FFF" /> : <Text style={s.deleteModalBtnText}>Delete everything</Text>}
               </TouchableOpacity>
@@ -763,6 +795,11 @@ export default function PlanScreen({ navigation, route }) {
             <Text style={s.deleteModalHint}>
               "{deleteChoiceModal?.title}" has a guest list, invites, and checklist linked to it under the same name. Delete all of it together, or just remove this plan and leave the rest as-is. Its photo album is never touched either way.
             </Text>
+            {deleteInviteeCount > 0 && (
+              <Text style={s.deleteModalWarning}>
+                ⚠️ {deleteInviteeCount} guest{deleteInviteeCount === 1 ? '' : 's'} invited — deleting will notify {deleteInviteeCount === 1 ? 'them' : 'them all'} that the event is cancelled.
+              </Text>
+            )}
             <TouchableOpacity
               style={[s.deleteModalBtn, { backgroundColor: '#F44336' }]}
               onPress={deleteEverything}
@@ -872,6 +909,7 @@ function makeStyles(theme) {
     deleteModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     deleteModalTitle: { fontSize: 18, fontWeight: '700', color: theme.text },
     deleteModalHint: { fontSize: 13, color: theme.textSecondary, lineHeight: 19 },
+    deleteModalWarning: { fontSize: 12.5, color: '#F44336', fontWeight: '600', lineHeight: 18, marginTop: 10 },
     deleteModalBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
     deleteModalBtnText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   });

@@ -1,16 +1,19 @@
 import { useState, useRef } from 'react';
 import { View, TextInput, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useTheme } from '../ThemeContext';
+import { callEdgeFunction } from '../helpers';
 
 // Type-and-pick address search, the same interaction pattern as Uber's pickup
-// field — but backed by OpenStreetMap's free Nominatim search rather than
-// Google Places Autocomplete, which needs billing enabled on the project's
-// Google Cloud account (confirmed blocked — same wall hit by the OSM seeder
-// work earlier this session) and isn't available right now. Nominatim has a
-// strict 1 request/second usage policy for its public instance, so input is
-// debounced and a descriptive User-Agent is sent, mirroring the Overpass
-// fix from the seeder. Coverage is weaker than Google for exact business
-// names, but the search-as-you-type + select flow is the same.
+// field. Two sources are queried side by side and merged into one dropdown:
+// OpenStreetMap's free Nominatim search (no key, no billing, been live since
+// this was first built) and Google's Geocoding API via the "geocode-search"
+// edge function (added later once Places/Geocoding billing was enabled —
+// routed server-side so the Google API key never ships in the app). Kept
+// side by side deliberately, tagged by source, so real usage shows which one
+// actually finds Indian addresses better before either is dropped. Nominatim
+// has a strict 1 request/second usage policy for its public instance, so
+// input is debounced and a descriptive User-Agent is sent, mirroring the
+// Overpass fix from the seeder work.
 export default function LocationAutocomplete({ value, onChangeText, onSelect, onBlur, placeholder, style }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
@@ -31,20 +34,54 @@ export default function LocationAutocomplete({ value, onChangeText, onSelect, on
     debounceRef.current = setTimeout(() => search(text), 500);
   }
 
+  async function searchNominatim(text) {
+    const params = new URLSearchParams({
+      q: text, format: 'json', countrycodes: 'in', limit: '5', addressdetails: '0',
+    });
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+      headers: { 'User-Agent': 'UtsavApp/1.0 (contact: dranishgoyal86@gmail.com)' },
+    });
+    const data = await res.json();
+    return (Array.isArray(data) ? data : []).map((item) => ({
+      address: item.display_name,
+      lat: parseFloat(item.lat),
+      lng: parseFloat(item.lon),
+      source: 'OSM',
+      key: `osm-${item.place_id}`,
+    }));
+  }
+
+  async function searchGoogle(text) {
+    const { results } = await callEdgeFunction('geocode-search', { query: text });
+    return (Array.isArray(results) ? results : []).map((item, i) => ({
+      address: item.address,
+      lat: item.lat,
+      lng: item.lng,
+      source: 'Google',
+      key: `google-${i}-${item.address}`,
+    }));
+  }
+
   async function search(text) {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        q: text, format: 'json', countrycodes: 'in', limit: '5', addressdetails: '0',
-      });
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
-        headers: { 'User-Agent': 'UtsavApp/1.0 (contact: dranishgoyal86@gmail.com)' },
-      });
-      const data = await res.json();
-      setSuggestions(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.log('LocationAutocomplete search error:', err.message);
-      setSuggestions([]);
+      // allSettled — if one source is slow/down (e.g. the Google secret
+      // isn't set yet, or Nominatim is rate-limiting), the other still
+      // shows results instead of the whole search coming up empty.
+      const [googleResult, osmResult] = await Promise.allSettled([
+        searchGoogle(text),
+        searchNominatim(text),
+      ]);
+      const google = googleResult.status === 'fulfilled' ? googleResult.value : [];
+      const osm = osmResult.status === 'fulfilled' ? osmResult.value : [];
+      if (googleResult.status === 'rejected') {
+        console.log('LocationAutocomplete Google search error:', googleResult.reason?.message);
+      }
+      if (osmResult.status === 'rejected') {
+        console.log('LocationAutocomplete OSM search error:', osmResult.reason?.message);
+      }
+      // Google first — generally stronger on exact business/building names.
+      setSuggestions([...google, ...osm].filter((r) => r.lat != null && r.lng != null && !isNaN(r.lat) && !isNaN(r.lng)));
     } finally {
       setLoading(false);
     }
@@ -53,9 +90,7 @@ export default function LocationAutocomplete({ value, onChangeText, onSelect, on
   function pick(item) {
     setSuggestions([]);
     setShowDropdown(false);
-    // Nominatim returns lat/lon as strings — parsed here so every onSelect
-    // consumer gets real numbers, not text that happens to look numeric.
-    onSelect(item.display_name, { lat: parseFloat(item.lat), lng: parseFloat(item.lon) });
+    onSelect(item.address, { lat: item.lat, lng: item.lng });
   }
 
   return (
@@ -82,12 +117,13 @@ export default function LocationAutocomplete({ value, onChangeText, onSelect, on
         <View style={s.dropdown}>
           {suggestions.map((item, i) => (
             <TouchableOpacity
-              key={`${item.place_id || i}`}
+              key={item.key || i}
               style={[s.suggestionRow, i === suggestions.length - 1 && { borderBottomWidth: 0 }]}
               onPress={() => pick(item)}
             >
               <Text style={s.suggestionIcon}>📍</Text>
-              <Text style={s.suggestionText} numberOfLines={2}>{item.display_name}</Text>
+              <Text style={s.suggestionText} numberOfLines={2}>{item.address}</Text>
+              <Text style={s.sourceTag}>{item.source}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -114,5 +150,6 @@ function makeStyles(theme) {
     },
     suggestionIcon: { fontSize: 13, marginTop: 1 },
     suggestionText: { flex: 1, fontSize: 13, color: theme.text, lineHeight: 18 },
+    sourceTag: { fontSize: 10, fontWeight: '700', color: theme.textSecondary, marginTop: 2 },
   });
 }

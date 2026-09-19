@@ -110,6 +110,32 @@ export default function GuestAccess({ navigation }) {
     }
   }, [event?.event_date, myPass]);
 
+  // Sept 18: "it gets auto off once we exit screen" (Anish) — geofenceEnabled
+  // was local-only Switch state (see the state declaration's own comment
+  // above), which reset to its default false on every fresh mount of this
+  // screen, INCLUDING the completely ordinary case of leaving Guest Access
+  // and reopening it later. The real OS-level background task
+  // (start/stopGeofencingAsync) is independent of this screen's own
+  // lifecycle and keeps running fine underneath the whole time — the
+  // Switch just never re-checked reality, so it *looked* like auto
+  // check-in had silently turned itself off even when it hadn't.
+  // hasStartedGeofencingAsync asks the OS directly, so this re-syncs the
+  // Switch to the true state every time myPass (re)loads, instead of
+  // assuming "haven't toggled this yet in this component instance" means
+  // "off".
+  useEffect(() => {
+    if (Platform.OS === 'web' || !myPass?.passCode) return;
+    Location.hasStartedGeofencingAsync(GEOFENCE_TASK)
+      .then(setGeofenceEnabled)
+      // Sept 19: was a silent no-op catch — if this check itself ever
+      // throws (rather than genuinely returning false), geofenceEnabled
+      // was left at its default false with zero trace of why, which is
+      // indistinguishable from "really not registered" in the field. Logged
+      // now so a report of "it still shows off" can actually be diagnosed
+      // instead of guessed at blind.
+      .catch(err => console.log('hasStartedGeofencingAsync error:', err.message));
+  }, [myPass?.passCode]);
+
   async function handleToggleGeofence(enabled) {
     if (!enabled) {
       setGeofenceBusy(true);

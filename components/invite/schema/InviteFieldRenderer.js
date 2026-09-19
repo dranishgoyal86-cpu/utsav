@@ -19,7 +19,17 @@ import RepeatableSectionEditor from './RepeatableSectionEditor';
 // plumbing, not renderer plumbing) — this component only reflects
 // photoUploading/value state, same division of responsibility
 // ToranInvites.js's own pickCouplePhoto() already had before this wave.
-export default function InviteFieldRenderer({ theme, field, value, onChange, onPickPhoto, photoUploading }) {
+//
+// `suggestions` (Kids Birthday Theme-Aware Invite Designer, Sept 17) —
+// optional string[]; when a caller passes it, a row of tappable chips
+// renders above the input, and tapping one fills the field with that
+// exact text (still freely editable after). Purely additive: every
+// existing caller across every other event type/field never passes this
+// prop, so `suggestions` is undefined there and this component renders
+// character-for-character as it did before — no visual or behavior
+// change for anything that doesn't opt in. Only TEXT/TEXTAREA fields use
+// it (dressCode/customMessage on kids-birthday, wired in ToranInvites.js).
+export default function InviteFieldRenderer({ theme, field, value, onChange, onPickPhoto, photoUploading, suggestions }) {
   const s = makeStyles(theme);
   // invite-architecture wave, Part 3 — many of the ~110 new fields.js
   // labels already bake in their own "(optional)" (e.g. "Dress code
@@ -93,6 +103,15 @@ export default function InviteFieldRenderer({ theme, field, value, onChange, onP
   return (
     <View style={s.fieldWrap}>
       <Text style={s.label}>{label}</Text>
+      {suggestions && suggestions.length > 0 ? (
+        <View style={s.suggestionRow}>
+          {suggestions.map((text, i) => (
+            <TouchableOpacity key={i} style={s.suggestionChip} onPress={() => onChange(text)}>
+              <Text style={s.suggestionChipText} numberOfLines={1}>{text}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
       <TextInput
         style={field.kind === FIELD_KIND.TEXTAREA ? [s.input, s.textarea] : s.input}
         value={value || ''}
@@ -124,5 +143,11 @@ function makeStyles(theme) {
     photoPreview: { width: 96, height: 96, borderRadius: 48 },
     photoPickerText: { fontSize: 10, color: theme.textSecondary, marginTop: 4 },
     photoReplaceText: { fontSize: 12, fontWeight: '600', color: theme.accent, textAlign: 'center', marginTop: 8 },
+    suggestionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
+    suggestionChip: {
+      backgroundColor: theme.inputBg, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6,
+      borderWidth: 1, borderColor: theme.border, maxWidth: 220,
+    },
+    suggestionChipText: { fontSize: 11, fontWeight: '600', color: theme.textSecondary },
   });
 }

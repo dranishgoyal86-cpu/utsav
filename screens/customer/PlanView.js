@@ -677,7 +677,7 @@ export default function PlanView({ route, navigation }) {
         ]}
       />
       <EventTabStrip active="execute" eventId={eventId} navigation={navigation} theme={theme} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
         {body}
       </ScrollView>
       {renameModalEl}

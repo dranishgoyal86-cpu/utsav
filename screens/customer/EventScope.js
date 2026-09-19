@@ -176,7 +176,14 @@ export default function EventScope({ route, navigation }) {
         .eq('id', eventId);
       if (error) throw error;
       await refresh();
-      setJustSaved(true);
+      // Sept 18: "when we click save planning, it should automatically
+      // move to execute and book" (Anish) — reverses the Sept 16 change
+      // that made this stop and wait for a second tap on a "Saved!"
+      // banner. navigation.replace (not .navigate), same lateral-move
+      // convention EventTabStrip/EventDetailsScreen's own tab-forward taps
+      // use, so the back button still behaves the same regardless of how
+      // this screen was reached.
+      navigation.replace('PlanView', { eventId });
     } catch (err) {
       showAlert('Error', err.message);
     } finally {

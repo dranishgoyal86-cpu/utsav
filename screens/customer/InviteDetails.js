@@ -12,6 +12,12 @@ import AppHeader from '../../components/AppHeader';
 import InviteCardPreview from '../../components/InviteCardPreview';
 import { resolveInviteDesignColors } from './GuestList';
 import { PUBLIC_WEB_URL } from '../../config';
+import { supabase } from '../../supabase';
+import ProductionInviteCard from '../../components/invite/ProductionInviteCard';
+import { DEFAULT_DESIGN } from '../../lib/inviteThemes';
+import { getInviteSchema } from '../../lib/inviteSchemas';
+import { normalizeInviteContent } from '../../lib/inviteContentAdapter';
+import { withKidsBirthdayPlannerDefaults } from '../../lib/kidsBirthdayInviteDefaults';
 
 function googleMapsUrl(address) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
@@ -28,6 +34,19 @@ const RSVP_LABELS = { yes: "You're going", no: "You declined", maybe: "You said 
 // invitation details... rather than just showing the RSVP screen again.
 // Also, it should show the check-in feature." — the guest's own "view my
 // invite" screen, reached by tapping a row in MyInvites.js (or, in future,
+// anywhere else an already-linked invite is shown). Sept 18: the image
+// itself only ever rendered for the OLDER inviteDesign/pages system
+// (event.inviteDesign, resolved server-side by submit-rsvp) — any event
+// using the current production designer (ToranInvites.js's
+// ProductionInviteCard/event_invite_content) fell straight through to a
+// plain emoji+name placeholder, since this screen had no code path for
+// that system at all. productionTemplateId/productionValues below close
+// that gap — same event_invite_content columns, same
+// normalizeInviteContent + withKidsBirthdayPlannerDefaults pipeline
+// ToranInvites.js's own render uses, so a guest sees the exact card the
+// host designed. The older inviteDesign branch is untouched and still
+// renders for any event that predates the production designer.
+// Continuing on, the guest's own "view my
 // anywhere else an already-linked invite is shown). Uses the exact same
 // route params as RSVPScreen.js (inviteCode + guestId) and the same
 // submit-rsvp get_event call, just to view rather than to fill in a form —
@@ -49,6 +68,24 @@ export default function InviteDetails({ route, navigation }) {
   const [geofenceEnabled, setGeofenceEnabled] = useState(false);
   const [geofenceBusy, setGeofenceBusy] = useState(false);
 
+  // "he should see the invitation image with all details" (Anish, Sept 18)
+  // — the real designed invite, not just this screen's plain fallback
+  // card. Mirrors ToranInvites.js's own load()/render exactly (same
+  // event_invite_content columns, same event_extra_activities featured
+  // query, same normalizeInviteContent + withKidsBirthdayPlannerDefaults
+  // pipeline that turns a saved row into ProductionInviteCard's `values`
+  // prop) so a guest sees byte-for-byte the same card the host designed —
+  // read-only here, no save path, no hostNamePref (that's a host-profile
+  // prefill for an UNSAVED invite being edited; irrelevant once a guest is
+  // viewing it, and contentRow.hosted_by is already the saved value either
+  // way). contentRow stays null (never set to a synthetic prefill object,
+  // unlike ToranInvites.js's own load()) when nothing was ever saved —
+  // that's the signal below to fall back to the older inviteDesign/plain
+  // card branches instead of rendering a production card with nothing in
+  // it.
+  const [inviteContentRow, setInviteContentRow] = useState(null);
+  const [featuredActivities, setFeaturedActivities] = useState([]);
+
   useEffect(() => { load(); }, [inviteCode, guestId]);
 
   async function load() {
@@ -65,6 +102,31 @@ export default function InviteDetails({ route, navigation }) {
       setLoading(false);
     }
   }
+
+  // Loads the real designed invite content once the event resolves —
+  // separate from load() above since it depends on event.id, which only
+  // exists after that call returns. Both queries are read-only and public-
+  // enough for any guest with a valid invite link (same content the
+  // host's own share message already points everyone to).
+  useEffect(() => {
+    if (!event?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data: row } = await supabase
+        .from('event_invite_content')
+        .select('template_id, partner_1_name, partner_2_name, hosted_by, couple_photo_url, couple_quote, subject_name_line1, subject_name_line2, subject_years, detail_line1, detail_line2, kicker_text, headline_text, schema_content')
+        .eq('event_id', event.id)
+        .maybeSingle();
+      if (cancelled) return;
+      setInviteContentRow(row || null);
+
+      const { data: featuredRows } = await supabase
+        .from('event_extra_activities').select('item_name').eq('event_id', event.id).eq('is_featured_on_invite', true);
+      if (cancelled) return;
+      setFeaturedActivities((featuredRows || []).map(r => r.item_name));
+    })();
+    return () => { cancelled = true; };
+  }, [event?.id]);
 
   // Check-in — same get_my_pass call GuestAccess.js already uses, just
   // keyed off the event we already resolved above instead of asking the
@@ -174,6 +236,20 @@ export default function InviteDetails({ route, navigation }) {
     ? resolveInviteDesignColors(event.inviteDesign.template_id, event.inviteDesign.variant)
     : null;
 
+  // Same pipeline ToranInvites.js's own render uses (see that screen's
+  // header comment on `values` for why this must go through the schema,
+  // never a flat field list). inviteContentRow is only ever null when
+  // nothing was saved through the production designer at all — in that
+  // case productionTemplateId stays null and the branch below falls
+  // through to the older inviteDesign/plain-fallback cards, same as
+  // before this change for every event that predates the production
+  // designer.
+  const inviteSchema = getInviteSchema(event.event_type_slug);
+  const productionTemplateId = inviteContentRow?.template_id || (inviteContentRow ? DEFAULT_DESIGN : null);
+  const productionValues = inviteContentRow
+    ? withKidsBirthdayPlannerDefaults(normalizeInviteContent(inviteSchema, inviteContentRow), event, { featuredActivities, hostNamePref: null })
+    : null;
+
   return (
     <SafeAreaView style={s.container}>
       <AppHeader theme={theme} navigation={navigation} onBack={() => navigation.goBack()} title={event.name || 'Invite'} />
@@ -186,7 +262,17 @@ export default function InviteDetails({ route, navigation }) {
           </View>
         ) : null}
 
-        {designPage && designColors ? (
+        {productionTemplateId ? (
+          <View style={s.productionCardWrap}>
+            <ProductionInviteCard
+              templateId={productionTemplateId}
+              eventTypeSlug={event.event_type_slug}
+              values={productionValues}
+              event={event}
+              featuredActivities={featuredActivities}
+            />
+          </View>
+        ) : designPage && designColors ? (
           <InviteCardPreview page={designPage} colors={designColors} />
         ) : (
           <View style={s.fallbackCard}>
@@ -275,6 +361,7 @@ function makeStyles(theme) {
     },
     cancelledBannerText: { fontSize: 13, fontWeight: '700', color: theme.statusDeclinedText, textAlign: 'center' },
 
+    productionCardWrap: { alignItems: 'center', marginBottom: 16 },
     fallbackCard: {
       backgroundColor: theme.cardBg, borderRadius: 20, borderWidth: 0.5, borderColor: theme.border,
       paddingVertical: 40, alignItems: 'center', marginBottom: 16,

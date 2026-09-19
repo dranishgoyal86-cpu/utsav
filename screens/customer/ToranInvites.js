@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList, Platform, useWindowDimensions, Image } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PaperPlaneTilt } from 'phosphor-react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -19,11 +19,20 @@ import { buildLegacyPersonalInviteUrl } from '../../lib/inviteBrandingPolicy';
 import {
   DESIGN_LABELS, CELEBRATORY_DESIGNS, SOLEMN_DESIGNS, DESIGN_SUGGESTIONS,
   parseProductionDesign, buildArchetypeTemplateId, getProductionDesignOptions,
+  buildImageTemplateId,
 } from '../../lib/inviteProductionDesign';
 import { getArchetype, getVariant } from '../../lib/inviteDesignArchetypes';
 import { getCatalogueEntry } from '../../lib/inviteDesignArchetypes/catalogue';
 import { getKidsBirthdayInviteOptions } from '../../lib/kidsBirthdayThemes';
 import { withKidsBirthdayPlannerDefaults } from '../../lib/kidsBirthdayInviteDefaults';
+// Kids Birthday Image Template pilot (Sept 17) — real illustrated
+// per-theme invite art (currently 3 themes; see that registry's own
+// header). getKidsBirthdayImageIdeas() returns [] for every theme
+// without art yet, so every branch below that reads it is a no-op for
+// the other 15 kids-birthday themes and every non-kids-birthday event.
+import { getKidsBirthdayImageIdeas } from '../../lib/kidsBirthdayImageIdeas';
+import { getKidsBirthdayInviteCopy } from '../../lib/kidsBirthdayInviteCopy';
+import { KIDS_BIRTHDAY_FAMILY_MESSAGES } from '../../lib/kidsBirthdayFamilyMessages';
 import DesktopEventShell from '../../components/desktop/DesktopEventShell';
 import InviteDesignerDesktop from '../../components/desktop/InviteDesignerDesktop';
 
@@ -124,6 +133,14 @@ export default function ToranInvites({ route, navigation }) {
   // below so its kids-birthday "What to expect" line stays real, curated
   // data rather than every checklist item the host happened to book.
   const [featuredActivities, setFeaturedActivities] = useState([]);
+  // Kids Birthday Theme-Aware Invite Designer — the host's own saved name
+  // (users.invite_preferences.hostName), fetched once in load() regardless
+  // of whether a saved invite row already exists, so
+  // withKidsBirthdayPlannerDefaults() can prefill "hosted by" from it
+  // ("if shared before" — Anish, Sept 17). Only ever read for a
+  // kids-birthday event (see that function's own event_type_slug guard);
+  // harmless, unused state for every other event type.
+  const [hostNamePref, setHostNamePref] = useState(null);
   const cardRef = useRef(null);
 
   const schema = getInviteSchema(event?.event_type_slug);
@@ -157,11 +174,11 @@ export default function ToranInvites({ route, navigation }) {
   // deps because it loads asynchronously after contentRow (see load()).
   useEffect(() => {
     let next = normalizeInviteContent(schema, contentRow);
-    next = withKidsBirthdayPlannerDefaults(next, event, { featuredActivities });
+    next = withKidsBirthdayPlannerDefaults(next, event, { featuredActivities, hostNamePref });
     setValues(next);
     setSavedSchemaContent((contentRow && contentRow.schema_content) || {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, contentRow, event?.event_type_slug, event?.theme_slug, event?.theme_palette, event?.birthday_person_name, event?.birthday_person_dob, event?.event_date, featuredActivities]);
+  }, [schema, contentRow, event?.event_type_slug, event?.theme_slug, event?.theme_palette, event?.birthday_person_name, event?.birthday_person_dob, event?.event_date, featuredActivities, hostNamePref]);
 
   // Wave 6 (Stillness) — Task 1's gating decision (Option A, restricted):
   // an event already marked non-celebratory only ever gets Stillness
@@ -181,6 +198,23 @@ export default function ToranInvites({ route, navigation }) {
   const densitySignals = { functionCount, hasTravelInfo, hasAccommodationInfo };
   const designOptions = getProductionDesignOptions({ eventTypeSlug: event?.event_type_slug, schema, values, densitySignals, isNonFestive: !celebratory });
   const parsedDesign = parseProductionDesign(design);
+  // Kids Birthday Image Template pilot — [] for every event that isn't a
+  // kids-birthday with a themed-art theme (which is most events, today).
+  const kbImageIdeas = event?.event_type_slug === 'kids-birthday' && event.theme_slug
+    ? getKidsBirthdayImageIdeas(event.theme_slug)
+    : [];
+  // Anish, Sept 17: "dress code- give ideas here as per birthday theme-
+  // host can select one" / "a message from the family- keep 10 messages
+  // in the library- host can change them." Tappable suggestion chips
+  // (InviteFieldRenderer.js's `suggestions` prop) — undefined for every
+  // non-kids-birthday event, so every other schema's form renders exactly
+  // as it always has.
+  const kbSuggestionsByFieldKey = event?.event_type_slug === 'kids-birthday'
+    ? {
+        dressCode: getKidsBirthdayInviteCopy(event.theme_slug).dressCodeIdeas,
+        customMessage: KIDS_BIRTHDAY_FAMILY_MESSAGES,
+      }
+    : undefined;
 
   // A design (legacy OR archetype) is still offerable for this event
   // exactly when it appears somewhere in the currently-computed
@@ -190,6 +224,14 @@ export default function ToranInvites({ route, navigation }) {
     const parsed = parseProductionDesign(templateId);
     if (parsed.kind === 'legacy') return allowedDesigns.includes(parsed.legacyDesignId);
     if (parsed.kind === 'archetype') return designOptions.recommended.includes(parsed.archetypeId) || designOptions.moreStyles.includes(parsed.archetypeId);
+    // Kids Birthday Image Template pilot — a saved image:<themeSlug>:
+    // <ideaId> selection stays valid as long as that exact idea still
+    // exists in the registry AND still matches this event's current
+    // theme (a host who changes the Plan-screen theme after picking an
+    // image idea should fall back to the picker for the new theme, same
+    // "corrects a no-longer-valid design" behavior every other kind
+    // already gets here).
+    if (parsed.kind === 'image') return parsed.themeSlug === event?.theme_slug && getKidsBirthdayImageIdeas(parsed.themeSlug).some((idea) => idea.id === parsed.ideaId);
     return false;
   }
 
@@ -222,6 +264,17 @@ export default function ToranInvites({ route, navigation }) {
     // below: only fires for a brand-new invite with nothing chosen or
     // saved yet, never overrides an explicit or saved design.
     if (event.event_type_slug === 'kids-birthday' && event.theme_slug) {
+      // Kids Birthday Image Template pilot — when this theme has real
+      // illustrated art, that's the real suggestion (Anish, Sept 17: "he
+      // should see only 5 editable invite ideas... as per the theme he
+      // has chosen"), not the generic archetype card. Themes without art
+      // yet (15 of 18, for now) fall through to the archetype suggestion
+      // exactly as before — completely unaffected.
+      const imageIdeas = getKidsBirthdayImageIdeas(event.theme_slug);
+      if (imageIdeas.length > 0) {
+        setDesign(buildImageTemplateId(event.theme_slug, imageIdeas[0].id));
+        return;
+      }
       const kbOptions = getKidsBirthdayInviteOptions(event.theme_slug, event.theme_palette);
       setDesign(buildArchetypeTemplateId(kbOptions.archetypeId, kbOptions.variantId));
       return;
@@ -259,6 +312,21 @@ export default function ToranInvites({ route, navigation }) {
           .from('users').select('invite_preferences').eq('id', user.id).maybeSingle();
         const hostName = userRow?.invite_preferences?.hostName;
         if (hostName) setContentRow({ partner_1_name: hostName });
+      }
+
+      // Kids Birthday Theme-Aware Invite Designer — the SAME host-name
+      // source read just above, but fetched unconditionally (not only when
+      // there's no saved row yet), because kids-birthday's own "hosted by"
+      // default (withKidsBirthdayPlannerDefaults, via hostNamePref below)
+      // must still be available to fill an EMPTY hosted_by on an otherwise-
+      // already-saved invite — a host who saved content before adding a
+      // saved name to their profile shouldn't have to re-open this screen a
+      // second time to pick it up. Harmless extra query for every other
+      // event type (state is simply never read there).
+      if (user && !row?.hosted_by) {
+        const { data: userRow2 } = await supabase
+          .from('users').select('invite_preferences').eq('id', user.id).maybeSingle();
+        setHostNamePref(userRow2?.invite_preferences?.hostName || null);
       }
 
       const { data: guestRows, error: guestErr } = await supabase
@@ -478,6 +546,37 @@ export default function ToranInvites({ route, navigation }) {
         contentContainerStyle={s.list}
         ListHeaderComponent={
           <>
+            {/* Kids Birthday Image Template pilot (Sept 17) — for a theme
+                with real illustrated art, this REPLACES the legacy +
+                archetype pickers below entirely (Anish: "he should see
+                only 5 editable invite ideas... as per the theme he has
+                chosen" — not those alongside the generic system). Every
+                other kids-birthday theme (no art yet) and every other
+                event type falls straight through to the unchanged picker
+                below — kbImageIdeas is [] there. */}
+            {kbImageIdeas.length > 0 && (
+              <>
+                <Text style={s.sectionLabel}>CHOOSE AN INVITE DESIGN</Text>
+                <View style={s.imageIdeaRow}>
+                  {kbImageIdeas.map((idea) => {
+                    const active = parsedDesign.kind === 'image' && parsedDesign.themeSlug === event.theme_slug && parsedDesign.ideaId === idea.id;
+                    return (
+                      <TouchableOpacity
+                        key={idea.id}
+                        style={active ? s.imageIdeaCardActive : s.imageIdeaCard}
+                        onPress={() => setDesign(buildImageTemplateId(event.theme_slug, idea.id))}
+                      >
+                        <Image source={idea.image} style={s.imageIdeaThumb} resizeMode="cover" />
+                        <Text style={active ? s.designChipActiveText : s.designChipText} numberOfLines={1}>{idea.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            {kbImageIdeas.length === 0 && (
+            <>
             <View style={s.designRow}>
               {allowedDesigns.map((key) => (
                 <TouchableOpacity
@@ -550,6 +649,8 @@ export default function ToranInvites({ route, navigation }) {
                 )}
               </>
             )}
+            </>
+            )}
 
             {/* Design-archetype wave — dev-only pilot entry point, kept as
                 a secondary path for the fuller web/PDF preview (not yet
@@ -592,6 +693,7 @@ export default function ToranInvites({ route, navigation }) {
                   onFieldChange={handleFieldChange}
                   onPickPhoto={pickPhoto}
                   photoUploadingKey={uploadingPhotoKey}
+                  suggestionsByFieldKey={kbSuggestionsByFieldKey}
                 />
               )}
               {!!design && (
@@ -654,6 +756,16 @@ function makeStyles(theme) {
     list: { paddingHorizontal: 16, paddingBottom: 40 },
 
     designRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16, marginBottom: 16, flexWrap: 'wrap' },
+    imageIdeaRow: { flexDirection: 'row', gap: 10, marginTop: 10, marginBottom: 16, flexWrap: 'wrap' },
+    imageIdeaCard: {
+      width: 96, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.inputBg,
+      borderWidth: 2, borderColor: 'transparent', paddingBottom: 6, alignItems: 'center',
+    },
+    imageIdeaCardActive: {
+      width: 96, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.inputBg,
+      borderWidth: 2, borderColor: theme.accent, paddingBottom: 6, alignItems: 'center',
+    },
+    imageIdeaThumb: { width: 96, height: 134, marginBottom: 4 },
     previewWrap: { alignItems: 'center', marginBottom: 16 },
     designChipActive: { backgroundColor: theme.accent, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6 },
     designChipActiveText: { fontSize: 13, fontWeight: '700', color: theme.accentText },

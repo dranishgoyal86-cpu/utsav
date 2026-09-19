@@ -12,7 +12,7 @@ import InviteFieldRenderer from './InviteFieldRenderer';
 // `condition(values)` predicate returns false, e.g. naming-ceremony's
 // babyName field hiding while nameIsSecret is true. Every other status
 // always renders — this filter only ever touches CONDITIONAL fields.
-export default function InviteSectionRenderer({ theme, section, values, onFieldChange, onPickPhoto, photoUploadingKey }) {
+export default function InviteSectionRenderer({ theme, section, values, onFieldChange, onPickPhoto, photoUploadingKey, suggestionsByFieldKey }) {
   const s = makeStyles(theme);
   const visibleFields = section.fields.filter(
     (f) => f.status !== 'conditional' || (typeof f.condition === 'function' && f.condition(values || {}))
@@ -29,6 +29,7 @@ export default function InviteSectionRenderer({ theme, section, values, onFieldC
           onChange={(v) => onFieldChange(field.key, v)}
           onPickPhoto={field.kind === 'photo' ? () => onPickPhoto(field.key) : undefined}
           photoUploading={photoUploadingKey === field.key}
+          suggestions={suggestionsByFieldKey ? suggestionsByFieldKey[field.key] : undefined}
         />
       ))}
     </View>

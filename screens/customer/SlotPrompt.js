@@ -21,13 +21,18 @@ const DESKTOP_BREAKPOINT = 768;
 // one), so it could never block here even if listed. venue_type is safe to
 // block on: its "Not decided yet" chip is itself a real, always-available
 // answer (SlotField.js's VENUE_TYPE_OPTIONS), so this can never be a dead
-// end for a host who genuinely hasn't chosen a venue yet. location stays a
-// soft prompt (PlanView.js only) — it depends on venue_type first and
-// isn't itself required to resolve the checklist. Confirmed via a
-// full-codebase search that SlotPrompt.js is the ONLY place any of these
-// slots are navigated to, so widening this list is safe for every
-// pre-existing event too (they never revisit this screen).
-const BLOCKING_SLOTS = ['sub_type_slug', 'event_date', 'city', 'venue_type', 'guest_count', 'budget_total', 'theme'];
+// end for a host who genuinely hasn't chosen a venue yet.
+//
+// location joined the blocking list Sept 18 — "first time it only asks
+// where is the event but doesn't ask address" (Anish): previously it was a
+// soft prompt (PlanView.js only), asked whenever the host happened to
+// revisit that screen, sometimes much later. Placed right after
+// venue_type since LocationField's own behavior depends on it (a booked
+// marketplace venue shows "Browse venues" instead of the address search).
+// Confirmed via a full-codebase search that SlotPrompt.js is the ONLY
+// place any of these slots are navigated to, so widening this list is
+// safe for every pre-existing event too (they never revisit this screen).
+const BLOCKING_SLOTS = ['sub_type_slug', 'event_date', 'city', 'venue_type', 'location', 'guest_count', 'budget_total', 'theme'];
 
 export default function SlotPrompt({ route, navigation }) {
   const { eventId, recap } = route.params;
@@ -73,12 +78,16 @@ export default function SlotPrompt({ route, navigation }) {
   // that's already moved past planning, goes straight to PlanView.js same
   // as always.
   useEffect(() => {
+    // Sept 18: "it goes to plan the event screen. But it should go to
+    // event details so that whatever event details are left should be
+    // filled" (Anish) — every event now lands on EventDetailsScreen.js
+    // right after the blocking-slot wizard above, regardless of
+    // planning_stage. EventDetailsScreen's own "Save the details" button
+    // carries the host on to EventScope from there (see that screen), so
+    // the old planning_stage branch (EventScope vs PlanView) simply moves
+    // one screen later instead of happening here.
     if (!loading && event && !currentSlot) {
-      if (event.planning_stage === 'planning') {
-        navigation.replace('EventScope', { eventId });
-      } else {
-        navigation.replace('PlanView', { eventId });
-      }
+      navigation.replace('EventDetailsScreen', { eventId });
     }
   }, [loading, event, currentSlot, eventId]);
 

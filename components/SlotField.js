@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform, useWindowDimensions, Linking } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform, useWindowDimensions, Linking, ActivityIndicator } from 'react-native';
 import { useTheme } from '../ThemeContext';
 import CalendarPicker from './CalendarPicker';
 import SuggestionChips from './SuggestionChips';
+import LocationAutocomplete from './LocationAutocomplete';
 import { useInputHistory } from '../hooks/useInputHistory';
 import { getSubTypeOptions } from '../lib/eventSubTypes';
 import { getThemeOptions } from '../lib/eventThemes';
@@ -601,23 +602,20 @@ function VenueTypeField({ event, onSave, theme, s }) {
   );
 }
 
-// "remove which city and where it will held, just keep address of venue"
-// + "address- general address- with house no., sector, road, nearby
-// landmark, pincode slots- then saved as address of venue (to be tagged
-// as home address/venue by the host)- same address to be autofilled in
-// all the invites/gatepasses/qr codes/for vendors for delivery/logistics/
-// billing/invoicing" + "auto generate a google maps link with a verify
-// tab - to be verified by the host once- then saved same for invites/
-// qrcodes/vendors" (Anish, Sept 16) — replaces the old single free-text
-// "Street address" box with these five structured fields, composed into
-// one string and saved into the same event.venue column every consumer
-// (InviteDetails.js, RSVPScreen.js, VisitorList.js, GatePass.js, etc.)
-// already reads — nothing downstream needs to change. The sub-fields
-// themselves are UI-only scaffolding, same pattern CityField's cityGroup
-// already uses above — only the composed address is persisted, so editing
-// an already-saved address starts from blank fields with the current
-// saved value shown just above the form, not a (currently impossible)
-// re-split of one string back into five parts.
+// Address entry history: started as a single free-text box, became five
+// structured fields (house no./sector/road/landmark/pincode) composed into
+// one string with a manual "verify on Google Maps" step (Anish, Sept 16),
+// then — once Google's Places/Geocoding API was enabled and a server-side
+// geocode-search edge function existed alongside the free OpenStreetMap
+// Nominatim search (components/LocationAutocomplete.js) — collapsed back
+// down to a single search-and-pick box (Anish, Sept 18). The five-box form
+// is gone. Picking a suggestion now saves event.venue (address text),
+// event.venue_lat/venue_lng (real coordinates) and event.maps_link all in
+// one go, so every address saved from here on is automatically ready for
+// "Auto check-in on arrival" (InviteDetails.js) — no separate pin step.
+// event.venue is still the single column every consumer reads (InviteDetails.js,
+// RSVPScreen.js, VisitorList.js, GatePass.js, etc.) — nothing downstream
+// changed, only how the host fills it in.
 //
 // "Browse venues" (booking one of Utsav's own listed venues) is a
 // different, unrelated flow and is untouched — this only replaces how a
@@ -626,17 +624,97 @@ function VenueTypeField({ event, onSave, theme, s }) {
 // so Society Gate Pass detection (which depends on venue_type) still
 // works exactly as before; this screen just stops asking about it again.
 //
-// No Google Places/Geocoding API involved (confirmed elsewhere in this
-// codebase that it's blocked/unbilled) — the "verify" step just opens a
-// plain Google Maps search link built from the typed address and asks the
-// host to confirm it looks right, which needs no API key at all.
+// A manual fallback ("Can't find it? Enter manually") stays available
+// below the search box for the rare address Google/OSM can't geocode at
+// all — typing one there saves event.venue with no coordinates, same as
+// any address saved under the old system, and AutoCheckInPin below still
+// offers to add a pin for exactly that case.
+function buildAddressMapsUrl(address) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+}
+
+// Auto check-in pin (Anish, Sept 17; kept as a fallback-only path since
+// Sept 18) — a real GPS coordinate for this venue. Since Sept 18,
+// LocationField's own search box saves venue_lat/venue_lng at the same
+// time as the address text, so a normal, freshly-picked address is
+// already pinned and never reaches this component (see the `hasPin`
+// check in LocationField below). This still renders for the two cases
+// where that isn't true: an address saved under the old five-box system
+// (before coordinates existed at all), or one typed through the "enter
+// manually" fallback (no geocoder involved, so no coordinates). Picking a
+// pin here never touches event.venue (the address shown on the invite),
+// only event.venue_lat/venue_lng.
+//
+// event.venue_lat/venue_lng must exist as real columns on the live
+// database (supabase/migrations/venue_coordinates.sql) for this save to
+// persist — unlike GuestList.js's persistVenue, this has no venue TEXT to
+// fall back to if that column is missing (there's nothing else in this
+// patch), so a save here surfaces the real Postgres error via the shared
+// saveField() alert if that migration hasn't been run yet — which is the
+// right signal, not a bug to hide.
+function AutoCheckInPin({ event, onSave, theme, s }) {
+  const [pinning, setPinning] = useState(false);
+  const [pinQuery, setPinQuery] = useState('');
+  const [pinSaving, setPinSaving] = useState(false);
+  const hasPin = event.venue_lat != null && event.venue_lng != null;
+
+  async function handlePinSelect(address, coords) {
+    setPinQuery(address);
+    setPinSaving(true);
+    try {
+      await onSave({ venue_lat: coords.lat, venue_lng: coords.lng });
+    } finally {
+      setPinSaving(false);
+      setPinning(false);
+    }
+  }
+
+  if (pinning) {
+    return (
+      <View style={s.pinBox}>
+        <Text style={s.pinHint}>
+          Search and select your venue below so Utsav can check guests in automatically when they arrive. This is separate from the address above — it won't change what's shown on your invite.
+        </Text>
+        <LocationAutocomplete
+          value={pinQuery}
+          onChangeText={setPinQuery}
+          onSelect={handlePinSelect}
+          placeholder="Search your venue's exact location"
+        />
+        {pinSaving ? <ActivityIndicator color={theme.accent} style={{ marginTop: 8 }} /> : null}
+        <TouchableOpacity onPress={() => setPinning(false)} style={{ marginTop: 8 }}>
+          <Text style={s.editIconText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (hasPin) {
+    return (
+      <View style={s.addressCollapsedRow}>
+        <Text style={s.pinDoneText}>✓ Pinned for Auto check-in</Text>
+        <TouchableOpacity onPress={() => setPinning(true)}>
+          <Text style={s.editIconText}>✏️ Re-pin</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <TouchableOpacity onPress={() => setPinning(true)} style={{ marginTop: 10 }}>
+      <Text style={s.pinCta}>📍 Enable Auto check-in (pin exact location)</Text>
+    </TouchableOpacity>
+  );
+}
+
 function LocationField({ event, onSave, navigation, theme, s }) {
-  const [houseNo, setHouseNo] = useState('');
-  const [sector, setSector] = useState('');
-  const [road, setRoad] = useState('');
-  const [landmark, setLandmark] = useState('');
-  const [pincode, setPincode] = useState('');
-  const [verified, setVerified] = useState(false);
+  // Starts open only when nothing is saved yet — a brand-new event goes
+  // straight into the search box; a saved address opens collapsed.
+  const [editing, setEditing] = useState(!event.venue);
+  const [query, setQuery] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualText, setManualText] = useState('');
 
   if (event.venue_type === 'venue') {
     return (
@@ -649,105 +727,105 @@ function LocationField({ event, onSave, navigation, theme, s }) {
     );
   }
 
-  const composed = [
-    houseNo.trim() && `House No. ${houseNo.trim()}`,
-    sector.trim(),
-    road.trim(),
-    landmark.trim() && `Near ${landmark.trim()}`,
-    pincode.trim(),
-  ].filter(Boolean).join(', ');
+  const hasPin = event.venue_lat != null && event.venue_lng != null;
 
-  function saveAddress() {
-    if (!composed) return;
-    onSave({ venue: composed });
+  async function handleSelect(address, coords) {
+    setSaving(true);
+    try {
+      await onSave({ venue: address, venue_lat: coords.lat, venue_lng: coords.lng, maps_link: buildAddressMapsUrl(address) });
+      setQuery('');
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function buildMapsUrl() {
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(composed)}`;
+  async function saveManual() {
+    if (!manualText.trim()) return;
+    setSaving(true);
+    try {
+      // No geocoder involved in this path, so no coordinates — same as any
+      // address saved under the old five-box system. AutoCheckInPin (below,
+      // in the collapsed view) still offers to add a pin for it afterwards.
+      await onSave({ venue: manualText.trim(), maps_link: buildAddressMapsUrl(manualText.trim()) });
+      setManualText('');
+      setManualMode(false);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function openMapsToVerify() {
-    if (!composed) return;
-    Linking.openURL(buildMapsUrl());
-  }
-
-  function confirmVerified() {
-    if (!composed) return;
-    onSave({ venue: composed, maps_link: buildMapsUrl() });
-    setVerified(true);
-  }
-
-  function markUnverified(setter) {
-    return t => { setter(t); setVerified(false); };
+  // Collapsed summary — a saved address the host isn't actively editing
+  // right now. The maps link here is always available (event.maps_link if
+  // one was saved, otherwise built fresh from the saved address text).
+  if (!editing && event.venue) {
+    return (
+      <View>
+        <View style={s.addressCollapsedRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.label}>Address of venue</Text>
+            <Text style={s.currentAddressText}>{event.venue}</Text>
+          </View>
+          <TouchableOpacity style={s.editIconBtn} onPress={() => setEditing(true)}>
+            <Text style={s.editIconText}>✏️ Edit</Text>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity onPress={() => Linking.openURL(event.maps_link || buildAddressMapsUrl(event.venue))}>
+          <Text style={s.addressMapLink}>📍 View on Google Maps ›</Text>
+        </TouchableOpacity>
+        {hasPin ? (
+          <Text style={[s.pinDoneText, { marginTop: 8 }]}>✓ Pinned for Auto check-in</Text>
+        ) : (
+          <AutoCheckInPin event={event} onSave={onSave} theme={theme} s={s} />
+        )}
+      </View>
+    );
   }
 
   return (
     <View>
-      <Text style={s.label}>Address of venue</Text>
+      <View style={s.addressCollapsedRow}>
+        <Text style={s.label}>Address of venue</Text>
+        {/* Only a host who already has a saved address gets a way back to
+            the collapsed view without picking a new one. */}
+        {event.venue ? (
+          <TouchableOpacity onPress={() => setEditing(false)}>
+            <Text style={s.editIconText}>‹ Done</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
       {event.venue ? <Text style={s.currentAddressText}>Currently saved: {event.venue}</Text> : null}
 
-      <View style={s.addressRow}>
-        <TextInput
-          style={[s.input, s.addressInputHalf]}
-          placeholder="House no."
-          placeholderTextColor={theme.textTertiary}
-          value={houseNo}
-          onChangeText={markUnverified(setHouseNo)}
-          onBlur={saveAddress}
-        />
-        <TextInput
-          style={[s.input, s.addressInputHalf]}
-          placeholder="Sector / area"
-          placeholderTextColor={theme.textTertiary}
-          value={sector}
-          onChangeText={markUnverified(setSector)}
-          onBlur={saveAddress}
-        />
-      </View>
-      <TextInput
-        style={[s.input, { marginTop: 8 }]}
-        placeholder="Road"
-        placeholderTextColor={theme.textTertiary}
-        value={road}
-        onChangeText={markUnverified(setRoad)}
-        onBlur={saveAddress}
-      />
-      <TextInput
-        style={[s.input, { marginTop: 8 }]}
-        placeholder="Nearby landmark"
-        placeholderTextColor={theme.textTertiary}
-        value={landmark}
-        onChangeText={markUnverified(setLandmark)}
-        onBlur={saveAddress}
-      />
-      <TextInput
-        style={[s.input, { marginTop: 8 }]}
-        placeholder="Pincode"
-        placeholderTextColor={theme.textTertiary}
-        value={pincode}
-        onChangeText={markUnverified(setPincode)}
-        onBlur={saveAddress}
-        keyboardType="number-pad"
-        maxLength={6}
-      />
-
-      {composed ? (
-        <View style={s.verifyCard}>
-          <Text style={s.verifyPreview}>{composed}</Text>
-          {event.maps_link && verified ? (
-            <Text style={s.verifiedBadge}>✓ Verified on Google Maps</Text>
-          ) : (
-            <>
-              <TouchableOpacity style={s.verifyBtn} onPress={openMapsToVerify}>
-                <Text style={s.verifyBtnText}>Open in Google Maps to check →</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.verifyConfirmBtn} onPress={confirmVerified}>
-                <Text style={s.verifyConfirmBtnText}>✓ Yes, this is correct</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      ) : null}
+      {manualMode ? (
+        <>
+          <TextInput
+            style={s.input}
+            placeholder="Type the full address"
+            placeholderTextColor={theme.textTertiary}
+            value={manualText}
+            onChangeText={setManualText}
+            onBlur={saveManual}
+            multiline
+          />
+          <TouchableOpacity onPress={() => setManualMode(false)} style={{ marginTop: 8 }}>
+            <Text style={s.editIconText}>‹ Search instead</Text>
+          </TouchableOpacity>
+        </>
+      ) : (
+        <>
+          <LocationAutocomplete
+            value={query}
+            onChangeText={setQuery}
+            onSelect={handleSelect}
+            placeholder="Search for the venue address"
+          />
+          <TouchableOpacity onPress={() => setManualMode(true)} style={{ marginTop: 8 }}>
+            <Text style={s.editIconText}>Can't find it? Enter manually</Text>
+          </TouchableOpacity>
+        </>
+      )}
+      {saving ? <ActivityIndicator color={theme.accent} style={{ marginTop: 8 }} /> : null}
     </View>
   );
 }
@@ -943,6 +1021,14 @@ function makeStyles(theme) {
     timeEntrySetBtn: { marginLeft: 'auto', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, backgroundColor: theme.btnPrimary },
     timeEntrySetBtnText: { fontSize: 13, fontWeight: '700', color: theme.btnPrimaryText },
     currentAddressText: { fontSize: 12.5, color: theme.textSecondary, marginBottom: 10, fontStyle: 'italic' },
+    addressCollapsedRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+    editIconBtn: { paddingVertical: 4, paddingHorizontal: 4 },
+    editIconText: { fontSize: 12.5, fontWeight: '700', color: theme.accent },
+    addressMapLink: { fontSize: 12.5, fontWeight: '700', color: theme.accent, marginTop: 4 },
+    pinCta: { fontSize: 12.5, fontWeight: '700', color: theme.accent },
+    pinDoneText: { fontSize: 12.5, fontWeight: '700', color: '#2E7D32' },
+    pinBox: { backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border, padding: 14, marginTop: 10 },
+    pinHint: { fontSize: 12, color: theme.textSecondary, lineHeight: 17, marginBottom: 10 },
     addressRow: { flexDirection: 'row', gap: 8 },
     addressInputHalf: { flex: 1 },
     verifyCard: { backgroundColor: theme.cardBg, borderRadius: 14, borderWidth: 0.5, borderColor: theme.border, padding: 14, marginTop: 12 },

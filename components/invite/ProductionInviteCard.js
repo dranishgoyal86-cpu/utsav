@@ -1,13 +1,15 @@
 import ToranCoverCard from './ToranCoverCard';
 import StillnessCard from './StillnessCard';
 import StaticInviteCard from '../inviteArchetypes/StaticInviteCard';
+import ImageTemplateCard from './ImageTemplateCard';
 import { mapToToranCoverCardProps, mapToStillnessCardProps } from '../../lib/inviteContentAdapter';
-import { parseProductionDesign, isValidArchetypeSelection } from '../../lib/inviteProductionDesign';
+import { parseProductionDesign, isValidArchetypeSelection, isValidImageSelection } from '../../lib/inviteProductionDesign';
 import { buildPresentationContent } from '../../lib/invitePresentationModel';
 import { buildStaticLayoutModel } from '../../lib/staticInviteLayout';
 import { getVariant } from '../../lib/inviteDesignArchetypes';
 import { isNonFestive } from '../../lib/inviteSchemas';
 import { getKidsBirthdayInviteOptions } from '../../lib/kidsBirthdayThemes';
+import { getKidsBirthdayImageIdeaById } from '../../lib/kidsBirthdayImageIdeas';
 
 // Production Integration Wave — the ONE real rendering bridge between a
 // host's saved template_id (see lib/inviteProductionDesign.js's storage
@@ -40,6 +42,21 @@ export default function ProductionInviteCard({ templateId, eventTypeSlug, values
       return <StillnessCard {...mapToStillnessCardProps(values)} />;
     }
     return <ToranCoverCard {...mapToToranCoverCardProps(parsed.legacyDesignId, values, event)} />;
+  }
+
+  if (parsed.kind === 'image') {
+    // Kids Birthday Image Template pilot (Sept 17) — a real illustrated
+    // per-theme image with the actual event's text painted on top (see
+    // components/invite/ImageTemplateCard.js). Same defensive fallback
+    // discipline as the archetype branch below: a corrupted/unknown
+    // image:<themeSlug>:<ideaId> string must never render blank — falls
+    // back to the same safe legacy design every other invite uses.
+    const idea = getKidsBirthdayImageIdeaById(parsed.themeSlug, parsed.ideaId);
+    if (!isValidImageSelection(parsed.themeSlug, parsed.ideaId) || !idea) {
+      return <ToranCoverCard {...mapToToranCoverCardProps('toran', values, event)} />;
+    }
+    const presentation = buildPresentationContent({ eventTypeSlug, values, event, functions, featuredActivities });
+    return <ImageTemplateCard idea={idea} values={values} event={event} primaryVenue={presentation.primaryVenue} />;
   }
 
   if (parsed.kind === 'archetype') {

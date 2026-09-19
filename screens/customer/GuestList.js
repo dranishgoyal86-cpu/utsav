@@ -57,7 +57,7 @@ import { resolveVenue, resolveDietary, formatTimeLabel, formatTimeRangeLabel } f
 import { PUBLIC_WEB_URL } from '../../config';
 import { useCapabilities } from '../../hooks/useCapabilities';
 import { isEnabled, insertGuestPassesWithRetry } from '../../lib/capabilities';
-import { buildPassCardHtml, buildInviteWithPassHtml } from '../../gatePassTemplate';
+import { buildPassCardHtml } from '../../gatePassTemplate';
 import { registerTourTarget } from '../../lib/tourTargets';
 import { useTour } from '../../hooks/useTour';
 import CoachMarkTour from '../../components/CoachMarkTour';
@@ -108,7 +108,7 @@ import {
 // App.js at startup, so an unconditional top-level import here would try to
 // load these native modules as soon as the app launches, not just when this
 // screen opens.
-let Sharing, Contacts, ImagePicker, Print, ClipboardAPI, ViewShot, MediaLibrary, NativeShare, FileSystem, Html2Canvas;
+let Sharing, Contacts, ImagePicker, Print, ClipboardAPI, ViewShot, MediaLibrary, NativeShare, Html2Canvas;
 if (Platform.OS === 'web') {
   // The web equivalent of react-native-view-shot — takes a real snapshot
   // of the on-screen preview card's DOM node so "Share as image" can
@@ -130,7 +130,6 @@ if (Platform.OS !== 'web') {
   Print = require('expo-print');
   ViewShot = require('react-native-view-shot').default;
   MediaLibrary = require('expo-media-library');
-  FileSystem = require('expo-file-system/legacy');
   // react-native-share, not Expo's Sharing/RN's own Share — those can't
   // combine an image and a text message in one Android intent (Android's
   // build of RN's core Share only supports `message`, not `url`; Expo's
@@ -2700,49 +2699,30 @@ export default function GuestList({ route, navigation }) {
       showAlert('No phone number', `${guest.name} doesn't have a valid phone number saved.`);
       return;
     }
-    const personalized = `Dear ${guest.name} Ji,\n\n${buildInviteCaption(guest.id, guest.guest_code)}`;
 
-    // "gate pass or qrcode should be essential in built in invite itself...
-    // it can be put on the back of the image... or if back side not
-    // possible then second page for qr code but never on the same invite
-    // side" (Anish, Sept 16) — the QR no longer gets baked onto the same
-    // captured picture at all (see the removed placeholder-QR block in the
-    // Preview card's JSX above). Instead, when this guest has a gate pass,
-    // the plain invite picture becomes page 1 of a combined PDF and their
-    // gate-pass card (same layout PassCard.js/sendPassToGuest use) becomes
-    // page 2 — see buildInviteWithPassHtml (gatePassTemplate.js).
+    // "never on the same invite side" (Anish, Sept 16) still holds — the
+    // gate-pass QR is never drawn onto the invite picture. What broke a
+    // second time (Sept 17): baking it into a combined 2-page PDF instead
+    // of a plain image share. WhatsApp does not show a caption/text on a
+    // document share, only on an image — so that PDF approach silently
+    // dropped the whole message (RSVP link included) for every guest with
+    // a gate pass on, which is the "old functionality changed without
+    // being asked" case Anish flagged. Fixed per his direction (Sept 17):
+    // back to a single plain image share — the original, reliable
+    // behavior, unconditionally — with the RSVP link, Google Maps link
+    // (both already in buildInviteCaption) and now a gate-pass link folded
+    // into the text caption instead of a second file.
     let issuedPassCode = null;
     if (activePageData.includeGatePass && event?.id) {
       issuedPassCode = await ensureGuestPass(guest);
     }
+    const gateLine = issuedPassCode ? `🔒 Gate pass: ${PUBLIC_WEB_URL}/p/${issuedPassCode}` : null;
+    const personalized = [`Dear ${guest.name} Ji,`, buildInviteCaption(guest.id, guest.guest_code), gateLine].filter(Boolean).join('\n\n');
 
     if (Platform.OS !== 'web' && NativeShare && cardRef.current) {
       try {
-        if (issuedPassCode && Print && FileSystem) {
-          const imageUri = await cardRef.current.capture();
-          const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 });
-          const inviteImageDataUrl = `data:image/jpeg;base64,${base64}`;
-          const QRCode = require('qrcode-svg');
-          const raw = new QRCode({ content: `${PUBLIC_WEB_URL}/p/${issuedPassCode}`, width: 160, height: 160, padding: 4, color: '#000000', background: '#ffffff', ecl: 'M' }).svg();
-          const html = buildInviteWithPassHtml({
-            inviteImageDataUrl,
-            pass: {
-              guestName: guest.name,
-              partySize: resolveGuestPartySize(guest),
-              venueLabel: resolvedPlanContext?.venue?.label || null,
-              venueAddress: resolvedPlanContext?.venue?.address || null,
-              dateLabel: resolvedPlanContext?.dateLabel || null,
-              entryWindow: null,
-              passCode: issuedPassCode,
-              qrSvgString: raw.replace(/^<\?xml[^>]*\?>\s*/, ''),
-            },
-          });
-          const { uri } = await Print.printToFileAsync({ html, base64: false });
-          await NativeShare.open({ url: uri, message: personalized, failOnCancel: false });
-        } else {
-          const uri = await cardRef.current.capture();
-          await NativeShare.open({ url: uri, message: personalized, failOnCancel: false });
-        }
+        const uri = await cardRef.current.capture();
+        await NativeShare.open({ url: uri, message: personalized, failOnCancel: false });
       } catch (err) {
         console.log('Invite image share failed:', err.message);
         showAlert('Could not share', 'Make sure WhatsApp is installed, or use "Share as image" instead.');
@@ -2750,10 +2730,9 @@ export default function GuestList({ route, navigation }) {
       }
     } else {
       // Web has no NativeShare module at all (guarded at import time) —
-      // wa.me stays the only option there, text-only, so the gate pass code
-      // (if any) goes into the text below instead of the picture.
-      const gateLine = issuedPassCode ? `\n\n🔒 Gate pass code: ${issuedPassCode}` : '';
-      const url = `https://wa.me/${number}?text=${encodeURIComponent(personalized + gateLine)}`;
+      // wa.me stays the only option there, text-only (same message as the
+      // native path, gate-pass link included, just no image attached).
+      const url = `https://wa.me/${number}?text=${encodeURIComponent(personalized)}`;
       Linking.openURL(url).catch(() => {
         showAlert('Could not open WhatsApp', 'Make sure WhatsApp is installed, or use "Share as image" instead.');
       });
@@ -4320,12 +4299,14 @@ export default function GuestList({ route, navigation }) {
                   {/* "never on the same invite side" (Anish, Sept 16) — the
                       gate-pass QR used to render right here, baked onto the
                       same picture that gets shared. It no longer does:
-                      sendWhatsappTo now puts it on its own page of a
-                      combined PDF instead (see gatePassTemplate.js's
-                      buildInviteWithPassHtml). The "Gate pass" toggle below
-                      still controls whether a pass gets issued and attached
-                      at send time — it just doesn't touch this card's own
-                      design anymore. */}
+                      sendWhatsappTo puts the guest's own gate-pass link in
+                      the WhatsApp text caption instead (a second attached
+                      file was tried and dropped — WhatsApp doesn't show a
+                      caption on a document share, only on a plain image,
+                      which was silently eating the whole message; fixed
+                      Sept 17). The "Gate pass" toggle below still controls
+                      whether a pass gets issued at send time — it just
+                      doesn't touch this card's own design at all. */}
 
                   <View style={[s.inviteFooter, { borderTopColor: accentColor + '44' }]}>
                     <Text style={[s.inviteFooterText, { color: accentColor }]}>
@@ -4512,16 +4493,20 @@ export default function GuestList({ route, navigation }) {
             {/* "gate pass or qrcode should be essential in built in invite
                 itself... in case of gated society address or where
                 security check gate passes." Off by default — most events
-                don't need it. When on, each guest's own QR is drawn
-                directly onto their invite picture when it's sent (see the
-                Preview card below and sendWhatsappTo's ensureGuestPass()) —
-                one thing to save and show at the gate, not a separate pass
-                to issue and share later. */}
+                don't need it. When on, each guest gets their own gate-pass
+                link, added to the text message that goes out with their
+                invite picture (never drawn onto the picture itself — see
+                "never on the same invite side", Anish, Sept 16). Not a
+                QR image in the message — WhatsApp doesn't show a caption
+                on anything but a plain image, so a second attached file
+                was silently dropping the whole message including the RSVP
+                link (Anish caught this, Sept 17) — a tappable link in the
+                text is what actually survives every share path. */}
             <View style={s.gatePassToggleRow}>
               <View style={{ flex: 1 }}>
                 <Text style={s.gatePassToggleTitle}>🔒 Security gate pass on this invite</Text>
                 <Text style={s.gatePassToggleSub}>
-                  For gated societies or venues with a security check — each guest's invite gets their own QR code, so they can check in at the gate straight from the invite you send.
+                  For gated societies or venues with a security check. When you send this invite to a guest, their own gate-pass link goes in the message text alongside the RSVP and map links — the invite picture itself stays untouched.
                 </Text>
               </View>
               <Switch

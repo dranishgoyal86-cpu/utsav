@@ -92,16 +92,19 @@ export default function NotificationsScreen({ navigation }) {
         return;
       }
 
-      // Guest-side — deep-links straight into the existing RSVPScreen
-      // (already handles both viewing and editing an RSVP) using the
-      // invite_code/invitee_id stamped into `data` at creation time
-      // (notifications.js's notifyGuestInvited/notifyEventChanged) — no
-      // extra round-trip needed to resolve them. event_cancelled carries no
-      // invite_code (nothing left to RSVP to), so it goes to My Invites
-      // instead, where the cancelled state is shown on the card.
+      // Guest-side — deep-links into InviteDetails.js (Anish, Sept 18:
+      // "he should see the invitation image with all details not the rsvp
+      // screen") using the invite_code/invitee_id stamped into `data` at
+      // creation time (notifications.js's notifyGuestInvited/
+      // notifyEventChanged) — no extra round-trip needed to resolve them.
+      // InviteDetails.js's own "Edit RSVP" button is what hands off to
+      // RSVPScreen.js now, matching MyInvites.js's openInvite(), which
+      // already routes here the same way. event_cancelled carries no
+      // invite_code (nothing left to view/RSVP to), so it goes to My
+      // Invites instead, where the cancelled state is shown on the card.
       if (type === 'guest_invited' || type === 'event_changed') {
         if (data.invite_code) {
-          navigation.navigate('RSVP', { inviteCode: data.invite_code, guestId: data.invitee_id });
+          navigation.navigate('InviteDetails', { inviteCode: data.invite_code, guestId: data.invitee_id });
         } else {
           navigation.navigate('MyInvites');
         }
