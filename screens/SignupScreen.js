@@ -8,6 +8,7 @@ import { useTheme } from '../ThemeContext';
 import SparkleIcon from '../components/SparkleIcon';
 import { isPasswordStrong, PASSWORD_POLICY_HINT } from '../helpers';
 import { syncCachedDesktopThemeId } from '../lib/desktopThemePalettes';
+import { signInWithGoogle } from '../lib/googleAuth';
 
 export default function SignupScreen({ navigation }) {
   const { theme } = useTheme();
@@ -16,6 +17,7 @@ export default function SignupScreen({ navigation }) {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
   const s = makeStyles(theme);
 
@@ -91,6 +93,23 @@ export default function SignupScreen({ navigation }) {
     }
   }
 
+  // "work on adding through google login in the app" (Anish, Sept 22) --
+  // supabase.auth.signInWithOAuth creates the account on first use, same
+  // call as logging in with Google later, so Signup and Login share the
+  // exact same handler (see lib/googleAuth.js) -- there's no separate
+  // "Google signup" step. Native only for now, same as LoginScreen.js.
+  async function handleGoogleSignup() {
+    try {
+      setGoogleLoading(true);
+      setError('');
+      await signInWithGoogle();
+    } catch (err) {
+      setError(err.message || 'Google sign-in failed. Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
   return (
     <SafeAreaView style={s.container}>
       <KeyboardAvoidingView
@@ -125,6 +144,25 @@ export default function SignupScreen({ navigation }) {
                 : <Text style={s.signupBtnText}>Create account</Text>
               }
             </TouchableOpacity>
+            {Platform.OS !== 'web' && (
+              <>
+                <View style={s.dividerRow}>
+                  <View style={s.dividerLine} />
+                  <Text style={s.dividerText}>or</Text>
+                  <View style={s.dividerLine} />
+                </View>
+                <TouchableOpacity
+                  style={[s.googleBtn, googleLoading && { opacity: 0.7 }]}
+                  onPress={handleGoogleSignup}
+                  disabled={googleLoading}
+                >
+                  {googleLoading
+                    ? <ActivityIndicator color={theme.text} />
+                    : <Text style={s.googleBtnText}>Continue with Google</Text>
+                  }
+                </TouchableOpacity>
+              </>
+            )}
             <TouchableOpacity style={s.switchBtn} onPress={() => navigation.navigate('Login')}>
               <Text style={s.switchText}>
                 Already have an account?{' '}
@@ -168,6 +206,15 @@ function makeStyles(theme) {
     switchBtn: { marginTop: 18, alignItems: 'center' },
     switchText: { fontSize: 14, color: theme.textSecondary },
     switchLink: { color: theme.accent, fontWeight: '700' },
+    dividerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 20, gap: 10 },
+    dividerLine: { flex: 1, height: 1, backgroundColor: theme.border },
+    dividerText: { fontSize: 12, fontWeight: '600', color: theme.textTertiary },
+    googleBtn: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+      backgroundColor: theme.bg, borderRadius: 16, paddingVertical: 14, marginTop: 16,
+      borderWidth: 1, borderColor: theme.border,
+    },
+    googleBtnText: { color: theme.text, fontSize: 15, fontWeight: '700' },
 
     claimLink: { alignItems: 'center', marginTop: 22 },
     claimLinkText: { fontSize: 12.5, fontWeight: '600', color: theme.textTertiary },

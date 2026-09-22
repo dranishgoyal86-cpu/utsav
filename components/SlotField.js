@@ -242,6 +242,41 @@ function BirthdayPersonField({ event, onSave, theme, s }) {
     setDobOpen(false);
   }
 
+  // "keep it simple as dd/mm/year and user fill it simply" (Anish, Sept
+  // 22) -- replaces the CalendarPicker below with three typed boxes, same
+  // Hour/Minute/Set pattern EventTimeField's custom time entry already
+  // uses. A birthdate is very often decades in the past, which a
+  // tap-through calendar makes tedious; typing dd/mm/yyyy directly does
+  // not.
+  const [dayText, setDayText] = useState('');
+  const [monthText, setMonthText] = useState('');
+  const [yearText, setYearText] = useState('');
+  const [dobError, setDobError] = useState('');
+
+  function openDobEntry() {
+    if (event.birthday_person_dob) {
+      const [y, m, d] = event.birthday_person_dob.split('-');
+      setYearText(y); setMonthText(m); setDayText(d);
+    } else {
+      setYearText(''); setMonthText(''); setDayText('');
+    }
+    setDobError('');
+    setDobOpen(true);
+  }
+
+  function saveDobEntry() {
+    const d = parseInt(dayText, 10), m = parseInt(monthText, 10), y = parseInt(yearText, 10);
+    const thisYear = new Date().getFullYear();
+    if (!Number.isInteger(y) || y < 1900 || y > thisYear) { setDobError('Enter a valid year'); return; }
+    if (!Number.isInteger(m) || m < 1 || m > 12) { setDobError('Enter a valid month (1\u201312)'); return; }
+    if (!Number.isInteger(d) || d < 1 || d > 31) { setDobError('Enter a valid day'); return; }
+    const dateObj = new Date(y, m - 1, d);
+    const isRealDate = dateObj.getFullYear() === y && dateObj.getMonth() === m - 1 && dateObj.getDate() === d;
+    if (!isRealDate) { setDobError('That date doesn\u2019t exist'); return; }
+    if (dateObj > new Date()) { setDobError('Birthdate can\u2019t be in the future'); return; }
+    saveDob(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+  }
+
   return (
     <View>
       <Text style={s.label}>Whose birthday is it?</Text>
@@ -257,13 +292,47 @@ function BirthdayPersonField({ event, onSave, theme, s }) {
       <Text style={[s.chipText, { color: theme.textSecondary, fontWeight: '500', marginBottom: 10, fontSize: 12.5, lineHeight: 17 }]}>
         This is what decides whether kids-party themes and activity ideas show up below, instead of guessing from typed text.
       </Text>
-      <TouchableOpacity style={s.dateSummaryBtn} onPress={() => setDobOpen(o => !o)} activeOpacity={0.7}>
+      <TouchableOpacity style={s.dateSummaryBtn} onPress={() => (dobOpen ? setDobOpen(false) : openDobEntry())} activeOpacity={0.7}>
         <Text style={s.dateSummaryText}>🎂 {dobLabel || 'Choose a birthdate'}</Text>
         <Text style={s.dateSummaryCaret}>{dobOpen ? 'Hide ▲' : 'Change ▼'}</Text>
       </TouchableOpacity>
       {dobOpen && (
         <View style={{ marginTop: 12 }}>
-          <CalendarPicker value={event.birthday_person_dob} minDate="1900-01-01" maxDate={todayStr} onChange={saveDob} />
+          <View style={s.timeEntryRow}>
+            <TextInput
+              style={s.timeEntryInput}
+              placeholder="DD"
+              placeholderTextColor={theme.textTertiary}
+              value={dayText}
+              onChangeText={setDayText}
+              keyboardType="number-pad"
+              maxLength={2}
+            />
+            <Text style={s.timeEntryColon}>/</Text>
+            <TextInput
+              style={s.timeEntryInput}
+              placeholder="MM"
+              placeholderTextColor={theme.textTertiary}
+              value={monthText}
+              onChangeText={setMonthText}
+              keyboardType="number-pad"
+              maxLength={2}
+            />
+            <Text style={s.timeEntryColon}>/</Text>
+            <TextInput
+              style={[s.timeEntryInput, { width: 66 }]}
+              placeholder="YYYY"
+              placeholderTextColor={theme.textTertiary}
+              value={yearText}
+              onChangeText={setYearText}
+              keyboardType="number-pad"
+              maxLength={4}
+            />
+            <TouchableOpacity style={s.timeEntrySetBtn} onPress={saveDobEntry}>
+              <Text style={s.timeEntrySetBtnText}>Set</Text>
+            </TouchableOpacity>
+          </View>
+          {dobError ? <Text style={[s.chipText, { color: theme.statusDeclinedText, marginTop: 8 }]}>{dobError}</Text> : null}
         </View>
       )}
       {age != null && (

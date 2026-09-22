@@ -6,12 +6,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../supabase';
 import { useTheme } from '../ThemeContext';
 import SparkleIcon from '../components/SparkleIcon';
+import { signInWithGoogle } from '../lib/googleAuth';
 
 export default function LoginScreen({ navigation }) {
   const { theme } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
   const s = makeStyles(theme);
 
@@ -29,6 +31,23 @@ export default function LoginScreen({ navigation }) {
       setError(err.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  // "work on adding through google login in the app" (Anish, Sept 22) --
+  // native only for now (see lib/googleAuth.js). A cancelled Google
+  // screen resolves quietly (no error thrown), so nothing shows here for
+  // that case -- only a real failure surfaces the same error banner
+  // email/password login already uses.
+  async function handleGoogleLogin() {
+    try {
+      setGoogleLoading(true);
+      setError('');
+      await signInWithGoogle();
+    } catch (err) {
+      setError(err.message || 'Google sign-in failed. Please try again.');
+    } finally {
+      setGoogleLoading(false);
     }
   }
 
@@ -75,6 +94,25 @@ export default function LoginScreen({ navigation }) {
               : <Text style={s.loginBtnText}>Log in</Text>
             }
           </TouchableOpacity>
+          {Platform.OS !== 'web' && (
+            <>
+              <View style={s.dividerRow}>
+                <View style={s.dividerLine} />
+                <Text style={s.dividerText}>or</Text>
+                <View style={s.dividerLine} />
+              </View>
+              <TouchableOpacity
+                style={[s.googleBtn, googleLoading && { opacity: 0.7 }]}
+                onPress={handleGoogleLogin}
+                disabled={googleLoading}
+              >
+                {googleLoading
+                  ? <ActivityIndicator color={theme.text} />
+                  : <Text style={s.googleBtnText}>Continue with Google</Text>
+                }
+              </TouchableOpacity>
+            </>
+          )}
           <TouchableOpacity
             style={s.switchBtn}
             onPress={() => navigation.navigate('Signup')}
@@ -114,5 +152,14 @@ function makeStyles(theme) {
     switchBtn: { marginTop: 18, alignItems: 'center' },
     switchText: { fontSize: 14, color: theme.textSecondary },
     switchLink: { color: theme.accent, fontWeight: '700' },
+    dividerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 20, gap: 10 },
+    dividerLine: { flex: 1, height: 1, backgroundColor: theme.border },
+    dividerText: { fontSize: 12, fontWeight: '600', color: theme.textTertiary },
+    googleBtn: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+      backgroundColor: theme.cardBg, borderRadius: 16, paddingVertical: 14, marginTop: 16,
+      borderWidth: 1, borderColor: theme.border,
+    },
+    googleBtnText: { color: theme.text, fontSize: 15, fontWeight: '700' },
   });
 }

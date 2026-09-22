@@ -29,6 +29,7 @@ function buildRecapLines(patch, hostedBy) {
   if (patch.is_dry_event === true) lines.push('Dry event (no alcohol)');
   if (patch.is_veg_only === true) lines.push('Vegetarian only');
   if (patch.birthday_person_name) lines.push(`For ${patch.birthday_person_name}`);
+  if (patch.birthday_person_dob) lines.push(`Born ${new Date(patch.birthday_person_dob + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`);
   if (hostedBy) lines.push(`Hosted by ${hostedBy}`);
   return lines;
 }
