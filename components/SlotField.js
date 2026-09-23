@@ -139,7 +139,7 @@ export function slotDisplayValue(slotKey, event, venue) {
       return opt?.label || event.venue_type;
     }
     case 'location':
-      if (event.venue_type === 'venue') return venue?.name || (event.venue_id ? 'Venue selected' : null);
+      if (event.venue_type === 'venue' || event.venue_id) return venue?.name || (event.venue_id ? 'Venue selected' : null);
       return event.venue || null;
     case 'guest_count':
       return event.guest_count != null ? `${event.guest_count} guests` : null;
@@ -169,7 +169,7 @@ export function slotFilled(slotKey, event) {
     case 'event_time': return !!event.event_time;
     case 'city': return !!event.city;
     case 'venue_type': return !!event.venue_type;
-    case 'location': return event.venue_type === 'venue' ? !!event.venue_id : !!event.venue;
+    case 'location': return (event.venue_type === 'venue' || event.venue_id) ? !!event.venue_id : !!event.venue;
     case 'guest_count': return event.guest_count != null;
     case 'theme': return !!event.theme;
     // Booleans are always in a complete state (false is a real answer, not
@@ -785,7 +785,20 @@ function LocationField({ event, onSave, navigation, theme, s }) {
   const [manualMode, setManualMode] = useState(false);
   const [manualText, setManualText] = useState('');
 
-  if (event.venue_type === 'venue') {
+  // event.venue_type === 'venue' only holds between picking "At a venue"
+  // and actually choosing one -- VenuePicker.js's selectVenue() then
+  // overwrites venue_type with the CHOSEN VENUE'S OWN subtype (e.g.
+  // 'banquet_hall', 'outdoor'), matching what resolveVenue()
+  // (lib/eventContext.js) and every capability rule already expect to
+  // find there for a booked venue. So venue_id, not the literal 'venue'
+  // string, is the real signal that this event has a marketplace-booked
+  // venue -- checking venue_type alone made this branch stop firing the
+  // moment a real venue was picked, silently swapping back to the plain
+  // address box and blocking slotFilled('location') from ever being true
+  // (see slotFilled above), which meant a host who genuinely booked a
+  // listed venue was still forced to separately type an address before
+  // the setup wizard would let them continue.
+  if (event.venue_type === 'venue' || event.venue_id) {
     return (
       <View>
         <Text style={s.label}>Which venue?</Text>

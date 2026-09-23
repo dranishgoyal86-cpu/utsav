@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import { showAlert } from '../../helpers';
@@ -52,7 +53,16 @@ export default function SlotPrompt({ route, navigation }) {
   // blocking on a confirm step. Dismissible, shown only once per visit.
   const [recapVisible, setRecapVisible] = useState(!!(recap && recap.length > 0));
 
-  useEffect(() => { fetchEvent(); }, [eventId]);
+  // Re-fetches every time this screen gains focus, not just on first
+  // mount — needed because SlotField's "location" step (LocationField)
+  // can send the host to VenuePicker.js and back (e.g. the "I'll decide
+  // later" button there resets venue_type/venue_id in the database). A
+  // plain mount-only fetch left this screen showing stale local state on
+  // return, so it kept re-rendering the same "Browse venues" step forever
+  // instead of noticing venue_type was cleared and re-asking that question.
+  useFocusEffect(
+    useCallback(() => { fetchEvent(); }, [eventId])
+  );
 
   async function fetchEvent() {
     try {

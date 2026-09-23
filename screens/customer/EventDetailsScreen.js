@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import { showAlert } from '../../helpers';
@@ -48,6 +49,21 @@ export default function EventDetailsScreen({ route, navigation }) {
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const { event: rawEvent, venue, loading, error, refresh } = useEventPlan(eventId);
+
+  // useEventPlan's own mount effect already covers the very first load —
+  // this only re-syncs on every LATER focus, e.g. returning from
+  // VenuePicker.js's "I'll decide later" (which writes venue_type/venue_id
+  // straight to the events row, bypassing this screen's saveField/
+  // confirmedPatch overlay entirely). Without this, rawEvent stayed stale
+  // after that round trip and the "Browse venues →" button below kept
+  // re-rendering forever — same root cause as the SlotPrompt.js fix.
+  const isFirstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocus.current) { isFirstFocus.current = false; return; }
+      refresh();
+    }, [refresh])
+  );
 
   // Same optimistic-overlay pattern PlanView.js's saveField used — a save
   // highlights immediately instead of waiting for the round trip.
