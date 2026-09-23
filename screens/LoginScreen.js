@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform
 } from 'react-native';
@@ -7,6 +7,7 @@ import { supabase } from '../supabase';
 import { useTheme } from '../ThemeContext';
 import SparkleIcon from '../components/SparkleIcon';
 import { signInWithGoogle } from '../lib/googleAuth';
+import { signInWithApple, isAppleSignInAvailable } from '../lib/appleAuth';
 
 export default function LoginScreen({ navigation }) {
   const { theme } = useTheme();
@@ -14,8 +15,14 @@ export default function LoginScreen({ navigation }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
+  const [appleAvailable, setAppleAvailable] = useState(false);
   const [error, setError] = useState('');
   const s = makeStyles(theme);
+
+  useEffect(() => {
+    isAppleSignInAvailable().then(setAppleAvailable);
+  }, []);
 
   async function handleLogin() {
     if (!email || !password) {
@@ -48,6 +55,24 @@ export default function LoginScreen({ navigation }) {
       setError(err.message || 'Google sign-in failed. Please try again.');
     } finally {
       setGoogleLoading(false);
+    }
+  }
+
+  // Apple requires this be offered on iOS wherever Google sign-in is
+  // offered (App Store rule 4.8). Cancelling the Apple sheet throws
+  // ERR_REQUEST_CANCELED -- treated the same as a cancelled Google screen,
+  // quietly, with no error banner.
+  async function handleAppleLogin() {
+    try {
+      setAppleLoading(true);
+      setError('');
+      await signInWithApple();
+    } catch (err) {
+      if (err.code !== 'ERR_REQUEST_CANCELED') {
+        setError(err.message || 'Apple sign-in failed. Please try again.');
+      }
+    } finally {
+      setAppleLoading(false);
     }
   }
 
@@ -111,6 +136,18 @@ export default function LoginScreen({ navigation }) {
                   : <Text style={s.googleBtnText}>Continue with Google</Text>
                 }
               </TouchableOpacity>
+              {appleAvailable && (
+                <TouchableOpacity
+                  style={[s.googleBtn, { marginTop: 10 }, appleLoading && { opacity: 0.7 }]}
+                  onPress={handleAppleLogin}
+                  disabled={appleLoading}
+                >
+                  {appleLoading
+                    ? <ActivityIndicator color={theme.text} />
+                    : <Text style={s.googleBtnText}> Continue with Apple</Text>
+                  }
+                </TouchableOpacity>
+              )}
             </>
           )}
           <TouchableOpacity

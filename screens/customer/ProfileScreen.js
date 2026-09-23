@@ -17,6 +17,7 @@ import { PUBLIC_WEB_URL } from '../../config';
 import { TOUR_DEFINITIONS } from '../../lib/tourTargets';
 import { CREAM } from '../../lib/desktopTheme';
 import { DESKTOP_THEME_PALETTES, DESKTOP_THEME_IDS, applyDesktopTheme } from '../../lib/desktopThemePalettes';
+import { isBiometricLockEnabled, setBiometricLockEnabled, isBiometricAvailable } from '../../lib/biometricLock';
 
 const DESKTOP_BREAKPOINT = 768;
 const CITIES = ['Delhi', 'Mumbai', 'Bangalore', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune', 'Ahmedabad'];
@@ -87,9 +88,27 @@ export default function ProfileScreen({ navigation }) {
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [tutorialsExpanded, setTutorialsExpanded] = useState(false);
+  const [bioLockOn, setBioLockOn] = useState(false);
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioSaving, setBioSaving] = useState(false);
   const s = makeStyles(theme);
 
   useEffect(() => { fetchUser(); fetchHostEvents(); fetchMyInvitesCount(); }, []);
+
+  useEffect(() => {
+    isBiometricAvailable().then(setBioAvailable);
+    isBiometricLockEnabled().then(setBioLockOn);
+  }, []);
+
+  async function handleBiometricLockToggle(value) {
+    setBioSaving(true);
+    try {
+      await setBiometricLockEnabled(value);
+      setBioLockOn(value);
+    } finally {
+      setBioSaving(false);
+    }
+  }
 
   // Guest-visibility wave — just the count for the settings-row badge; the
   // actual list lives in MyInvites.js (opened by tapping the row below).
@@ -468,6 +487,22 @@ export default function ProfileScreen({ navigation }) {
               thumbColor={theme.bg}
             />
           </View>
+          {bioAvailable && (
+            <>
+              <View style={s.divider} />
+              <View style={s.settingRow}>
+                <Text style={s.settingIcon}>🔒</Text>
+                <Text style={s.settingLabel}>Unlock with fingerprint/face</Text>
+                <Switch
+                  value={bioLockOn}
+                  onValueChange={handleBiometricLockToggle}
+                  disabled={bioSaving}
+                  trackColor={{ false: theme.border, true: theme.text }}
+                  thumbColor={theme.bg}
+                />
+              </View>
+            </>
+          )}
           <View style={s.divider} />
           <TouchableOpacity style={s.settingRow} onPress={() => setLanguageModalVisible(true)}>
             <Text style={s.settingIcon}>🌐</Text>

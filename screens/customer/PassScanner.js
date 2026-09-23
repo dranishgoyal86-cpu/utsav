@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Network from 'expo-network';
 import { useTheme } from '../../ThemeContext';
 import { syncPasses, lookupPass, recordCheckIn, drainCheckIns, getStats, subscribe } from '../../lib/passQueue';
+import { maybePromptForReview } from '../../lib/rateApp';
 import AppHeader from '../../components/AppHeader';
 
 let CameraView, useCameraPermissions;
@@ -138,6 +139,10 @@ function NativePassScanner({ eventId, navigation, theme, s }) {
     try {
       await recordCheckIn(eventId, result.pass.passCode, arrivedInput);
       drainCheckIns();
+      // Fire-and-forget: a guest just got checked in successfully, a good
+      // moment to ask -- but this only ever does anything once, ever
+      // (see lib/rateApp.js), so it's safe even scanning dozens of guests.
+      maybePromptForReview();
       scanNext();
     } catch (err) {
       console.log('confirmCheckIn error:', err.message);

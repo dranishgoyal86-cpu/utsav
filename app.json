@@ -142,7 +142,14 @@
       ],
       "expo-font",
       "expo-splash-screen",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-apple-authentication",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Utsav to use Face ID to unlock the app for you."
+        }
+      ]
     ],
     "extra": {
       "eas": {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView
 } from 'react-native';
@@ -9,6 +9,7 @@ import SparkleIcon from '../components/SparkleIcon';
 import { isPasswordStrong, PASSWORD_POLICY_HINT } from '../helpers';
 import { syncCachedDesktopThemeId } from '../lib/desktopThemePalettes';
 import { signInWithGoogle } from '../lib/googleAuth';
+import { signInWithApple, isAppleSignInAvailable } from '../lib/appleAuth';
 
 export default function SignupScreen({ navigation }) {
   const { theme } = useTheme();
@@ -18,8 +19,14 @@ export default function SignupScreen({ navigation }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
+  const [appleAvailable, setAppleAvailable] = useState(false);
   const [error, setError] = useState('');
   const s = makeStyles(theme);
+
+  useEffect(() => {
+    isAppleSignInAvailable().then(setAppleAvailable);
+  }, []);
 
   async function handleSignup() {
     if (!name || !email || !phone || !password) {
@@ -110,6 +117,22 @@ export default function SignupScreen({ navigation }) {
     }
   }
 
+  // Same account-creating-on-first-use behavior as Google -- see
+  // LoginScreen.js's handleAppleLogin for the cancel-handling note.
+  async function handleAppleSignup() {
+    try {
+      setAppleLoading(true);
+      setError('');
+      await signInWithApple();
+    } catch (err) {
+      if (err.code !== 'ERR_REQUEST_CANCELED') {
+        setError(err.message || 'Apple sign-in failed. Please try again.');
+      }
+    } finally {
+      setAppleLoading(false);
+    }
+  }
+
   return (
     <SafeAreaView style={s.container}>
       <KeyboardAvoidingView
@@ -161,6 +184,18 @@ export default function SignupScreen({ navigation }) {
                     : <Text style={s.googleBtnText}>Continue with Google</Text>
                   }
                 </TouchableOpacity>
+                {appleAvailable && (
+                  <TouchableOpacity
+                    style={[s.googleBtn, { marginTop: 10 }, appleLoading && { opacity: 0.7 }]}
+                    onPress={handleAppleSignup}
+                    disabled={appleLoading}
+                  >
+                    {appleLoading
+                      ? <ActivityIndicator color={theme.text} />
+                      : <Text style={s.googleBtnText}> Continue with Apple</Text>
+                    }
+                  </TouchableOpacity>
+                )}
               </>
             )}
             <TouchableOpacity style={s.switchBtn} onPress={() => navigation.navigate('Login')}>

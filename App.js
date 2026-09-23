@@ -16,6 +16,7 @@ import { useFonts } from 'expo-font';
 import { supabase } from './supabase';
 import { ThemeProvider, useTheme } from './ThemeContext';
 import { registerTourTarget } from './lib/tourTargets';
+import { isBiometricLockEnabled, isBiometricAvailable, authenticateWithBiometrics } from './lib/biometricLock';
 
 import LoginScreen from './screens/LoginScreen';
 import SignupScreen from './screens/SignupScreen';
@@ -318,12 +319,15 @@ function MainApp() {
   const [checking, setChecking] = useState(true);
   const [suspendedInfo, setSuspendedInfo] = useState(null);
   const [celebratoryInvite, setCelebratoryInvite] = useState(null);
+  const [locked, setLocked] = useState(false);
+  const [lockChecked, setLockChecked] = useState(false);
 
   useEffect(() => {
   supabase.auth.getSession().then(async ({ data: { session } }) => {
     setSession(session);
     if (session) await fetchUserRole(session.user);
     setChecking(false);
+    await applyBiometricLockIfEnabled(session);
   });
 
   const { data: listener } = supabase.auth.onAuthStateChange(
@@ -394,6 +398,28 @@ function MainApp() {
         }).catch(err => console.log('Notifications import error:', err.message));
       });
   }, [session]);
+
+  // Runs once, right after we know whether there's a session, on cold
+  // start only (not on every foreground) -- keeps this simple and
+  // predictable rather than re-locking mid-use every time the app is
+  // backgrounded for a moment. A person turns this on themselves in
+  // Profile > Settings; off by default.
+  async function applyBiometricLockIfEnabled(session) {
+    try {
+      if (session && await isBiometricLockEnabled() && await isBiometricAvailable()) {
+        setLocked(true);
+      }
+    } catch (err) {
+      console.log('Biometric lock check error:', err.message);
+    } finally {
+      setLockChecked(true);
+    }
+  }
+
+  async function unlockWithBiometrics() {
+    const ok = await authenticateWithBiometrics();
+    if (ok) setLocked(false);
+  }
 
   async function fetchUserRole(user, attempt = 0) {
     try {
@@ -532,10 +558,30 @@ function MainApp() {
     }
   }
 
-  if (checking) {
+  if (checking || (session && !lockChecked)) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg }}>
         <ActivityIndicator size="large" color={theme.accent} />
+      </View>
+    );
+  }
+
+  if (locked) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: theme.bg }}>
+        <Text style={{ fontSize: 40, marginBottom: 16 }}>{'\uD83D\uDD12'}</Text>
+        <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text, marginBottom: 8, textAlign: 'center' }}>
+          Utsav is locked
+        </Text>
+        <Text style={{ fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 21, marginBottom: 24 }}>
+          Use your fingerprint or face to continue.
+        </Text>
+        <TouchableOpacity
+          style={{ backgroundColor: theme.btnPrimary, borderRadius: 14, paddingHorizontal: 26, paddingVertical: 13 }}
+          onPress={unlockWithBiometrics}
+        >
+          <Text style={{ color: theme.btnPrimaryText, fontSize: 14, fontWeight: '700' }}>Unlock</Text>
+        </TouchableOpacity>
       </View>
     );
   }
