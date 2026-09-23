@@ -175,7 +175,17 @@ export default function EventScope({ route, navigation }) {
         .update({ excluded_items: [...localExcluded], planning_stage: 'executing' })
         .eq('id', eventId);
       if (error) throw error;
-      await refresh();
+      // No refresh() here on purpose — this screen is about to be replaced
+      // by PlanView.js below, which mounts fresh and calls useEventPlan()
+      // itself, refetching everything from scratch anyway. Refreshing
+      // THIS screen's own state first was dead weight left over from
+      // before the Sept 18 change below made saving always navigate away
+      // immediately (it used to matter back when saving could leave the
+      // host sitting on this same screen with a "Saved!" banner) — for a
+      // wedding with several functions, useEventPlan's fetch is a
+      // dozen-plus sequential queries, so paying for it twice back-to-back
+      // made this button feel like it had done nothing for several
+      // seconds on a real phone's network before finally moving on.
       // Sept 18: "when we click save planning, it should automatically
       // move to execute and book" (Anish) — reverses the Sept 16 change
       // that made this stop and wait for a second tap on a "Saved!"
