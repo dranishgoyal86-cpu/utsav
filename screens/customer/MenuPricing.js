@@ -187,11 +187,19 @@ export default function MenuPricing({ route, navigation }) {
     }
   }
 
+  // Deposit + accept step (open-source scan item #1) — same as
+  // ServiceQuotes.js's confirmBook, applied here for parity now that
+  // menu_quote_responses has the same deposit_percent/accepted_* columns.
   function confirmBook(response) {
+    const hasDeposit = response.deposit_percent != null && response.deposit_percent > 0;
+    const depositAmount = hasDeposit ? Math.round(Number(response.price) * response.deposit_percent / 100) : null;
+    const message = hasDeposit
+      ? `Book ${response.displayName} at ₹${Number(response.price).toLocaleString('en-IN')} for this event?\n\nThis caterer asks for a ${response.deposit_percent}% deposit (₹${depositAmount.toLocaleString('en-IN')}) to confirm. By tapping Accept & Book, you're confirming you agree to this price and deposit.`
+      : `Book ${response.displayName} at ₹${Number(response.price).toLocaleString('en-IN')} for this event?`;
     Alert.alert(
       'Book this caterer?',
-      `Book ${response.displayName} at ₹${Number(response.price).toLocaleString('en-IN')} for this event?`,
-      [{ text: 'Cancel', style: 'cancel' }, { text: 'Book', onPress: () => doBook(response) }],
+      message,
+      [{ text: 'Cancel', style: 'cancel' }, { text: hasDeposit ? 'Accept & Book' : 'Book', onPress: () => doBook(response) }],
     );
   }
 
@@ -201,6 +209,8 @@ export default function MenuPricing({ route, navigation }) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
+      const { data: acceptRow } = await supabase.from('users').select('name').eq('id', session.user.id).maybeSingle();
+      const hostNameForAcceptance = acceptRow?.name || 'Host';
 
       if (response.kind === 'platform') {
         const { data: svcRows } = await supabase.from('services').select('id').eq('provider_id', response.provider_id).eq('category', 'Caterers').eq('is_active', true).limit(1);
@@ -230,7 +240,9 @@ export default function MenuPricing({ route, navigation }) {
       }
 
       await supabase.from('menu_quote_requests').update({ status: 'closed', booked_response_id: response.id }).eq('id', quoteRequest.id);
-      await supabase.from('menu_quote_responses').update({ status: 'booked' }).eq('id', response.id);
+      await supabase.from('menu_quote_responses').update({
+        status: 'booked', accepted_at: new Date().toISOString(), accepted_by_name: hostNameForAcceptance,
+      }).eq('id', response.id);
       await loadQuoteData();
     } finally {
       setBookingId(null);
@@ -287,10 +299,12 @@ export default function MenuPricing({ route, navigation }) {
                       <Text style={s.quoteName}>{r.displayName}{r.kind === 'manual' ? ' (outside quote)' : ''}</Text>
                       <Text style={s.quoteStatus}>{statusLabel(r)}</Text>
                       {!!r.notes && <Text style={s.quoteNotes}>{r.notes}</Text>}
+                      {r.deposit_percent != null && <Text style={s.quoteNotes}>Deposit to confirm: {r.deposit_percent}% (₹{Math.round(Number(r.price) * r.deposit_percent / 100).toLocaleString('en-IN')})</Text>}
+                      {!!r.expires_at && !isExpired(r) && <Text style={s.quoteNotes}>Valid until {new Date(r.expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</Text>}
                     </View>
                     {r.price != null && <Text style={s.quotePrice}>₹{Number(r.price).toLocaleString('en-IN')}</Text>}
                   </View>
-                  {requestOpen && (r.status === 'quoted' || r.status === 'manual') && (
+                  {requestOpen && (r.status === 'quoted' || r.status === 'manual') && !isExpired(r) && (
                     <TouchableOpacity style={s.bookBtn} onPress={() => confirmBook(r)} disabled={bookingId === r.id}>
                       {bookingId === r.id ? <ActivityIndicator color={theme.btnPrimaryText} /> : <Text style={s.bookBtnText}>Book this caterer</Text>}
                     </TouchableOpacity>
@@ -358,11 +372,15 @@ export default function MenuPricing({ route, navigation }) {
   );
 }
 
+function isExpired(r) {
+  return r.status === 'quoted' && !!r.expires_at && new Date(r.expires_at) < new Date();
+}
+
 function statusLabel(r) {
   if (r.kind === 'manual') return 'Outside quote';
   if (r.status === 'invited') return 'Waiting for quote…';
-  if (r.status === 'quoted') return 'Quoted';
-  if (r.status === 'declined') return 'Declined';
+  if (r.status === 'quoted') return isExpired(r) ? 'Quote expired' : 'Quoted';
+  if (r.status === 'declined') return r.decline_reason ? `Declined — ${r.decline_reason}` : 'Declined';
   if (r.status === 'booked') return '✓ Booked';
   return r.status;
 }

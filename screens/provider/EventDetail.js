@@ -7,7 +7,7 @@ import { useTheme } from '../../ThemeContext';
 import { supabase } from '../../supabase';
 import {
   ArrowLeft, Wallet, Storefront, Users, Clock,
-  UserGear, Package, ChatCircle, FileText,
+  UserGear, Package, ChatCircle, FileText, Camera,
   CaretRight, Lock, CheckCircle
 } from 'phosphor-react-native';
 import AppHeader from '../../components/AppHeader';
@@ -27,6 +27,9 @@ const MODULES = [
   { id: 'inventory', label: 'Inventory & Logistics', icon: Package, stage: 2, screen: 'Inventory', unlockAfter: 'team', built: true },
   { id: 'comms', label: 'Client Communication', icon: ChatCircle, stage: 3, screen: 'CommLog', unlockAfter: 'inventory', built: true },
   { id: 'docs', label: 'Documents & Contracts', icon: FileText, stage: 3, screen: 'Documents', unlockAfter: 'comms', built: true },
+  // Post-event private photo gallery (open-source scan item #7, Anish,
+  // Sept 24) — final step, once everything else about the event is wrapped.
+  { id: 'gallery', label: 'Photo Gallery', icon: Camera, stage: 3, screen: 'PhotoGallery', unlockAfter: 'docs', built: true },
 ];
 
 const HINTS = {
@@ -38,6 +41,7 @@ const HINTS = {
   inventory: 'Set up your team first',
   comms: 'Complete Stage 2 first',
   docs: 'Add communication log first',
+  gallery: 'Add documents first',
 };
 
 export default function EventDetail({ route, navigation }) {

@@ -7,6 +7,7 @@ import { useTheme } from '../../ThemeContext';
 import { showAlert } from '../../helpers';
 import AppHeader from '../../components/AppHeader';
 import { notifyQuoteReceived, notifyQuoteDeclined, notifyServiceQuoteReceived, notifyServiceQuoteDeclined } from '../../notifications';
+import { resolveMatchKey } from '../../vendorTaxonomy';
 
 // Combined provider-side quote inbox — generalizes CatererQuoteInbox.js
 // (menu_quote_* tables, unchanged) to show it alongside the new
@@ -34,6 +35,15 @@ export default function QuoteInbox({ navigation }) {
   const [priceDrafts, setPriceDrafts] = useState({});
   const [noteDrafts, setNoteDrafts] = useState({});
   const [submittingId, setSubmittingId] = useState(null);
+  // Deposit % + "valid for N days" — provider sets both when quoting
+  // (open-source scan items #1 and #6). Defaults match what most small
+  // vendors already ask for informally (a modest deposit, a few days to
+  // decide) but are fully editable per quote.
+  const [depositDrafts, setDepositDrafts] = useState({});
+  const [validDaysDrafts, setValidDaysDrafts] = useState({});
+  // Decline reason (scan item #5) — tapping Decline once reveals a quick
+  // reason row instead of declining immediately; tapping a reason confirms.
+  const [decliningId, setDecliningId] = useState(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -51,6 +61,19 @@ export default function QuoteInbox({ navigation }) {
       const { data: providerData } = await supabase.from('providers').select('id').eq('user_id', session.user.id).maybeSingle();
       if (!providerData) { setRows([]); return; }
       setProviderId(providerData.id);
+
+      // Intake-question hints (scan item #3) — this provider's own
+      // per-service questions, merged by category, so a service quote
+      // request can remind them what they usually ask a host upfront.
+      const { data: myServices } = await supabase.from('services').select('category, intake_questions').eq('provider_id', providerData.id);
+      const hintsByCategory = {};
+      (myServices || []).forEach(sv => {
+        if (!Array.isArray(sv.intake_questions) || !sv.intake_questions.length) return;
+        const key = resolveMatchKey(sv.category);
+        if (!key) return;
+        const existing = hintsByCategory[key] || [];
+        hintsByCategory[key] = [...new Set([...existing, ...sv.intake_questions])];
+      });
 
       const [menuRes, serviceRes] = await Promise.all([
         supabase.from('menu_quote_responses').select('*').eq('provider_id', providerData.id).order('created_at', { ascending: false }),
@@ -88,7 +111,8 @@ export default function QuoteInbox({ navigation }) {
       const combined = allResponses.map(r => {
         const req = requestsById[r.quote_request_id] || {};
         const ev = eventsById[req.event_id] || {};
-        return { ...r, request: req, event: ev, hostName: hostsById[req.host_id] || 'A host' };
+        const intakeHints = r.source === 'service' ? (hintsByCategory[req.category_slug] || []) : [];
+        return { ...r, request: req, event: ev, hostName: hostsById[req.host_id] || 'A host', intakeHints };
       });
       combined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setRows(combined);
@@ -105,10 +129,20 @@ export default function QuoteInbox({ navigation }) {
       return;
     }
     const table = row.source === 'menu' ? 'menu_quote_responses' : 'service_quote_responses';
+    const depositStr = (depositDrafts[row.id] || '').trim();
+    const depositNum = depositStr ? Number(depositStr) : null;
+    if (depositStr && (Number.isNaN(depositNum) || depositNum < 0 || depositNum > 100)) {
+      showAlert('Check the deposit %', 'Deposit should be a number between 0 and 100, or left blank.');
+      return;
+    }
+    const validDaysStr = (validDaysDrafts[row.id] || '').trim();
+    const validDaysNum = validDaysStr ? Number(validDaysStr) : null;
+    const expiresAt = validDaysNum ? new Date(Date.now() + validDaysNum * 24 * 60 * 60 * 1000).toISOString() : null;
     setSubmittingId(row.id);
     try {
       const { error: err } = await supabase.from(table).update({
         status: 'quoted', price: priceNum, notes: (noteDrafts[row.id] || '').trim() || null, responded_at: new Date().toISOString(),
+        deposit_percent: depositNum, expires_at: expiresAt,
       }).eq('id', row.id);
       if (err) { showAlert('Could not send that', err.message); return; }
 
@@ -126,12 +160,12 @@ export default function QuoteInbox({ navigation }) {
     }
   }
 
-  async function handleDecline(row) {
+  async function handleDecline(row, reason) {
     const table = row.source === 'menu' ? 'menu_quote_responses' : 'service_quote_responses';
     setSubmittingId(row.id);
     try {
       const { error: err } = await supabase.from(table).update({
-        status: 'declined', responded_at: new Date().toISOString(),
+        status: 'declined', responded_at: new Date().toISOString(), decline_reason: reason || null,
       }).eq('id', row.id);
       if (err) { showAlert('Could not update that', err.message); return; }
 
@@ -143,6 +177,7 @@ export default function QuoteInbox({ navigation }) {
         await notifyServiceQuoteDeclined(row.request.host_id, providerName, row.quote_request_id);
       }
 
+      setDecliningId(null);
       fetchRequests();
     } finally {
       setSubmittingId(null);
@@ -177,6 +212,12 @@ export default function QuoteInbox({ navigation }) {
 
         {canRespond ? (
           <View style={{ marginTop: 10 }}>
+            {Array.isArray(item.intakeHints) && item.intakeHints.length > 0 && (
+              <View style={s.hintsBox}>
+                <Text style={s.hintsTitle}>You usually ask:</Text>
+                {item.intakeHints.map((q, i) => <Text key={i} style={s.hintLine}>• {q}</Text>)}
+              </View>
+            )}
             <TextInput
               style={s.input}
               placeholder="Your price (₹)"
@@ -185,6 +226,24 @@ export default function QuoteInbox({ navigation }) {
               value={priceDrafts[item.id] || ''}
               onChangeText={t => setPriceDrafts(prev => ({ ...prev, [item.id]: t }))}
             />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TextInput
+                style={[s.input, { flex: 1 }]}
+                placeholder="Deposit % (optional)"
+                placeholderTextColor={theme.textTertiary}
+                keyboardType="numeric"
+                value={depositDrafts[item.id] || ''}
+                onChangeText={t => setDepositDrafts(prev => ({ ...prev, [item.id]: t }))}
+              />
+              <TextInput
+                style={[s.input, { flex: 1 }]}
+                placeholder="Valid for (days)"
+                placeholderTextColor={theme.textTertiary}
+                keyboardType="numeric"
+                value={validDaysDrafts[item.id] || ''}
+                onChangeText={t => setValidDaysDrafts(prev => ({ ...prev, [item.id]: t }))}
+              />
+            </View>
             <TextInput
               style={s.input}
               placeholder="Notes for the host (optional)"
@@ -192,17 +251,38 @@ export default function QuoteInbox({ navigation }) {
               value={noteDrafts[item.id] || ''}
               onChangeText={t => setNoteDrafts(prev => ({ ...prev, [item.id]: t }))}
             />
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-              <TouchableOpacity style={s.declineBtn} onPress={() => handleDecline(item)} disabled={submittingId === item.id}>
-                <Text style={s.declineBtnText}>Decline</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[s.submitBtn, { flex: 1 }]} onPress={() => handleSubmit(item)} disabled={submittingId === item.id}>
-                {submittingId === item.id ? <ActivityIndicator color={theme.btnPrimaryText} /> : <Text style={s.submitBtnText}>Send quote</Text>}
-              </TouchableOpacity>
-            </View>
+            {decliningId === item.id ? (
+              <View>
+                <Text style={s.declineReasonPrompt}>Why are you declining?</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {['Price doesn\'t work', 'Not available', 'Outside my area', 'Other'].map(reason => (
+                    <TouchableOpacity key={reason} style={s.reasonChip} onPress={() => handleDecline(item, reason)} disabled={submittingId === item.id}>
+                      <Text style={s.reasonChipText}>{reason}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TouchableOpacity onPress={() => setDecliningId(null)} style={{ marginTop: 8 }}>
+                  <Text style={s.cancelDeclineText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                <TouchableOpacity style={s.declineBtn} onPress={() => setDecliningId(item.id)} disabled={submittingId === item.id}>
+                  <Text style={s.declineBtnText}>Decline</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.submitBtn, { flex: 1 }]} onPress={() => handleSubmit(item)} disabled={submittingId === item.id}>
+                  {submittingId === item.id ? <ActivityIndicator color={theme.btnPrimaryText} /> : <Text style={s.submitBtnText}>Send quote</Text>}
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         ) : (
-          item.price != null && <Text style={s.quotedPrice}>Your quote: ₹{Number(item.price).toLocaleString('en-IN')}</Text>
+          <>
+            {item.price != null && <Text style={s.quotedPrice}>Your quote: ₹{Number(item.price).toLocaleString('en-IN')}</Text>}
+            {item.deposit_percent != null && <Text style={s.meta}>Deposit asked: {item.deposit_percent}%</Text>}
+            {!!item.expires_at && <Text style={s.meta}>Valid until {new Date(item.expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</Text>}
+            {item.status === 'declined' && !!item.decline_reason && <Text style={s.meta}>Reason: {item.decline_reason}</Text>}
+          </>
         )}
       </View>
     );
@@ -256,5 +336,12 @@ function makeStyles(theme) {
     declineBtnText: { fontSize: 12.5, fontWeight: '700', color: theme.danger || '#C0392B' },
     submitBtn: { backgroundColor: theme.btnPrimary, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
     submitBtnText: { fontSize: 12.5, fontWeight: '700', color: theme.btnPrimaryText },
+    hintsBox: { backgroundColor: theme.bg, borderRadius: 10, padding: 10, marginBottom: 8 },
+    hintsTitle: { fontSize: 11, fontWeight: '700', color: theme.textSecondary, marginBottom: 4 },
+    hintLine: { fontSize: 12, color: theme.text, lineHeight: 17 },
+    declineReasonPrompt: { fontSize: 12.5, fontWeight: '600', color: theme.text, marginBottom: 8 },
+    reasonChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: theme.cardBg, borderWidth: 0.5, borderColor: theme.border },
+    reasonChipText: { fontSize: 12, fontWeight: '600', color: theme.text },
+    cancelDeclineText: { fontSize: 12, color: theme.textSecondary, textAlign: 'center' },
   });
 }

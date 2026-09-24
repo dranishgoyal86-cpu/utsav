@@ -108,6 +108,7 @@ import MenuPlanner from './screens/customer/MenuPlanner';
 import MenuPricing from './screens/customer/MenuPricing';
 import CatererQuoteInbox from './screens/provider/CatererQuoteInbox';
 import QuoteInbox from './screens/provider/QuoteInbox';
+import LeadsList from './screens/provider/LeadsList';
 import InviteHub from './screens/customer/InviteHub';
 import SeatingChart from './screens/customer/SeatingChart';
 import GatePass from './screens/customer/GatePass';
@@ -126,6 +127,7 @@ import WriteReview from './screens/customer/WriteReview';
 import ProviderReviews from './screens/customer/ProviderReviews';
 import PaymentReceipt from './screens/customer/PaymentReceipt';
 import ShareEventPhotos from './screens/customer/ShareEventPhotos';
+import EventGalleryView from './screens/customer/EventGalleryView';
 import ChatScreen from './screens/customer/ChatScreen';
 import InboxScreen from './screens/customer/InboxScreen';
 import NotificationsScreen from './screens/customer/NotificationsScreen';
@@ -160,6 +162,7 @@ import TeamManager from './screens/provider/modules/TeamManager';
 import Inventory from './screens/provider/modules/Inventory';
 import CommLog from './screens/provider/modules/CommLog';
 import Documents from './screens/provider/modules/Documents';
+import PhotoGallery from './screens/provider/modules/PhotoGallery';
 import ProviderInbox from './screens/provider/ProviderInbox';
 import ClaimBusiness from './screens/customer/ClaimBusiness';
 import ClaimVendorFlow from './screens/ClaimVendorFlow';
@@ -706,10 +709,12 @@ function MainApp() {
             <Stack.Screen name="Inventory" component={Inventory} />
             <Stack.Screen name="CommLog" component={CommLog} />
             <Stack.Screen name="Documents" component={Documents} />
+            <Stack.Screen name="PhotoGallery" component={PhotoGallery} />
             <Stack.Screen name="Chat" component={ChatScreen} />
             <Stack.Screen name="Inbox" component={ProviderInbox} />
             <Stack.Screen name="CatererQuoteInbox" component={CatererQuoteInbox} />
             <Stack.Screen name="QuoteInbox" component={QuoteInbox} />
+            <Stack.Screen name="LeadsList" component={LeadsList} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="BillingProfile" component={BillingProfile} />
             <Stack.Screen name="InvoiceGenerator" component={InvoiceGenerator} />
@@ -760,6 +765,7 @@ function MainApp() {
             <Stack.Screen name="ProviderReviews" component={ProviderReviews} />
             <Stack.Screen name="PaymentReceipt" component={PaymentReceipt} />
             <Stack.Screen name="ShareEventPhotos" component={ShareEventPhotos} />
+            <Stack.Screen name="EventGalleryView" component={EventGalleryView} />
             <Stack.Screen name="Chat" component={ChatScreen} />
             <Stack.Screen name="Inbox" component={InboxScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />

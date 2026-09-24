@@ -554,6 +554,21 @@ export default function BookingsScreen({ navigation, route }) {
               <Text style={s.reviewBtnText}>📸 Share photos</Text>
             </TouchableOpacity>
           )}
+          {/* Provider's private post-event photo delivery (open-source
+              scan item #7, Anish, Sept 24) — separate from "Share photos"
+              above, which is the host sharing THEIR OWN photos; this is
+              viewing what the provider uploaded for this specific
+              booking. Shown for confirmed too, in case a provider uploads
+              early (e.g. mid-event highlights) before the booking is
+              marked completed. */}
+          {(booking.status === 'confirmed' || booking.status === 'completed' || booking.status === 'reviewed') && (
+            <TouchableOpacity
+              style={s.reviewBtn}
+              onPress={() => navigation.navigate('EventGalleryView', { booking })}
+            >
+              <Text style={s.reviewBtnText}>🖼️ Photos from provider</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {booking.payment_id && (

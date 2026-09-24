@@ -347,6 +347,37 @@ export async function getSignedGuestDocumentUrl(path, expiresInSeconds = 3600) {
   return data.signedUrl;
 }
 
+// Post-event private photo gallery (open-source scan item #7) — a
+// provider's private handoff of final edited photos to the one host of
+// that specific booking. Own bucket (event_gallery), not the Cloudinary
+// portfolio pipeline (that's public marketing photos; this is one host's
+// private delivery) — same private-bucket + signed-URL pattern as
+// uploadProviderDocument/getSignedDocumentUrl above, just keyed by
+// providerId/bookingId instead of userId/label.
+export async function uploadEventGalleryPhoto(uri, providerId, bookingId, caption) {
+  const ext = (uri.split('.').pop() || 'jpg').split('?')[0];
+  const path = `${providerId}/${bookingId}/${Date.now()}.${ext}`;
+  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  const { error: uploadErr } = await supabase.storage
+    .from('event_gallery')
+    .upload(path, decode(base64), { contentType: 'image/jpeg', upsert: true });
+  if (uploadErr) throw uploadErr;
+  const { error: rowErr } = await supabase.from('event_gallery_photos').insert({
+    booking_id: bookingId, provider_id: providerId, storage_path: path, caption: caption || null,
+  });
+  if (rowErr) throw rowErr;
+  return path;
+}
+
+export async function getSignedEventGalleryUrl(path, expiresInSeconds = 3600) {
+  if (!path) return null;
+  const { data, error } = await supabase.storage
+    .from('event_gallery')
+    .createSignedUrl(path, expiresInSeconds);
+  if (error) { console.log('getSignedEventGalleryUrl error:', error.message); return null; }
+  return data.signedUrl;
+}
+
 export async function createRekognitionCollection(collectionId) {
   try {
     await callEdgeFunction('create-collection', { collectionId });

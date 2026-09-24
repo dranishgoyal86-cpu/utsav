@@ -517,6 +517,11 @@ function OverviewScreen({ navigation }) {
             <Text style={s.quickLinkIcon}>💰</Text>
             <Text style={s.quickLinkText}>Quote Requests</Text>
           </TouchableOpacity>
+          {/* Pre-quote lead list — open-source scan item #4 (Anish, Sept 24) */}
+          <TouchableOpacity style={s.quickLink} onPress={() => navigation.navigate('LeadsList')}>
+            <Text style={s.quickLinkIcon}>📇</Text>
+            <Text style={s.quickLinkText}>Leads</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={s.quickLink} onPress={() => navigation.navigate('InvoiceGenerator')}>
             <Text style={s.quickLinkIcon}>🧾</Text>
             <Text style={s.quickLinkText}>New Invoice</Text>

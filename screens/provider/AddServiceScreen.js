@@ -124,6 +124,15 @@ export default function AddServiceScreen({ navigation, route }) {
   const [discountLabel, setDiscountLabel] = useState(existingService?.discount_label || '');
   const [discountPercent, setDiscountPercent] = useState(existingService?.discount_percent?.toString() || '');
   const [rushFeePercent, setRushFeePercent] = useState(existingService?.rush_fee_percent?.toString() || '');
+  // Intake questions (open-source scan item #3, from Cal.com) — up to 3
+  // short questions this provider always wants answered before quoting on
+  // this service. Shown to the host as hints when they invite this
+  // provider in ServiceQuotes.js/MenuPricing.js's picker, and to the
+  // provider themselves as a reminder in QuoteInbox.js. Purely a hint —
+  // not a structured required form, so this stays a light three-line list.
+  const [intakeQ1, setIntakeQ1] = useState((existingService?.intake_questions || [])[0] || '');
+  const [intakeQ2, setIntakeQ2] = useState((existingService?.intake_questions || [])[1] || '');
+  const [intakeQ3, setIntakeQ3] = useState((existingService?.intake_questions || [])[2] || '');
   const [selectedCategory, setSelectedCategory] = useState(existingService?.category || '');
   const [selectedCategoryGroup, setSelectedCategoryGroup] = useState(getParentCategory(existingService?.category) || '');
   const [selectedEventTypes, setSelectedEventTypes] = useState(existingService?.event_types || []);
@@ -478,6 +487,9 @@ export default function AddServiceScreen({ navigation, route }) {
         discount_label: discountLabel.trim() || null,
         discount_percent: discountPercent ? parseFloat(discountPercent) : null,
         rush_fee_percent: rushFeePercent ? parseFloat(rushFeePercent) : null,
+        intake_questions: [intakeQ1, intakeQ2, intakeQ3].map(q => q.trim()).filter(Boolean).length
+          ? [intakeQ1, intakeQ2, intakeQ3].map(q => q.trim()).filter(Boolean)
+          : null,
       };
 
       let error, serviceId;
@@ -836,6 +848,14 @@ export default function AddServiceScreen({ navigation, route }) {
               />
             </View>
 
+          </View>
+
+          <View style={s.fieldGroup}>
+            <Text style={s.label}>Questions you always ask before quoting</Text>
+            <Text style={s.fieldHint}>Optional — shown to hosts as hints when they invite you to quote, so their note answers these upfront.</Text>
+            <TextInput style={s.input} placeholder="e.g. How many guests?" placeholderTextColor={theme.textTertiary} value={intakeQ1} onChangeText={setIntakeQ1} />
+            <TextInput style={[s.input, { marginTop: 8 }]} placeholder="e.g. Veg, non-veg, or both?" placeholderTextColor={theme.textTertiary} value={intakeQ2} onChangeText={setIntakeQ2} />
+            <TextInput style={[s.input, { marginTop: 8 }]} placeholder="e.g. Indoor or outdoor venue?" placeholderTextColor={theme.textTertiary} value={intakeQ3} onChangeText={setIntakeQ3} />
           </View>
 
           {/* Eligibility-gated payment-terms menu (0%/20%/40%/100% advance),

@@ -30,6 +30,12 @@ export default function AvailabilityScreen({ navigation }) {
   const [blockedDates, setBlockedDates] = useState([]);
   const [workingDays, setWorkingDays] = useState([1, 2, 3, 4, 5, 6, 0]);
   const [advanceBookingDays, setAdvanceBookingDays] = useState(30);
+  // "buffer time" — teardown/travel time a provider needs blocked around
+  // every booking, so back-to-back jobs can't be scheduled with zero gap
+  // (open-source scan item #2, from Cal.com). Purely a provider-facing
+  // setting for now — enforcing it against actual booking requests is a
+  // separate step, not part of this first pass.
+  const [bufferMinutes, setBufferMinutes] = useState(0);
   const [bookedDates, setBookedDates] = useState([]);
 
   useEffect(() => { fetchAvailability(); }, []);
@@ -42,7 +48,7 @@ export default function AvailabilityScreen({ navigation }) {
 
       const { data: provider } = await supabase
         .from('providers')
-        .select('id, blocked_dates, working_days, advance_booking_days')
+        .select('id, blocked_dates, working_days, advance_booking_days, buffer_minutes')
         .eq('user_id', session.user.id)
         .maybeSingle();
 
@@ -51,6 +57,7 @@ export default function AvailabilityScreen({ navigation }) {
       setBlockedDates(provider.blocked_dates || []);
       setWorkingDays(provider.working_days || [1, 2, 3, 4, 5, 6, 0]);
       setAdvanceBookingDays(provider.advance_booking_days || 30);
+      setBufferMinutes(provider.buffer_minutes || 0);
 
       const { data: bookings } = await supabase
         .from('bookings')
@@ -75,6 +82,7 @@ export default function AvailabilityScreen({ navigation }) {
           blocked_dates: blockedDates,
           working_days: workingDays,
           advance_booking_days: advanceBookingDays,
+          buffer_minutes: bufferMinutes,
         })
         .eq('id', providerId);
       if (error) throw error;
@@ -224,6 +232,31 @@ export default function AvailabilityScreen({ navigation }) {
           </View>
           <Text style={s.advanceHint}>
             Customers can book up to {advanceBookingDays} days in advance
+          </Text>
+        </View>
+
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>Buffer time around bookings</Text>
+          <Text style={s.sectionSub}>
+            Blocked automatically before and after every booking — for teardown, travel, or setup
+          </Text>
+          <View style={s.advanceRow}>
+            {[0, 30, 60, 90, 120].map(mins => (
+              <TouchableOpacity
+                key={mins}
+                style={[s.advanceChip, bufferMinutes === mins && s.advanceChipActive]}
+                onPress={() => setBufferMinutes(mins)}
+              >
+                <Text style={[s.advanceChipText, bufferMinutes === mins && s.advanceChipTextActive]}>
+                  {mins === 0 ? 'None' : `${mins}m`}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={s.advanceHint}>
+            {bufferMinutes === 0
+              ? "No buffer set — bookings can be scheduled back-to-back"
+              : `${bufferMinutes} minutes blocked before and after each booking`}
           </Text>
         </View>
 

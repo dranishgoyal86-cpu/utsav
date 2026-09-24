@@ -117,18 +117,24 @@ export default function ServiceQuotes({ route, navigation }) {
     setPickerVisible(true);
     setCandidatesLoading(true);
     try {
-      const { data: activeServices } = await supabase.from('services').select('provider_id, category').eq('is_active', true);
+      const { data: activeServices } = await supabase.from('services').select('provider_id, category, intake_questions').eq('is_active', true);
       const { data: { session } } = await supabase.auth.getSession();
       const avoidProviderIds = session ? await getAvoidProviderIds(session.user.id) : [];
-      const matchingProviderIds = [...new Set(
-        (activeServices || [])
-          .filter(sv => resolveMatchKey(sv.category) === categorySlug)
-          .map(sv => sv.provider_id)
-          .filter(Boolean)
-      )].filter(id => !avoidProviderIds.includes(id));
+      const matchingServices = (activeServices || []).filter(sv => resolveMatchKey(sv.category) === categorySlug);
+      const matchingProviderIds = [...new Set(matchingServices.map(sv => sv.provider_id).filter(Boolean))]
+        .filter(id => !avoidProviderIds.includes(id));
       if (!matchingProviderIds.length) { setCandidates([]); return; }
+      // Intake-question hints (open-source scan item #3) — merged per
+      // provider, shown under their name in the picker so the host can
+      // pre-answer them in the note field before sending the invite.
+      const questionsByProvider = {};
+      matchingServices.forEach(sv => {
+        if (!Array.isArray(sv.intake_questions) || !sv.intake_questions.length) return;
+        const existing = questionsByProvider[sv.provider_id] || [];
+        questionsByProvider[sv.provider_id] = [...new Set([...existing, ...sv.intake_questions])];
+      });
       const { data: provs } = await supabase.from('providers').select('id, name, business_name, city, is_verified').in('id', matchingProviderIds);
-      setCandidates(provs || []);
+      setCandidates((provs || []).map(p => ({ ...p, intakeQuestions: questionsByProvider[p.id] || [] })));
     } finally {
       setCandidatesLoading(false);
     }
@@ -191,11 +197,23 @@ export default function ServiceQuotes({ route, navigation }) {
     }
   }
 
+  // Deposit + accept step (open-source scan item #1) — when the provider
+  // set a deposit_percent while quoting, the host sees the deposit amount
+  // and explicitly accepts before doBook() runs. This is a recorded
+  // acceptance (name + timestamp), NOT a real e-signature — see
+  // quote-first-booking-all-services.md and the provider-erp-open-source-
+  // feature-scan.md for why a real e-sign integration is a separate,
+  // later follow-up rather than bundled in here.
   function confirmBook(response) {
+    const hasDeposit = response.deposit_percent != null && response.deposit_percent > 0;
+    const depositAmount = hasDeposit ? Math.round(Number(response.price) * response.deposit_percent / 100) : null;
+    const message = hasDeposit
+      ? `Book ${response.displayName} at ₹${Number(response.price).toLocaleString('en-IN')} for ${itemName}?\n\nThis provider asks for a ${response.deposit_percent}% deposit (₹${depositAmount.toLocaleString('en-IN')}) to confirm. By tapping Accept & Book, you're confirming you agree to this price and deposit.`
+      : `Book ${response.displayName} at ₹${Number(response.price).toLocaleString('en-IN')} for ${itemName}?`;
     Alert.alert(
       'Book this provider?',
-      `Book ${response.displayName} at ₹${Number(response.price).toLocaleString('en-IN')} for ${itemName}?`,
-      [{ text: 'Cancel', style: 'cancel' }, { text: 'Book', onPress: () => doBook(response) }],
+      message,
+      [{ text: 'Cancel', style: 'cancel' }, { text: hasDeposit ? 'Accept & Book' : 'Book', onPress: () => doBook(response) }],
     );
   }
 
@@ -205,6 +223,8 @@ export default function ServiceQuotes({ route, navigation }) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
+      const { data: userRow } = await supabase.from('users').select('name').eq('id', session.user.id).maybeSingle();
+      const hostNameForAcceptance = userRow?.name || 'Host';
 
       if (response.kind === 'platform') {
         const { data: svcRows } = await supabase.from('services').select('id, category').eq('provider_id', response.provider_id).eq('is_active', true);
@@ -213,8 +233,7 @@ export default function ServiceQuotes({ route, navigation }) {
           showAlert('Could not book', "This provider has no active listing for this category anymore — ask them to check their profile, or add this as an outside quote instead.");
           return;
         }
-        const { data: userRow } = await supabase.from('users').select('name').eq('id', session.user.id).maybeSingle();
-        const hostName = userRow?.name || 'A host';
+        const hostName = hostNameForAcceptance;
 
         const { data: newBooking, error: bookingErr } = await supabase.from('bookings').insert({
           customer_id: session.user.id,
@@ -234,7 +253,9 @@ export default function ServiceQuotes({ route, navigation }) {
       }
 
       await supabase.from('service_quote_requests').update({ status: 'closed', booked_response_id: response.id }).eq('id', quoteRequest.id);
-      await supabase.from('service_quote_responses').update({ status: 'booked' }).eq('id', response.id);
+      await supabase.from('service_quote_responses').update({
+        status: 'booked', accepted_at: new Date().toISOString(), accepted_by_name: hostNameForAcceptance,
+      }).eq('id', response.id);
       await loadQuoteData();
     } finally {
       setBookingId(null);
@@ -277,10 +298,12 @@ export default function ServiceQuotes({ route, navigation }) {
                       <Text style={s.quoteName}>{r.displayName}{r.kind === 'manual' ? ' (outside quote)' : ''}</Text>
                       <Text style={s.quoteStatus}>{statusLabel(r)}</Text>
                       {!!r.notes && <Text style={s.quoteNotes}>{r.notes}</Text>}
+                      {r.deposit_percent != null && <Text style={s.quoteNotes}>Deposit to confirm: {r.deposit_percent}% (₹{Math.round(Number(r.price) * r.deposit_percent / 100).toLocaleString('en-IN')})</Text>}
+                      {!!r.expires_at && !isExpired(r) && <Text style={s.quoteNotes}>Valid until {new Date(r.expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</Text>}
                     </View>
                     {r.price != null && <Text style={s.quotePrice}>₹{Number(r.price).toLocaleString('en-IN')}</Text>}
                   </View>
-                  {requestOpen && (r.status === 'quoted' || r.status === 'manual') && (
+                  {requestOpen && (r.status === 'quoted' || r.status === 'manual') && !isExpired(r) && (
                     <TouchableOpacity style={s.bookBtn} onPress={() => confirmBook(r)} disabled={bookingId === r.id}>
                       {bookingId === r.id ? <ActivityIndicator color={theme.btnPrimaryText} /> : <Text style={s.bookBtnText}>Book this provider</Text>}
                     </TouchableOpacity>
@@ -320,6 +343,9 @@ export default function ServiceQuotes({ route, navigation }) {
                     <TouchableOpacity key={c.id} style={[s.candidateRow, picked && s.candidateRowActive]} onPress={() => toggleCandidate(c.id)}>
                       <Text style={s.candidateName}>{picked ? '✓ ' : ''}{c.business_name || c.name}</Text>
                       {!!c.city && <Text style={s.candidateCity}>{c.city}</Text>}
+                      {c.intakeQuestions.length > 0 && (
+                        <Text style={s.candidateHint}>Usually asks: {c.intakeQuestions.join(' · ')}</Text>
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -348,11 +374,18 @@ export default function ServiceQuotes({ route, navigation }) {
   );
 }
 
+// Quote expiry (open-source scan item #6) — a quoted response with a
+// passed expires_at is treated as expired: still visible for context, but
+// no longer bookable, and labeled distinctly from a live quote.
+function isExpired(r) {
+  return r.status === 'quoted' && !!r.expires_at && new Date(r.expires_at) < new Date();
+}
+
 function statusLabel(r) {
   if (r.kind === 'manual') return 'Outside quote';
   if (r.status === 'invited') return 'Waiting for quote…';
-  if (r.status === 'quoted') return 'Quoted';
-  if (r.status === 'declined') return 'Declined';
+  if (r.status === 'quoted') return isExpired(r) ? 'Quote expired' : 'Quoted';
+  if (r.status === 'declined') return r.decline_reason ? `Declined — ${r.decline_reason}` : 'Declined';
   if (r.status === 'booked') return '✓ Booked';
   return r.status;
 }
@@ -388,6 +421,7 @@ function makeStyles(theme) {
     candidateRowActive: { borderColor: theme.btnPrimary, backgroundColor: theme.btnPrimary + '22' },
     candidateName: { fontSize: 13.5, fontWeight: '700', color: theme.text },
     candidateCity: { fontSize: 11.5, color: theme.textSecondary, marginTop: 2 },
+    candidateHint: { fontSize: 11, color: theme.textTertiary, marginTop: 4, fontStyle: 'italic' },
     modalCancelBtn: { paddingHorizontal: 18, paddingVertical: 13, borderRadius: 14, backgroundColor: theme.cardBg, borderWidth: 0.5, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' },
     modalCancelBtnText: { fontSize: 13, fontWeight: '700', color: theme.text },
     modalSendBtn: { backgroundColor: theme.btnPrimary, borderRadius: 14, paddingVertical: 13, alignItems: 'center' },
