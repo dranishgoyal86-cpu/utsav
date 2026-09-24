@@ -11,13 +11,14 @@ import { useSavedProvider } from '../../hooks/useSavedProvider';
 import { useBlockedProvider } from '../../hooks/useBlockedProvider';
 import { packageHighlights, getCategoryIcon, getParentCategory, resolveParentCategory } from '../../serviceTemplates';
 import AppHeader from '../../components/AppHeader';
+import { notifyServiceQuoteRequested } from '../../notifications';
 import { CREAM } from '../../lib/desktopTheme';
 
 const CAROUSEL_CARD_WIDTH = 168;
 const DESKTOP_BREAKPOINT = 768;
 
 export default function ProviderProfile({ route, navigation }) {
-  const { provider: initialProvider, providerId: deepLinkId, savedPlanId } = route.params || {};
+  const { provider: initialProvider, providerId: deepLinkId, savedPlanId, eventId, itemName, categorySlug } = route.params || {};
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
   // Lightest-touch treatment (centered, not restyled) -- same call as
@@ -27,6 +28,7 @@ export default function ProviderProfile({ route, navigation }) {
   const [services, setServices] = useState([]);
   const [paymentTermsByService, setPaymentTermsByService] = useState({});
   const [expandedTermsServiceId, setExpandedTermsServiceId] = useState(null);
+  const [requestingQuote, setRequestingQuote] = useState(false);
   const [reviews, setReviews] = useState([]);
   const [verifiedPhotos, setVerifiedPhotos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -254,6 +256,79 @@ export default function ProviderProfile({ route, navigation }) {
     });
   }
 
+  // "when hosts go to bookings he should ask for quotes from the providers
+  // rather than direct booking. only when quote and services are confirmed
+  // then actual payment and booking" (Anish, Sept 23) — generalizes the
+  // existing Menu/Caterer quote pattern to every category. See
+  // quote-first-booking-all-services.md.
+  //
+  // Only takes over when this screen was reached from ItemDetail.js with a
+  // real checklist item in hand (eventId/itemName/categorySlug all
+  // present) — that's the "planning an event, booking a checklist item"
+  // path this ask is about. Reached any other way (a deep link, a saved
+  // provider with no event context), booking stays exactly as it was
+  // today: this function isn't called at all, the original
+  // navigation.navigate('Booking', ...) call runs unchanged.
+  async function handleRequestQuote(service) {
+    setRequestingQuote(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { data: userRow } = await supabase.from('users').select('name').eq('id', session.user.id).maybeSingle();
+      const hostName = userRow?.name || 'A host';
+
+      // Reuse an already-open request for this exact event+item instead of
+      // creating a duplicate every time a host taps Book on a different
+      // service card for the same checklist item.
+      const { data: existingReqs } = await supabase
+        .from('service_quote_requests')
+        .select('*')
+        .eq('event_id', eventId)
+        .eq('item_name', itemName)
+        .eq('status', 'open')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      let req = (existingReqs || [])[0] || null;
+      if (!req) {
+        const { data: newReq, error: reqErr } = await supabase.from('service_quote_requests')
+          .insert({ event_id: eventId, host_id: session.user.id, item_name: itemName, category_slug: categorySlug })
+          .select().single();
+        if (reqErr) { showAlert('Could not save that', reqErr.message); return; }
+        req = newReq;
+      }
+
+      // Don't double-invite the same provider if they're already on this
+      // request (e.g. host tapped Book on two of this provider's services).
+      const { data: existingResp } = await supabase
+        .from('service_quote_responses')
+        .select('id')
+        .eq('quote_request_id', req.id)
+        .eq('provider_id', provider.id)
+        .maybeSingle();
+      if (!existingResp) {
+        const { error: respErr } = await supabase.from('service_quote_responses')
+          .insert({ quote_request_id: req.id, kind: 'platform', provider_id: provider.id, status: 'invited' });
+        if (respErr) { showAlert('Could not save that', respErr.message); return; }
+        await notifyServiceQuoteRequested(provider.id, hostName, itemName, req.id);
+      }
+
+      navigation.navigate('ServiceQuotes', { eventId, itemName, categorySlug });
+    } finally {
+      setRequestingQuote(false);
+    }
+  }
+
+  // Every "Book" tap on this screen goes through here: quote-request flow
+  // when there's real item context to attach it to, unchanged direct
+  // booking otherwise (see handleRequestQuote's own comment above).
+  function bookOrQuote(service) {
+    if (eventId && itemName && categorySlug) {
+      handleRequestQuote(service);
+    } else {
+      navigation.navigate('Booking', { provider, service, savedPlanId, paymentTermsSnapshot: paymentTermsSnapshotFor(service) });
+    }
+  }
+
   function toggleExpandedTerms(serviceId) {
     setExpandedTermsServiceId(prev => prev === serviceId ? null : serviceId);
   }
@@ -392,7 +467,7 @@ export default function ProviderProfile({ route, navigation }) {
               <TouchableOpacity
                 style={s.heroPrimaryBtn}
                 onPress={() => services.length > 0
-                  ? navigation.navigate('Booking', { provider, service: services[0], savedPlanId, paymentTermsSnapshot: paymentTermsSnapshotFor(services[0]) })
+                  ? bookOrQuote(services[0])
                   : showAlert('No services yet', "This provider hasn't added any services to book.")}
               >
                 <Text style={s.heroPrimaryBtnText}>Book now</Text>
@@ -440,7 +515,7 @@ export default function ProviderProfile({ route, navigation }) {
                     key={service.id}
                     style={s.carouselCard}
                     activeOpacity={0.9}
-                    onPress={() => !isUnclaimed && navigation.navigate('Booking', { provider, service, savedPlanId, paymentTermsSnapshot: paymentTermsSnapshotFor(service) })}
+                    onPress={() => !isUnclaimed && bookOrQuote(service)}
                   >
                     {photo ? (
                       <Image source={{ uri: photo }} style={s.carouselImage} />
@@ -596,7 +671,7 @@ export default function ProviderProfile({ route, navigation }) {
                   {!isUnclaimed && (
                     <TouchableOpacity
                       style={s.bookBtn}
-                      onPress={() => navigation.navigate('Booking', { provider, service, savedPlanId, paymentTermsSnapshot: paymentTermsSnapshotFor(service) })}
+                      onPress={() => bookOrQuote(service)}
                     >
                       <Text style={s.bookBtnText}>Book this service →</Text>
                     </TouchableOpacity>
@@ -740,12 +815,7 @@ export default function ProviderProfile({ route, navigation }) {
             style={s.bookNowBtn}
             onPress={() => {
               if (services.length > 0) {
-                navigation.navigate('Booking', {
-                  provider,
-                  service: services[0],
-                  savedPlanId,
-                  paymentTermsSnapshot: paymentTermsSnapshotFor(services[0])
-                });
+                bookOrQuote(services[0]);
               } else {
                 showAlert('No services yet', 'This provider hasn\'t added any services to book.');
               }

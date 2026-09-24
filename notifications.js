@@ -617,3 +617,92 @@ export async function notifyQuoteBooked(providerId, eventType, quoteRequestId) {
     await sendPushNotification(user.push_token, title, body);
   }
 }
+
+// Service quote requests (all categories) — ItemQuotes.js (customer) /
+// QuoteInbox.js (provider). Same 4-transition shape as the Caterer quote
+// wrappers just above, generalized off itemName instead of being hardcoded
+// to "menu" — kept as separate functions rather than reusing the Caterer
+// ones so either system's copy can change independently later. See
+// quote-first-booking-all-services.md.
+
+export async function notifyServiceQuoteRequested(providerId, hostName, itemName, quoteRequestId) {
+  const { data: provider } = await supabase
+    .from('providers')
+    .select('user_id')
+    .eq('id', providerId)
+    .single();
+
+  if (!provider) return;
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', provider.user_id)
+    .single();
+
+  const title = 'New quote request';
+  const body = `${hostName} wants a price quote for ${itemName}.`;
+
+  await saveNotificationToDb(provider.user_id, title, body, { type: 'service_quote_requested', quote_request_id: quoteRequestId });
+  if (user?.push_token) {
+    await sendPushNotification(user.push_token, title, body);
+  }
+}
+
+export async function notifyServiceQuoteReceived(hostId, providerName, price, quoteRequestId) {
+  const { data: host } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', hostId)
+    .single();
+
+  const title = 'New quote received ₹';
+  const body = `${providerName} quoted ₹${Number(price).toLocaleString('en-IN')}.`;
+
+  await saveNotificationToDb(hostId, title, body, { type: 'service_quote_received', quote_request_id: quoteRequestId });
+  if (host?.push_token) {
+    await sendPushNotification(host.push_token, title, body);
+  }
+}
+
+export async function notifyServiceQuoteDeclined(hostId, providerName, quoteRequestId) {
+  const { data: host } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', hostId)
+    .single();
+
+  const title = 'Quote update';
+  const body = `${providerName} isn't able to quote on this request.`;
+
+  await saveNotificationToDb(hostId, title, body, { type: 'service_quote_declined', quote_request_id: quoteRequestId });
+  if (host?.push_token) {
+    await sendPushNotification(host.push_token, title, body);
+  }
+}
+
+// Sent to the winning provider when the host taps Book on their quote —
+// same "no separate loser notification" reasoning as notifyQuoteBooked.
+export async function notifyServiceQuoteBooked(providerId, itemName, quoteRequestId) {
+  const { data: provider } = await supabase
+    .from('providers')
+    .select('user_id')
+    .eq('id', providerId)
+    .single();
+
+  if (!provider) return;
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', provider.user_id)
+    .single();
+
+  const title = 'Quote accepted! 🎉';
+  const body = `Your quote for ${itemName} was accepted — check your bookings.`;
+
+  await saveNotificationToDb(provider.user_id, title, body, { type: 'service_quote_booked', quote_request_id: quoteRequestId });
+  if (user?.push_token) {
+    await sendPushNotification(user.push_token, title, body);
+  }
+}

@@ -457,7 +457,7 @@ export default function ItemDetail({ route, navigation }) {
             ) : (
               <View style={ds.grid}>
                 {providers.map(item => (
-                  <TouchableOpacity key={item.id} style={ds.providerCard} onPress={() => navigation.navigate('ProviderProfile', { providerId: item.id, savedPlanId })}>
+                  <TouchableOpacity key={item.id} style={ds.providerCard} onPress={() => navigation.navigate('ProviderProfile', { providerId: item.id, savedPlanId, eventId, itemName, categorySlug })}>
                     <Text style={ds.providerName}>{item.business_name || item.name || 'Unnamed provider'}</Text>
                     <Text style={ds.providerMeta}>{item.city}{item.rating ? ` · ⭐ ${item.rating.toFixed(1)}` : ''}</Text>
                   </TouchableOpacity>
@@ -519,7 +519,7 @@ export default function ItemDetail({ route, navigation }) {
             </>
           }
           renderItem={({ item }) => (
-            <TouchableOpacity style={s.providerRow} onPress={() => navigation.navigate('ProviderProfile', { providerId: item.id, savedPlanId })}>
+            <TouchableOpacity style={s.providerRow} onPress={() => navigation.navigate('ProviderProfile', { providerId: item.id, savedPlanId, eventId, itemName, categorySlug })}>
               <Text style={s.providerName}>{item.business_name || item.name || 'Unnamed provider'}</Text>
               <Text style={s.providerMeta}>{item.city}{item.rating ? ` · ⭐ ${item.rating.toFixed(1)}` : ''}</Text>
             </TouchableOpacity>

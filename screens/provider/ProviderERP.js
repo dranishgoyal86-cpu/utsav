@@ -22,6 +22,7 @@ import { showAlert, confirmDestructive } from '../../helpers';
 import { formatTimeLabel } from '../../lib/eventContext';
 import SwipeableRow from '../../components/SwipeableRow';
 import { useProviderCapabilities } from '../../hooks/useProviderCapabilities';
+import AppHeader from '../../components/AppHeader';
 import { isEnabled } from '../../lib/capabilities';
 
 const Tab = createBottomTabNavigator();
@@ -56,7 +57,6 @@ function TabIcon({ name, focused, theme, position = 'bottom' }) {
   const icons = {
     Overview: '◈',
     Bookings: focused ? '◷' : '◻',
-    Earnings: '₹',
     Services: focused ? '⊞' : '⊟',
     Profile: focused ? '⊙' : '○',
   };
@@ -213,9 +213,13 @@ export default function ProviderERP({ navigation }) {
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} theme={theme} />,
       })}
     >
+      {/* Earnings moved off the bottom bar (Sept 23) — "remove earnings
+          from bottom navigation bar", also relieves the 5-tab label
+          crowding on the flush bar. Still fully reachable: tap the "This
+          month" card on Overview, or navigate('Earnings') from anywhere —
+          it's now a top-level Stack screen (see App.js), not a tab. */}
       <Tab.Screen name="Overview" component={OverviewScreen} />
       <Tab.Screen name="Bookings" component={BookingsScreen} />
-      <Tab.Screen name="Earnings" component={EarningsScreen} />
       <Tab.Screen name="Services" component={ServicesScreen} />
       <Tab.Screen name="Profile" component={ProviderProfileScreen} />
     </Tab.Navigator>
@@ -434,13 +438,13 @@ function OverviewScreen({ navigation }) {
         })()}
 
         <View style={s.metricsRow}>
-          <View style={s.metricCard}>
-            <Text style={s.metricLabel}>This month</Text>
+          <TouchableOpacity style={s.metricCard} onPress={() => navigation.navigate('Earnings')}>
+            <Text style={s.metricLabel}>This month ›</Text>
             <Text style={s.metricValue}>₹{earnings.thisMonth.toLocaleString()}</Text>
             <Text style={[s.metricGrowth, { color: earnings.growth >= 0 ? theme.statusConfirmedText : theme.statusDeclinedText }]}>
               {earnings.growth >= 0 ? '↑' : '↓'} {Math.abs(earnings.growth)}% vs last month
             </Text>
-          </View>
+          </TouchableOpacity>
           <View style={[s.metricCard, pending.length > 0 && { borderColor: theme.accent }]}>
             <Text style={s.metricLabel}>Pending</Text>
             <Text style={[s.metricValue, pending.length > 0 && { color: theme.accent }]}>
@@ -505,8 +509,12 @@ function OverviewScreen({ navigation }) {
             <Text style={s.quickLinkIcon}>💬</Text>
             <Text style={s.quickLinkText}>Messages</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.quickLink} onPress={() => navigation.navigate('CatererQuoteInbox')}>
-            <Text style={s.quickLinkIcon}>🍽️</Text>
+          {/* Sept 23: points at the new combined QuoteInbox (menu + every
+              other service category) instead of the old menu-only
+              CatererQuoteInbox — same tile, same position, generalized
+              destination. See quote-first-booking-all-services.md. */}
+          <TouchableOpacity style={s.quickLink} onPress={() => navigation.navigate('QuoteInbox')}>
+            <Text style={s.quickLinkIcon}>💰</Text>
             <Text style={s.quickLinkText}>Quote Requests</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.quickLink} onPress={() => navigation.navigate('InvoiceGenerator')}>
@@ -1146,7 +1154,7 @@ function BookingsScreen({ navigation }) {
   );
 }
 
-function EarningsScreen() {
+export function EarningsScreen({ navigation }) {
   const { theme } = useTheme();
   const s = makeStyles(theme);
   const { width } = useWindowDimensions();
@@ -1228,8 +1236,8 @@ function EarningsScreen() {
 
   return (
     <SafeAreaView style={s.container}>
+      <AppHeader title="Earnings" onBack={() => navigation.goBack()} theme={theme} navigation={navigation} />
       <View style={s.pageHeader}>
-        <Text style={s.pageTitle}>Earnings</Text>
         <View style={s.periodToggle}>
           {['week', 'month', 'year'].map(p => (
             <TouchableOpacity

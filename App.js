@@ -1,8 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Platform, useWindowDimensions
-} from 'react-native';
+  ActivityIndicator, Platform, useWindowDimensions, Animated} from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -93,6 +92,7 @@ import PlanScreen from './screens/customer/PlanScreen';
 import BookingsScreen from './screens/customer/BookingsScreen';
 import ProfileScreen from './screens/customer/ProfileScreen';
 import ProviderProfile from './screens/customer/ProviderProfile';
+import ServiceQuotes from './screens/customer/ServiceQuotes';
 import CreateBookingScreen from './screens/customer/CreateBookingScreen';
 import GuestAccess from './screens/customer/GuestAccess';
 import FaceScan from './screens/customer/FaceScan';
@@ -107,6 +107,7 @@ import GuestList from './screens/customer/GuestList';
 import MenuPlanner from './screens/customer/MenuPlanner';
 import MenuPricing from './screens/customer/MenuPricing';
 import CatererQuoteInbox from './screens/provider/CatererQuoteInbox';
+import QuoteInbox from './screens/provider/QuoteInbox';
 import InviteHub from './screens/customer/InviteHub';
 import SeatingChart from './screens/customer/SeatingChart';
 import GatePass from './screens/customer/GatePass';
@@ -128,7 +129,7 @@ import ShareEventPhotos from './screens/customer/ShareEventPhotos';
 import ChatScreen from './screens/customer/ChatScreen';
 import InboxScreen from './screens/customer/InboxScreen';
 import NotificationsScreen from './screens/customer/NotificationsScreen';
-import ProviderERP from './screens/provider/ProviderERP';
+import ProviderERP, { EarningsScreen } from './screens/provider/ProviderERP';
 import AddServiceScreen from './screens/provider/AddServiceScreen';
 import BulkImportServices from './screens/provider/BulkImportServices';
 import PortfolioScreen from './screens/provider/PortfolioScreen';
@@ -311,12 +312,45 @@ function CustomerTabs() {
     </Tab.Navigator>
   );
 }
+// Branded loading state — the Sparkle mark already used for the "Plan"
+// (main/home) tab icon, gently pulsing, instead of a generic spinner.
+// Anish's ask: "instead of loading spinner it should show Utsav star that
+// we are using in app's main screen." Reuses the Sparkle icon already
+// imported above for the tab bar (no new asset), so this stays brand-
+// consistent with zero new dependencies.
+function BrandedLoader({ color }) {
+  const pulse = useRef(new Animated.Value(0.85)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.15, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.85, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  return (
+    <Animated.View style={{ transform: [{ scale: pulse }] }}>
+      <Sparkle weight="fill" size={52} color={color} />
+    </Animated.View>
+  );
+}
+
 // ─── Main app logic ───
 function MainApp() {
   const { theme } = useTheme();
   const [session, setSession] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [checking, setChecking] = useState(true);
+  // Prevents the brief "shows last session's role's screen" flash on
+  // login/role-switch: true from the instant a SIGNED_IN event starts
+  // resolving the real role until fetchUserRole() settles, gating the
+  // same loading spinner used for the initial checking state below —
+  // so the Stack.Navigator's role branches never render off a stale or
+  // not-yet-known userRole.
+  const [resolvingRole, setResolvingRole] = useState(false);
   const [suspendedInfo, setSuspendedInfo] = useState(null);
   const [celebratoryInvite, setCelebratoryInvite] = useState(null);
   const [locked, setLocked] = useState(false);
@@ -334,7 +368,12 @@ function MainApp() {
     async (_event, session) => {
       setSession(session);
       if (session && _event === 'SIGNED_IN') {
-        await fetchUserRole(session.user);
+        setResolvingRole(true);
+        try {
+          await fetchUserRole(session.user);
+        } finally {
+          setResolvingRole(false);
+        }
       } else if (!session) {
         setUserRole(null);
       }
@@ -558,10 +597,10 @@ function MainApp() {
     }
   }
 
-  if (checking || (session && !lockChecked)) {
+  if (checking || resolvingRole || (session && !lockChecked)) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg }}>
-        <ActivityIndicator size="large" color={theme.accent} />
+        <BrandedLoader color={theme.accent} />
       </View>
     );
   }
@@ -670,11 +709,13 @@ function MainApp() {
             <Stack.Screen name="Chat" component={ChatScreen} />
             <Stack.Screen name="Inbox" component={ProviderInbox} />
             <Stack.Screen name="CatererQuoteInbox" component={CatererQuoteInbox} />
+            <Stack.Screen name="QuoteInbox" component={QuoteInbox} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="BillingProfile" component={BillingProfile} />
             <Stack.Screen name="InvoiceGenerator" component={InvoiceGenerator} />
             <Stack.Screen name="InvoicesList" component={InvoicesList} />
             <Stack.Screen name="Reports" component={ReportsScreen} />
+            <Stack.Screen name="Earnings" component={EarningsScreen} />
           </>
 
         /* ── CUSTOMER ── */
@@ -686,6 +727,7 @@ function MainApp() {
             <Stack.Screen name="DelegateRedeem" component={DelegateRedeem} />
             <Stack.Screen name="GuestPass" component={GuestPassScreen} />
             <Stack.Screen name="ProviderProfile" component={ProviderProfile} />
+            <Stack.Screen name="ServiceQuotes" component={ServiceQuotes} />
             <Stack.Screen name="Booking" component={CreateBookingScreen} />
             <Stack.Screen name="GuestAccess" component={GuestAccess} />
             <Stack.Screen name="FaceScan" component={FaceScan} />
